@@ -96,10 +96,14 @@
               <el-tag v-else type="info" size="small">今日打卡已完成</el-tag>
             </div>
           </div>
-          <div class="flex items-center gap-2">
-            <el-button type="primary" link @click="openOrdersDrawer" :icon="List">我的订单</el-button>
-            <el-divider direction="vertical" />
-            <el-button type="info" link @click="logout" :icon="Switch">切换账号</el-button>
+          <div class="flex items-center gap-4">
+            <!-- 实时时钟 -->
+            <div class="hidden sm:flex flex-col items-end border-r pr-4 border-slate-100">
+              <div class="text-lg font-black text-slate-800 tabular-nums leading-none mb-1">{{ currentTime.time }}</div>
+              <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{{ currentTime.date }} {{ currentTime.weekday }}</div>
+            </div>
+            <el-button type="primary" link @click="openOrdersDrawer" :icon="List" class="!text-slate-600 font-bold hover:!text-blue-600">我的订单</el-button>
+            <el-button type="danger" link @click="logout" :icon="SwitchButton">退出</el-button>
           </div>
         </div>
         <div class="flex gap-2 mb-3">
@@ -439,10 +443,34 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import { Search, ShoppingCart, Delete, Switch, Plus, Back, List } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
+import dayjs from 'dayjs'
+
+// 实时时钟逻辑
+const now = ref(dayjs())
+const timer = ref(null)
+
+const currentTime = computed(() => {
+  const weekdayMap = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
+  return {
+    time: now.value.format('HH:mm:ss'),
+    date: now.value.format('YYYY年MM月DD日'),
+    weekday: weekdayMap[now.value.day()]
+  }
+})
+
+onMounted(() => {
+  timer.value = setInterval(() => {
+    now.value = dayjs()
+  }, 1000)
+})
+
+onUnmounted(() => {
+  if (timer.value) clearInterval(timer.value)
+})
 
 // 1. 登录锁定逻辑
 const employees = ref([])
