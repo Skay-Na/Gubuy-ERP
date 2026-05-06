@@ -6,6 +6,12 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     host: true, // 允许局域网访问
-    port: 5173
+    port: 5173,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
+      }
+    }
   }
 })

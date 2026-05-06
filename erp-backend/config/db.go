@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"log"
+	"os"
+	"time"
 
 	"erp-backend/models"
 
@@ -14,12 +16,29 @@ var DB *gorm.DB
 
 // InitDB 初始化数据库连接
 func InitDB() {
-	// 请根据实际情况修改 DSN (Data Source Name)
-	dsn := "root:@tcp(127.0.0.1:3306)/erp_db?charset=utf8mb4&parseTime=True&loc=Local"
+	dbUser := getEnv("DB_USER", "root")
+	dbPass := getEnv("DB_PASS", "")
+	dbHost := getEnv("DB_HOST", "127.0.0.1")
+	dbPort := getEnv("DB_PORT", "3306")
+	dbName := getEnv("DB_NAME", "erp_db")
 
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		dbUser, dbPass, dbHost, dbPort, dbName)
+
+	var db *gorm.DB
+	var err error
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		db, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
+		if err == nil {
+			break
+		}
+		log.Printf("Failed to connect to database (attempt %d/%d): %v", i+1, maxRetries, err)
+		time.Sleep(2 * time.Second)
+	}
+
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("Failed to connect to database after %d attempts: %v", maxRetries, err)
 	}
 
 	fmt.Println("Database connection successful")
@@ -72,4 +91,11 @@ func seedAccounts(db *gorm.DB) {
 			}
 		}
 	}
+}
+
+func getEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }

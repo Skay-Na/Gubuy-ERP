@@ -1,0 +1,7 @@
+node_modules
+dist
+erp-backend/dist
+.git
+.vscode
+*.log
+.DS_Store

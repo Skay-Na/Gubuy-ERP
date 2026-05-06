@@ -16,6 +16,9 @@ func main() {
 
 	// 3. 初始化路由
 	r := routers.SetupRouter()
+	
+	// 设置上传文件大小限制 (100MB)
+	r.MaxMultipartMemory = 100 << 20 
 
 	// 4. 启动服务
 	fmt.Println("Backend service starting on http://localhost:8080")

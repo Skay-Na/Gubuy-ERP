@@ -1,6 +1,6 @@
 module erp-backend
 
-go 1.25.7
+go 1.26
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

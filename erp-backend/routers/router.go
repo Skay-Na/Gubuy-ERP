@@ -14,6 +14,10 @@ func SetupRouter() *gin.Engine {
 	// 全局跨域中间件
 	r.Use(Cors())
 
+	// 静态文件服务 (Vue/Vite 编译后的 dist 目录)
+	r.Static("/assets", "./dist/assets")
+	r.StaticFile("/favicon.ico", "./dist/favicon.ico")
+
 	api := r.Group("/api")
 	{
 		api.GET("/products", controllers.GetProducts)
@@ -59,7 +63,14 @@ func SetupRouter() *gin.Engine {
 		api.GET("/admin/status", controllers.CheckAdminStatus)
 		api.POST("/admin/init", controllers.InitAdmin)
 		api.POST("/system/reset", controllers.ResetSystem)
+		api.GET("/system/backup", controllers.ExportBackup)
+		api.POST("/system/restore", controllers.ImportBackup)
 	}
+
+	// 所有非 API 请求都返回 index.html (支持 SPA 路由)
+	r.NoRoute(func(c *gin.Context) {
+		c.File("./dist/index.html")
+	})
 
 	return r
 }
