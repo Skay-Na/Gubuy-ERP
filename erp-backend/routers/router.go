@@ -51,8 +51,14 @@ func SetupRouter() *gin.Engine {
 		api.GET("/employees/commission-report", controllers.GetCommissionReport)
 		api.POST("/employees/verify-pin", controllers.VerifyPin)
 		api.GET("/employees/:id/stats", controllers.GetEmployeeMeStats)
+		api.POST("/employees/check-in", controllers.CheckIn)
+		api.POST("/employees/check-out", controllers.CheckOut)
+		api.GET("/employees/attendance-logs", controllers.GetDailyAttendance)
 		api.PUT("/admin/password", controllers.UpdateAdminPassword)
 		api.POST("/admin/verify", controllers.VerifyAdminPassword)
+		api.GET("/admin/status", controllers.CheckAdminStatus)
+		api.POST("/admin/init", controllers.InitAdmin)
+		api.POST("/system/reset", controllers.ResetSystem)
 	}
 
 	return r

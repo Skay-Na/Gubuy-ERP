@@ -80,12 +80,27 @@ type Employee struct {
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
+// DailyAttendance 每日打卡表
+type DailyAttendance struct {
+	ID         uint       `gorm:"primaryKey;comment:主键ID" json:"id"`
+	EmployeeID uint       `gorm:"index;not null;comment:员工ID" json:"employee_id"`
+	Date       string     `gorm:"type:varchar(10);index;not null;comment:日期 YYYY-MM-DD" json:"date"`
+	CheckIn    *time.Time `json:"check_in"`
+	CheckOut   *time.Time `json:"check_out"`
+	Status     int        `gorm:"type:tinyint;default:1;comment:状态：1-正常, 2-迟到, 3-早退, 4-缺勤" json:"status"`
+	Remark     string     `gorm:"type:varchar(255)" json:"remark"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
+}
+
 // MonthlyAttendance 员工月度考勤表
 type MonthlyAttendance struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
 	EmployeeID uint      `gorm:"index" json:"employee_id"`
 	Month      string    `gorm:"type:varchar(7);index;comment:月份 YYYY-MM" json:"month"`
 	LeaveDays  int       `gorm:"default:0;comment:请假天数" json:"leave_days"`
+	ActualDays int       `gorm:"default:0;comment:实际出勤天数" json:"actual_days"`
+	LateCount  int       `gorm:"default:0;comment:迟到次数" json:"late_count"`
 	CreatedAt  time.Time `json:"created_at"`
 	UpdatedAt  time.Time `json:"updated_at"`
 }

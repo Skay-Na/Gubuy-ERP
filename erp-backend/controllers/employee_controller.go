@@ -384,3 +384,94 @@ func GetEmployeeMeStats(c *gin.Context) {
 		"data": stats,
 	})
 }
+
+// CheckIn 员工上班打卡
+func CheckIn(c *gin.Context) {
+	var req struct {
+		EmployeeID uint `json:"employee_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+	now := time.Now()
+
+	var attendance models.DailyAttendance
+	err := config.DB.Where("employee_id = ? AND date = ?", req.EmployeeID, today).First(&attendance).Error
+
+	if err == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "今日已打卡上班"})
+		return
+	}
+
+	attendance = models.DailyAttendance{
+		EmployeeID: req.EmployeeID,
+		Date:       today,
+		CheckIn:    &now,
+		Status:     1, // 默认正常，可根据规定时间判断迟到
+	}
+
+	if err := config.DB.Create(&attendance).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "打卡失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "上班打卡成功", "data": attendance})
+}
+
+// CheckOut 员工下班打卡
+func CheckOut(c *gin.Context) {
+	var req struct {
+		EmployeeID uint `json:"employee_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+
+	today := time.Now().Format("2006-01-02")
+	now := time.Now()
+
+	var attendance models.DailyAttendance
+	if err := config.DB.Where("employee_id = ? AND date = ?", req.EmployeeID, today).First(&attendance).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "未找到今日上班打卡记录"})
+		return
+	}
+
+	if attendance.CheckOut != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "今日已打卡下班"})
+		return
+	}
+
+	if err := config.DB.Model(&attendance).Update("check_out", &now).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "打卡失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "下班打卡成功", "data": attendance})
+}
+
+// GetDailyAttendance 获取员工打卡明细
+func GetDailyAttendance(c *gin.Context) {
+	employeeID := c.Query("employee_id")
+	month := c.Query("month") // YYYY-MM
+
+	var logs []models.DailyAttendance
+	query := config.DB.Order("date desc")
+
+	if employeeID != "" {
+		query = query.Where("employee_id = ?", employeeID)
+	}
+	if month != "" {
+		query = query.Where("date LIKE ?", month+"%")
+	}
+
+	if err := query.Find(&logs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "data": logs})
+}

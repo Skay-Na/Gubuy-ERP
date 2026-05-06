@@ -60,6 +60,12 @@ const routes = [
         name: 'Finance',
         component: () => import('../views/Finance.vue'),
         meta: { title: '财务总览' }
+      },
+      {
+        path: 'settings',
+        name: 'SystemSettings',
+        component: () => import('../views/SystemSettings.vue'),
+        meta: { title: '系统设置' }
       }
     ]
   },

@@ -60,7 +60,8 @@ func seedData() {
 		fmt.Println("Inserted 3 mock products into database.")
 	}
 
-	// 初始化管理员账户
+	// 初始化管理员账户 (已改为通过前端首次运行初始化)
+	/*
 	var adminCount int64
 	config.DB.Model(&models.AdminUser{}).Count(&adminCount)
 	if adminCount == 0 {
@@ -71,4 +72,5 @@ func seedData() {
 		config.DB.Create(&admin)
 		fmt.Println("Created default admin user: admin / admin123")
 	}
+	*/
 }

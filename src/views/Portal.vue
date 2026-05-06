@@ -49,18 +49,38 @@
       </div>
     </div>
 
-    <!-- Admin Login Dialog -->
+    <!-- Admin Login / Init Dialog -->
     <el-dialog
       v-model="adminDialogVisible"
-      title="管理员身份验证"
+      :title="isInitialized ? '管理员身份验证' : '系统首次运行初始化'"
       width="360px"
       center
       destroy-on-close
       class="admin-login-dialog"
     >
       <div class="py-4">
-        <p class="text-center text-slate-500 text-sm mb-6">请输入管理员登录密码以继续</p>
+        <p class="text-center text-slate-500 text-sm mb-6">
+          {{ isInitialized ? '请输入管理员登录密码以继续' : '请设置系统管理员账号与密码' }}
+        </p>
+        
+        <div v-if="!isInitialized" class="mb-4">
+          <el-input 
+            v-model="adminUsername" 
+            placeholder="管理员用户名" 
+            size="large"
+            class="mb-4"
+          />
+          <el-input 
+            v-model="adminPassword" 
+            type="password" 
+            placeholder="设置管理员密码" 
+            show-password 
+            size="large"
+          />
+        </div>
+
         <el-input 
+          v-if="isInitialized"
           v-model="adminPassword" 
           type="password" 
           placeholder="登录密码" 
@@ -69,7 +89,9 @@
           @keyup.enter="handleAdminLogin"
           class="mb-4"
         />
+
         <el-button 
+          v-if="isInitialized"
           type="primary" 
           size="large" 
           class="w-full !rounded-xl !h-12 font-bold shadow-lg shadow-blue-500/20" 
@@ -77,6 +99,17 @@
           @click="handleAdminLogin"
         >
           立即进入
+        </el-button>
+
+        <el-button 
+          v-else
+          type="success" 
+          size="large" 
+          class="w-full !rounded-xl !h-12 font-bold shadow-lg shadow-green-500/20" 
+          :loading="initializing"
+          @click="handleAdminInit"
+        >
+          完成初始化
         </el-button>
       </div>
     </el-dialog>
@@ -91,9 +124,25 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
+const isInitialized = ref(true)
+const adminUsername = ref('admin')
+const initializing = ref(false)
 const adminDialogVisible = ref(false)
 const adminPassword = ref('')
 const loggingIn = ref(false)
+
+const checkAdminStatus = async () => {
+  try {
+    const res = await axios.get('/api/admin/status')
+    if (res.data.code === 200) {
+      isInitialized.value = res.data.initialized
+    }
+  } catch (error) {
+    console.error('Failed to check admin status:', error)
+  }
+}
+
+checkAdminStatus()
 
 const goToAdmin = () => {
   adminDialogVisible.value = true
@@ -117,6 +166,30 @@ const handleAdminLogin = async () => {
     ElMessage.error(error.response?.data?.msg || '验证失败，请检查密码')
   } finally {
     loggingIn.value = false
+  }
+}
+
+const handleAdminInit = async () => {
+  if (!adminUsername.value || !adminPassword.value) {
+    ElMessage.warning('请填写用户名和密码')
+    return
+  }
+
+  initializing.value = true
+  try {
+    const res = await axios.post('/api/admin/init', {
+      username: adminUsername.value,
+      password: adminPassword.value
+    })
+    if (res.data.code === 200) {
+      ElMessage.success('系统初始化成功，请登录')
+      isInitialized.value = true
+      adminPassword.value = ''
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '初始化失败')
+  } finally {
+    initializing.value = false
   }
 }
 
