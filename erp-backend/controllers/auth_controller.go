@@ -62,3 +62,46 @@ func VerifyAdminPassword(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "验证成功"})
 }
+
+// CheckAdminStatus 检查系统是否已初始化管理员
+func CheckAdminStatus(c *gin.Context) {
+	var count int64
+	if err := config.DB.Model(&models.AdminUser{}).Count(&count).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库查询失败"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"initialized": count > 0,
+	})
+}
+
+// InitAdmin 初始化第一个管理员
+func InitAdmin(c *gin.Context) {
+	var count int64
+	config.DB.Model(&models.AdminUser{}).Count(&count)
+	if count > 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "系统已初始化，不可重复操作"})
+		return
+	}
+
+	var req struct {
+		Username string `json:"username" binding:"required"`
+		Password string `json:"password" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+
+	admin := models.AdminUser{
+		Username: req.Username,
+		Password: req.Password,
+	}
+	if err := config.DB.Create(&admin).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "初始化管理员失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "系统初始化成功"})
+}

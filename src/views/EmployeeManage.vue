@@ -46,9 +46,10 @@
             {{ formatEntryDate(row.entry_date) }}
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link @click="openDialog(row)">编辑</el-button>
+            <el-button type="info" link @click="viewAttendance(row)">考勤</el-button>
             <el-button type="danger" link @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
@@ -169,6 +170,44 @@
         </el-table>
       </div>
     </el-drawer>
+
+    <!-- Attendance Logs Dialog -->
+    <el-dialog v-model="attendanceDialogVisible" title="员工考勤明细" width="600px" class="!rounded-2xl">
+      <div v-if="selectedEmpForAttendance" class="space-y-4">
+        <div class="flex justify-between items-center mb-4">
+          <div class="text-lg font-bold">{{ selectedEmpForAttendance.name }} 的打卡记录</div>
+          <el-date-picker
+            v-model="attendanceMonth"
+            type="month"
+            format="YYYY-MM"
+            value-format="YYYY-MM"
+            size="small"
+            @change="fetchAttendanceLogs"
+          />
+        </div>
+
+        <el-table :data="attendanceLogs" border v-loading="logsLoading" size="small">
+          <el-table-column prop="date" label="日期" width="120" />
+          <el-table-column label="上班打卡" width="150">
+            <template #default="{ row }">
+              {{ row.check_in ? formatTime(row.check_in) : '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="下班打卡" width="150">
+            <template #default="{ row }">
+              {{ row.check_out ? formatTime(row.check_out) : '-' }}
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag :type="getStatusType(row.status)" size="small">
+                {{ getStatusLabel(row.status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -199,6 +238,55 @@ const drawerVisible = ref(false)
 const reportMonth = ref(dayjs().format('YYYY-MM'))
 const reportData = ref([])
 const reportLoading = ref(false)
+
+// Attendance Logs Logic
+const attendanceDialogVisible = ref(false)
+const selectedEmpForAttendance = ref(null)
+const attendanceMonth = ref(dayjs().format('YYYY-MM'))
+const attendanceLogs = ref([])
+const logsLoading = ref(false)
+
+const viewAttendance = (row) => {
+  selectedEmpForAttendance.value = row
+  attendanceMonth.value = dayjs().format('YYYY-MM')
+  attendanceDialogVisible.value = true
+  fetchAttendanceLogs()
+}
+
+const fetchAttendanceLogs = async () => {
+  if (!selectedEmpForAttendance.value) return
+  logsLoading.value = true
+  try {
+    const res = await axios.get('/api/employees/attendance-logs', {
+      params: {
+        employee_id: selectedEmpForAttendance.value.id,
+        month: attendanceMonth.value
+      }
+    })
+    if (res.data.code === 200) {
+      attendanceLogs.value = res.data.data
+    }
+  } catch (error) {
+    ElMessage.error('获取考勤记录失败')
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return '-'
+  return dayjs(timeStr).format('HH:mm:ss')
+}
+
+const getStatusLabel = (status) => {
+  const map = { 1: '正常', 2: '迟到', 3: '早退', 4: '缺勤' }
+  return map[status] || '未知'
+}
+
+const getStatusType = (status) => {
+  const map = { 1: 'success', 2: 'warning', 3: 'warning', 4: 'danger' }
+  return map[status] || 'info'
+}
 
 const openReportDrawer = () => {
   drawerVisible.value = true

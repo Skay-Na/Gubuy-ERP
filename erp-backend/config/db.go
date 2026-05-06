@@ -15,7 +15,7 @@ var DB *gorm.DB
 // InitDB 初始化数据库连接
 func InitDB() {
 	// 请根据实际情况修改 DSN (Data Source Name)
-	dsn := "root:@tcp(127.0.0.1:3306)/erp_db?charset=utf8mb4&parseTime=True&loc=Local"
+	dsn := "root:123456@tcp(127.0.0.1:3306)/erp_db?charset=utf8mb4&parseTime=True&loc=Local"
 
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -39,6 +39,7 @@ func InitDB() {
 		&models.InventoryLog{},
 		&models.FinancialLog{},
 		&models.AdminUser{},
+		&models.DailyAttendance{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to auto migrate database: %v", err)

@@ -76,6 +76,25 @@
             <div class="w-1.5 h-5 bg-blue-600 rounded-full"></div>
             <h1 class="text-xl font-bold text-slate-800 tracking-tight">门店收银终端</h1>
             <el-tag type="info" size="small" class="ml-2">{{ currentEmployee.name }}</el-tag>
+            
+            <!-- Attendance Buttons -->
+            <div class="ml-4 flex items-center gap-2">
+              <el-button 
+                v-if="!todayAttendance?.check_in" 
+                type="success" 
+                size="small" 
+                :loading="attendanceLoading"
+                @click="handleCheckIn"
+              >上班打卡</el-button>
+              <el-button 
+                v-else-if="!todayAttendance?.check_out" 
+                type="warning" 
+                size="small" 
+                :loading="attendanceLoading"
+                @click="handleCheckOut"
+              >下班打卡</el-button>
+              <el-tag v-else type="info" size="small">今日打卡已完成</el-tag>
+            </div>
           </div>
           <div class="flex items-center gap-2">
             <el-button type="primary" link @click="openOrdersDrawer" :icon="List">我的订单</el-button>
@@ -432,6 +451,59 @@ const selectedEmployee = ref(null)
 const pin = ref('')
 const verifying = ref(false)
 
+// Attendance logic
+const todayAttendance = ref(null)
+const attendanceLoading = ref(false)
+
+const fetchTodayAttendance = async () => {
+  if (!currentEmployee.value) return
+  try {
+    const today = new Date().toISOString().split('T')[0]
+    const res = await axios.get('/api/employees/attendance-logs', {
+      params: { employee_id: currentEmployee.value.id, month: today.substring(0, 7) }
+    })
+    if (res.data.code === 200) {
+      todayAttendance.value = res.data.data.find(log => log.date === today) || null
+    }
+  } catch (error) {
+    console.error('Fetch attendance failed:', error)
+  }
+}
+
+const handleCheckIn = async () => {
+  attendanceLoading.value = true
+  try {
+    const res = await axios.post('/api/employees/check-in', {
+      employee_id: currentEmployee.value.id
+    })
+    if (res.data.code === 200) {
+      ElMessage.success('上班打卡成功')
+      fetchTodayAttendance()
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '打卡失败')
+  } finally {
+    attendanceLoading.value = false
+  }
+}
+
+const handleCheckOut = async () => {
+  attendanceLoading.value = true
+  try {
+    const res = await axios.post('/api/employees/check-out', {
+      employee_id: currentEmployee.value.id
+    })
+    if (res.data.code === 200) {
+      ElMessage.success('下班打卡成功')
+      fetchTodayAttendance()
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '打卡失败')
+  } finally {
+    attendanceLoading.value = false
+  }
+}
+
 // 订单跟踪逻辑
 const ordersDrawerVisible = ref(false)
 const ordersLoading = ref(false)
@@ -559,6 +631,7 @@ const verifyPin = async () => {
       // 持久化登录状态
       localStorage.setItem('pos_current_employee', JSON.stringify(currentEmployee.value))
       fetchProducts()
+      fetchTodayAttendance()
       ElMessage.success(`欢迎回来，${currentEmployee.value.name}`)
     }
   } catch (err) {
@@ -721,6 +794,7 @@ onMounted(() => {
     try {
       currentEmployee.value = JSON.parse(savedEmployee)
       fetchProducts()
+      fetchTodayAttendance()
     } catch (e) {
       localStorage.removeItem('pos_current_employee')
     }
