@@ -111,6 +111,7 @@ type Order struct {
 	OrderNo         string  `gorm:"type:varchar(50);uniqueIndex;not null;comment:唯一订单号" json:"order_no"`
 	CustomerName    string  `gorm:"type:varchar(100);comment:客户姓名" json:"customer_name"`
 	CustomerPhone   string  `gorm:"type:varchar(20);comment:客户手机号" json:"customer_phone"`
+	CustomerAddress string  `gorm:"type:varchar(255);comment:客户详细地址" json:"customer_address"`
 	TotalAmount     float64 `gorm:"type:decimal(10,2);not null;comment:商品总金额" json:"total_amount"`
 	SubsidyAmount   float64 `gorm:"type:decimal(10,2);not null;default:0;comment:国补金额" json:"subsidy_amount"`
 	ActualPayAmount float64 `gorm:"type:decimal(10,2);not null;comment:客户实际应付" json:"actual_pay_amount"`
@@ -118,10 +119,12 @@ type Order struct {
 	PaymentStatus   int     `gorm:"type:tinyint;not null;default:1;comment:支付状态：1-仅付定金, 2-已结全款" json:"payment_status"`
 	SubsidyStatus   int     `gorm:"type:tinyint;not null;default:0;comment:国补资料状态：0-无国补, 1-待提交, 2-已提交, 3-已回款" json:"subsidy_status"`
 	// 新增：安装相关字段
-	IsInstalled bool       `gorm:"default:false;comment:是否已安装" json:"is_installed"`
-	InstallerID *uint      `gorm:"index;comment:安装人ID" json:"installer_id"`
-	InstallTime *time.Time `json:"install_time"`
-	Installer   *Employee  `gorm:"foreignKey:InstallerID" json:"installer,omitempty"`
+	IsInstalled       bool       `gorm:"default:false;comment:是否已安装" json:"is_installed"`
+	InstallerID       *uint      `gorm:"index;comment:安装人ID" json:"installer_id"`
+	InstallTime       *time.Time `json:"install_time"`
+	Installer         *Employee  `gorm:"foreignKey:InstallerID" json:"installer,omitempty"`
+	DeliveryPersonID  *uint      `gorm:"index;comment:送货人ID" json:"delivery_person_id"`
+	DeliveryPerson    *Employee  `gorm:"foreignKey:DeliveryPersonID" json:"delivery_person,omitempty"`
 	// 新增：支付方式 (1-支付宝, 2-微信, 3-公户)
 	PaymentMethod int `gorm:"type:tinyint;not null;default:1;comment:支付方式：1-支付宝, 2-微信, 3-公户" json:"payment_method"`
 	// 新增：订单状态 (1-正常, 2-已取消)

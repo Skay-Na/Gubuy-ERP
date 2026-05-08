@@ -127,6 +127,9 @@
                   <el-descriptions-item label="安装人员" v-if="row.is_installed">
                     {{ row.installer?.name }}
                   </el-descriptions-item>
+                  <el-descriptions-item label="送货人员" v-if="row.is_installed">
+                    {{ row.delivery_person?.name || '-' }}
+                  </el-descriptions-item>
                   <el-descriptions-item label="安装时间" v-if="row.is_installed">
                     {{ formatDate(row.install_time) }}
                   </el-descriptions-item>
@@ -149,6 +152,7 @@
                 <el-descriptions title="客户与市场" :column="1" border size="small" class="bg-white p-3 rounded-xl shadow-sm">
                   <el-descriptions-item label="客户名称">{{ row.customer_name || '散客' }}</el-descriptions-item>
                   <el-descriptions-item label="联系电话">{{ row.customer_phone || '-' }}</el-descriptions-item>
+                  <el-descriptions-item label="收货地址">{{ row.customer_address || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="推荐渠道">{{ row.referrer_name || '无' }}</el-descriptions-item>
                   <el-descriptions-item label="渠道奖励">
                     ¥{{ (row.referral_fee || 0).toFixed(2) }} 
@@ -285,11 +289,29 @@
 
     <!-- 确认安装弹窗 -->
     <el-dialog v-model="installDialogVisible" title="确认安装" width="400px" destroy-on-close class="!rounded-2xl">
-      <div class="mb-4">
-        <label class="block text-sm font-bold text-slate-700 mb-2">选择安装师傅</label>
-        <el-select v-model="selectedInstallerId" class="w-full" placeholder="请选择师傅">
-          <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
-        </el-select>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">选择送货人员</label>
+          <el-select v-model="selectedDeliveryPersonId" class="w-full" placeholder="请选择送货员">
+            <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
+          </el-select>
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">选择安装师傅</label>
+          <el-select v-model="selectedInstallerId" class="w-full" placeholder="请选择师傅">
+            <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
+          </el-select>
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">安装时间</label>
+          <el-date-picker
+            v-model="selectedInstallTime"
+            type="datetime"
+            placeholder="选择安装时间"
+            class="!w-full"
+            format="YYYY-MM-DD HH:mm"
+          />
+        </div>
       </div>
       <template #footer>
         <el-button @click="installDialogVisible = false">取消</el-button>
@@ -453,6 +475,8 @@ const handleCancel = (row) => {
 const installDialogVisible = ref(false)
 const installTargetOrder = ref(null)
 const selectedInstallerId = ref(null)
+const selectedDeliveryPersonId = ref(null)
+const selectedInstallTime = ref(null)
 const employees = ref([])
 
 const fetchEmployees = async () => {
@@ -465,6 +489,8 @@ const fetchEmployees = async () => {
 const handleInstall = (row) => {
   installTargetOrder.value = row
   selectedInstallerId.value = null
+  selectedDeliveryPersonId.value = null
+  selectedInstallTime.value = new Date()
   if (employees.value.length === 0) fetchEmployees()
   installDialogVisible.value = true
 }
@@ -473,7 +499,9 @@ const confirmInstall = async () => {
   if (!selectedInstallerId.value) return
   try {
     const res = await axios.put(`/api/orders/${installTargetOrder.value.id}/install`, {
-      installer_id: selectedInstallerId.value
+      installer_id: selectedInstallerId.value,
+      delivery_person_id: selectedDeliveryPersonId.value,
+      install_time: selectedInstallTime.value
     })
     if (res.data.code === 200) {
       ElMessage.success('安装确认成功')
