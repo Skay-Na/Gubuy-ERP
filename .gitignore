@@ -9,14 +9,18 @@ lerna-debug.log*
 
 # Frontend
 node_modules
-dist
-dist-ssr
+/dist
+/dist-ssr
+/coverage
 *.local
+.vite
 
 # Go Backend
-erp-backend/erp-backend
+# Binaries and overlib
 erp-backend/main
-erp-backend/vendor/
+erp-backend/erp-backend
+erp-backend/debug
+erp-backend/debug.test
 bin/
 *.exe
 *.exe~
@@ -24,23 +28,42 @@ bin/
 *.so
 *.dylib
 
+# Test related
+*.test
+*.out
+coverage.txt
+profile.out
+
 # Environment / Secret
 .env
-.env.*
+.env.local
+.env.*.local
 !.env.example
 
 # Editor / OS
 .vscode/*
 !.vscode/extensions.json
-.idea
+!.vscode/launch.json
+!.vscode/settings.json
+.idea/
+*.iws
+*.iml
+*.ipr
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
 Thumbs.db
+*.sw?
+*.bak
+
+# Docker
+.docker-compose.override.yml
+
+# Project Specific
+*.tar
+*.zip
+*.gz
+/erp-app.tar
 
 # Misc
 .agents/
 .temp/
+.cache/
