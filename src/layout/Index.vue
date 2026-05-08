@@ -129,7 +129,7 @@
     </aside>
 
     <!-- Main Content Area -->
-    <main class="flex-1 h-full overflow-hidden flex flex-col relative pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0 z-0 bg-slate-50" style="transform: translateZ(0)">
+    <main class="flex-1 overflow-hidden flex flex-col relative z-0 bg-slate-50">
       <div class="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth will-change-scroll">
         <div class="max-w-7xl mx-auto w-full">
           <router-view />
@@ -137,20 +137,6 @@
       </div>
     </main>
 
-    <!-- Mobile Bottom Tab Bar -->
-    <nav class="md:hidden fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-2xl border-t border-slate-200/50 z-50 flex justify-around items-center px-2 pt-2 pb-[env(safe-area-inset-bottom,0.5rem)]">
-      <router-link v-for="item in mobileMenuItems" :key="item.path" :to="item.path" custom v-slot="{ isActive, navigate }">
-        <div @click="navigate" class="flex flex-col items-center justify-center w-16 h-12 rounded-xl transition-all duration-300"
-             :class="isActive ? 'text-slate-900' : 'text-slate-400'">
-          <div :class="['p-1.5 rounded-full transition-all duration-300 flex-shrink-0 flex items-center justify-center', isActive ? 'bg-slate-100 -translate-y-1' : '']">
-            <div class="w-[22px] h-[22px] flex-shrink-0 flex items-center justify-center">
-              <component :is="item.icon" class="w-full h-full" :class="isActive ? 'text-slate-900' : 'text-slate-400'" style="width: 22px; height: 22px" />
-            </div>
-          </div>
-          <span class="text-[10px] font-semibold mt-0.5 tracking-tight" :class="isActive ? 'text-slate-900' : 'text-slate-500'">{{ item.title }}</span>
-        </div>
-      </router-link>
-    </nav>
 
   </div>
 </template>

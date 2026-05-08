@@ -101,6 +101,40 @@ func TransferProduct(c *gin.Context) {
 		return
 	}
 
+	// 记录库存流水 (双向流水)
+	sourceWarehouse := 0
+	destWarehouse := 0
+	sourceRemark := ""
+	destRemark := ""
+
+	switch req.Action {
+	case "main_to_store":
+		sourceWarehouse, destWarehouse = 1, 2
+		sourceRemark, destRemark = "调拨出库 -> 门店", "调拨入库 <- 主仓"
+	case "store_to_sample":
+		sourceWarehouse, destWarehouse = 2, 4
+		sourceRemark, destRemark = "调拨出库 -> 样机", "调拨入库 <- 门店"
+	case "sample_to_store":
+		sourceWarehouse, destWarehouse = 4, 2
+		sourceRemark, destRemark = "调拨出库 -> 门店", "调拨入库 <- 样机"
+	case "main_to_cloud":
+		sourceWarehouse, destWarehouse = 1, 3
+		sourceRemark, destRemark = "调拨出库 -> 云仓", "调拨入库 <- 主仓"
+	case "cloud_to_main":
+		sourceWarehouse, destWarehouse = 3, 1
+		sourceRemark, destRemark = "调拨出库 -> 主仓", "调拨入库 <- 云仓"
+	}
+
+	// 简单的获取变动前库存（基于内存对象，事务内已加锁）
+	var sourceBefore, destBefore int
+	if sourceWarehouse == 1 { sourceBefore = product.MainStock } else if sourceWarehouse == 2 { sourceBefore = product.StoreStock } else if sourceWarehouse == 3 { sourceBefore = product.CloudStock } else if sourceWarehouse == 4 { sourceBefore = product.SampleStock }
+	if destWarehouse == 1 { destBefore = product.MainStock } else if destWarehouse == 2 { destBefore = product.StoreStock } else if destWarehouse == 3 { destBefore = product.CloudStock } else if destWarehouse == 4 { destBefore = product.SampleStock }
+
+	// 写入出库流
+	WriteInventoryLog(tx, product.ID, sourceWarehouse, "transfer", sourceBefore, -req.Quantity, "", sourceRemark)
+	// 写入入库流
+	WriteInventoryLog(tx, product.ID, destWarehouse, "transfer", destBefore, req.Quantity, "", destRemark)
+
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "事务提交失败"})
 		return
@@ -187,6 +221,13 @@ func ProductStocktake(c *gin.Context) {
 	if err := tx.Create(&record).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "保存盘点记录失败"})
+		return
+	}
+
+	// 记录库存流水
+	if err := WriteInventoryLog(tx, product.ID, req.WarehouseType, "stocktake", beforeStock, diff, "", fmt.Sprintf("库存盘点：%s", req.Remark)); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "库存流水写入失败"})
 		return
 	}
 

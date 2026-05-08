@@ -2,6 +2,7 @@ services:
   app:
     build: .
     container_name: gubuy-erp-app
+    restart: on-failure
     ports:
       - "8080:8080"
     environment:
@@ -10,8 +11,10 @@ services:
       - DB_HOST=db
       - DB_PORT=3306
       - DB_NAME=erp_db
+      - TZ=Asia/Shanghai
     depends_on:
-      - db
+      db:
+        condition: service_healthy # 等待数据库健康检查通过后再启动
 
   db:
     image: mysql:8.0
@@ -20,11 +23,20 @@ services:
     environment:
       - MYSQL_ROOT_PASSWORD=rootpassword
       - MYSQL_DATABASE=erp_db
-    command: --default-authentication-plugin=mysql_native_password
+    command: 
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-log-bin
     ports:
-      - "3306:3306"
+      - "3307:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
 volumes:
   mysql_data:

@@ -65,11 +65,26 @@
               </div>
 
               <el-form-item label="入库仓库" prop="warehouse_type">
-                <el-radio-group v-model="form.warehouse_type" class="w-full">
-                  <el-radio-button :value="1" class="flex-1">主仓</el-radio-button>
-                  <el-radio-button :value="2" class="flex-1">门店</el-radio-button>
-                  <el-radio-button :value="3" class="flex-1">云仓</el-radio-button>
-                </el-radio-group>
+                <div class="grid grid-cols-3 gap-3 w-full">
+                  <div 
+                    v-for="item in [
+                      { label: '主仓', value: 1, icon: 'OfficeBuilding' },
+                      { label: '门店', value: 2, icon: 'Shop' },
+                      { label: '云仓', value: 3, icon: 'Cloudy' }
+                    ]" 
+                    :key="item.value"
+                    @click="form.warehouse_type = item.value"
+                    class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer group"
+                    :class="form.warehouse_type === item.value 
+                      ? 'border-blue-600 bg-blue-50 text-blue-600 shadow-sm' 
+                      : 'border-slate-100 text-slate-400 hover:border-blue-200 hover:bg-slate-50'"
+                  >
+                    <el-icon size="20" class="mb-1.5 transition-transform group-hover:scale-110">
+                      <component :is="item.icon" />
+                    </el-icon>
+                    <span class="text-xs font-bold">{{ item.label }}</span>
+                  </div>
+                </div>
               </el-form-item>
 
               <el-form-item label="付款账户" prop="account_id">
@@ -168,7 +183,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { Download, Search } from '@element-plus/icons-vue'
+import { Download, Search, OfficeBuilding, Shop, Cloudy } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import axios from 'axios'
 

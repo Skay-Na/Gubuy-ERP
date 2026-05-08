@@ -121,6 +121,25 @@ func CreateInbound(c *gin.Context) {
 		return
 	}
 
+	// 5.6 记录库存流水
+	beforeQty := 0
+	if req.WarehouseType == 1 {
+		beforeQty = product.MainStock
+	} else if req.WarehouseType == 2 {
+		beforeQty = product.StoreStock
+	} else if req.WarehouseType == 3 {
+		beforeQty = product.CloudStock
+	}
+
+	if err := WriteInventoryLog(tx, req.ProductID, req.WarehouseType, "purchase", beforeQty, req.Quantity, "", fmt.Sprintf("采购入库：数量 %d", req.Quantity)); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 500,
+			"msg":  "库存流水写入失败",
+		})
+		return
+	}
+
 	// 6. 提交事务
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{

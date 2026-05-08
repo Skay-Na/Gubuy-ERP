@@ -201,7 +201,7 @@
             <div v-for="row in warningProducts" :key="row.id" class="p-3 bg-slate-50 rounded-2xl flex justify-between items-center border border-transparent hover:border-purple-200 transition-all">
               <div class="min-w-0">
                 <div class="text-sm font-bold text-slate-700 truncate">{{ row.name }}</div>
-                <div class="text-[10px] text-slate-400">目前剩余: <span class="text-red-500 font-bold">{{ row.store_stock }}</span></div>
+                <div class="text-[10px] text-slate-400">全仓剩余: <span class="text-red-500 font-bold">{{ row.main_stock + row.store_stock + row.cloud_stock }}</span></div>
               </div>
               <el-button type="primary" plain size="small" circle icon="Plus" @click="router.push('/admin/products')" />
             </div>
@@ -244,7 +244,7 @@ const allProducts = ref([])
 const pendingOrders = ref([])
 
 const warningProducts = computed(() => {
-  return allProducts.value.filter(p => p.store_stock < 5)
+  return allProducts.value.filter(p => (p.main_stock + p.store_stock + p.cloud_stock) < 5)
 })
 
 const totalBalance = computed(() => {

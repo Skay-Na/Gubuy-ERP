@@ -158,6 +158,7 @@
               <div class="flex flex-wrap gap-1 mb-2">
                 <el-tag :type="row.store_stock > 0 ? 'success' : 'danger'" size="small" class="!px-1.5 !h-5 !text-[10px]">店:{{ row.store_stock }}</el-tag>
                 <el-tag :type="row.main_stock > 0 ? 'primary' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">仓:{{ row.main_stock }}</el-tag>
+                <el-tag v-if="row.support_cloud" :type="row.cloud_stock > 0 ? 'warning' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">云:{{ row.cloud_stock }}</el-tag>
               </div>
             </div>
             <div class="flex justify-between items-end mt-auto pt-2 border-t border-slate-50">
@@ -173,8 +174,8 @@
         </div>
       </div>
 
-      <!-- 底部吸底结算条 -->
-      <div class="fixed bottom-0 left-0 w-full bg-white shadow-[0_-4px_15px_rgba(0,0,0,0.05)] p-4 z-40 flex justify-between items-center">
+      <!-- 底部吸底结算条：增加安全区域适配 -->
+      <div class="fixed bottom-0 left-0 w-full bg-white shadow-[0_-4px_15px_rgba(0,0,0,0.05)] px-4 pt-3 pb-[calc(12px+env(safe-area-inset-bottom,0px))] z-40 flex justify-between items-center transition-all duration-300">
         <div class="flex items-center gap-3 cursor-pointer" @click="openDrawer">
           <el-badge :value="cart.length" :hidden="cart.length === 0" type="danger">
             <div class="bg-blue-100 p-2.5 rounded-full text-blue-600">
@@ -192,8 +193,19 @@
       </div>
 
       <!-- 结算抽屉 (完全复用管理员版逻辑) -->
-      <el-drawer v-model="drawerVisible" direction="rtl" :size="isMobile ? '100%' : '500px'" title="购物车与结算">
+      <el-drawer v-model="drawerVisible" direction="rtl" :size="isMobile ? '100%' : '500px'" :with-header="false">
         <div class="h-full flex flex-col">
+          <!-- 增强头部：增加明确的关闭按钮，适配移动端习惯 -->
+          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white sticky top-0 z-10">
+            <div class="flex items-center gap-2 cursor-pointer p-1 -ml-1" @click="drawerVisible = false">
+              <el-icon size="20" class="text-slate-900"><Back /></el-icon>
+              <span class="text-base font-black text-slate-900 tracking-tight">购物车与结算</span>
+            </div>
+            <div class="p-2 -mr-2 cursor-pointer flex items-center justify-center" @click="drawerVisible = false">
+              <el-icon size="22" class="text-slate-400 hover:text-slate-600"><Close /></el-icon>
+            </div>
+          </div>
+
           <div class="flex-1 overflow-y-auto p-4 space-y-4">
             <div v-for="(item, index) in cart" :key="index" class="p-3 rounded-xl border border-slate-100 bg-white shadow-sm">
               <div class="flex justify-between items-start mb-2">
@@ -220,16 +232,23 @@
                 <el-input v-model="customerName" placeholder="客户姓名" />
                 <el-input v-model="customerPhone" placeholder="手机号" />
               </div>
+              <el-input v-model="customerAddress" placeholder="请输入详细收货地址" />
 
               <!-- 模式切换 -->
               <div class="grid grid-cols-2 gap-2">
-                <div class="flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm">
+                <div 
+                  class="flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition-all"
+                  @click="isSubsidized = !isSubsidized"
+                >
                   <span class="text-xs font-bold text-slate-600">国家补贴</span>
-                  <el-switch v-model="isSubsidized" size="small" />
+                  <el-switch v-model="isSubsidized" size="small" @click.stop />
                 </div>
-                <div class="flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm">
+                <div 
+                  class="flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition-all"
+                  @click="isDepositMode = !isDepositMode"
+                >
                   <span class="text-xs font-bold text-slate-600">支付定金</span>
-                  <el-switch v-model="isDepositMode" size="small" />
+                  <el-switch v-model="isDepositMode" size="small" @click.stop />
                 </div>
               </div>
 
@@ -240,25 +259,77 @@
                 </div>
               </el-collapse-transition>
 
-              <div class="flex justify-between items-center pt-2">
-                <span class="text-xs text-slate-500">发货方式</span>
-                <el-radio-group v-model="deliveryMethod" size="small">
-                  <el-radio-button :value="1">自提</el-radio-button>
-                  <el-radio-button :value="2">主仓</el-radio-button>
-                  <el-radio-button :value="3">云仓</el-radio-button>
-                </el-radio-group>
-              </div>
-              <div class="flex justify-between items-center">
-                <span class="text-xs text-slate-500">收款账户</span>
-                <el-radio-group v-model="paymentMethod" size="small">
-                  <el-radio-button :value="1">支付宝</el-radio-button>
-                  <el-radio-button :value="2">微信</el-radio-button>
-                </el-radio-group>
+              <div class="space-y-4 pt-2">
+                <div>
+                  <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">发货/提货方式</div>
+                  <div class="grid grid-cols-3 gap-2">
+                    <div 
+                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="deliveryMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="deliveryMethod = 1"
+                    >
+                      <el-icon size="18" class="mb-1"><Shop /></el-icon>
+                      <span class="text-[11px] font-bold">门店自提</span>
+                    </div>
+                    <div 
+                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="deliveryMethod === 2 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="deliveryMethod = 2"
+                    >
+                      <el-icon size="18" class="mb-1"><Box /></el-icon>
+                      <span class="text-[11px] font-bold">主仓发货</span>
+                    </div>
+                    <div 
+                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="deliveryMethod === 3 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="deliveryMethod = 3"
+                    >
+                      <el-icon size="18" class="mb-1"><Cloudy /></el-icon>
+                      <span class="text-[11px] font-bold">云仓代发</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">收款账户</div>
+                  <div class="grid grid-cols-3 gap-2">
+                    <div 
+                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="[
+                        paymentMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200',
+                        isSubsidized ? 'opacity-40 cursor-not-allowed grayscale' : ''
+                      ]"
+                      @click="!isSubsidized && (paymentMethod = 1)"
+                    >
+                      <el-icon size="18" class="mb-1"><Wallet /></el-icon>
+                      <span class="text-[11px] font-bold">支付宝</span>
+                    </div>
+                    <div 
+                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="[
+                        paymentMethod === 2 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200',
+                        isSubsidized ? 'opacity-40 cursor-not-allowed grayscale' : ''
+                      ]"
+                      @click="!isSubsidized && (paymentMethod = 2)"
+                    >
+                      <el-icon size="18" class="mb-1"><CreditCard /></el-icon>
+                      <span class="text-[11px] font-bold">微信支付</span>
+                    </div>
+                    <div 
+                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="paymentMethod === 3 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="paymentMethod = 3"
+                    >
+                      <el-icon size="18" class="mb-1"><OfficeBuilding /></el-icon>
+                      <span class="text-[11px] font-bold">对公转账</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <div class="p-4 bg-white border-t space-y-2">
+          <div class="p-4 pb-[calc(16px+env(safe-area-inset-bottom,0px))] bg-white border-t space-y-2 shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)] z-20">
             <div v-if="isSubsidized" class="flex justify-between text-xs text-orange-600">
               <span>国家补贴减免</span>
               <span>-¥{{ subsidyAmount.toFixed(2) }}</span>
@@ -267,9 +338,14 @@
               <span class="text-sm font-bold text-slate-600">{{ isDepositMode ? '预收定金' : '实收合计' }}</span>
               <span class="text-3xl font-black text-blue-600">¥{{ actualReceipt.toFixed(2) }}</span>
             </div>
-            <el-button type="primary" size="large" class="w-full !h-14 !rounded-2xl !font-bold" :loading="loading" @click="handleCheckout">
-              确认开单提交
-            </el-button>
+            <div class="flex flex-col gap-3">
+              <el-button type="primary" size="large" class="w-full !h-14 !rounded-2xl !font-bold shadow-lg shadow-blue-100" :loading="loading" @click="handleCheckout">
+                确认开单提交
+              </el-button>
+              <el-button size="large" class="w-full !h-10 !rounded-xl !border-none !bg-slate-50 !text-slate-400" @click="drawerVisible = false">
+                取消并继续购物
+              </el-button>
+            </div>
           </div>
         </div>
       </el-drawer>
@@ -354,12 +430,29 @@
     <!-- 员工端确认安装弹窗 -->
     <el-dialog v-model="installDialogVisible" title="确认安装完成" width="90%" class="!rounded-2xl max-w-md">
       <div class="space-y-4">
-        <el-alert title="确认安装" type="info" :closable="false" show-icon>请选择实际执行安装的人员</el-alert>
+        <el-alert title="确认安装" type="info" :closable="false" show-icon>请确认实际送货及执行安装的人员</el-alert>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">送货人员</label>
+          <el-select v-model="selectedDeliveryPersonId" class="w-full" placeholder="请选择送货员" size="large">
+            <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
+          </el-select>
+        </div>
         <div>
           <label class="block text-sm font-bold text-slate-700 mb-2">安装师傅</label>
           <el-select v-model="selectedInstallerId" class="w-full" placeholder="请选择师傅" size="large">
             <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
           </el-select>
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">安装时间</label>
+          <el-date-picker
+            v-model="selectedInstallTime"
+            type="datetime"
+            placeholder="选择时间"
+            size="large"
+            class="!w-full"
+            format="YYYY-MM-DD HH:mm"
+          />
         </div>
       </div>
       <template #footer>
@@ -408,7 +501,8 @@
             <div class="text-[10px] text-slate-400 mb-1">安装进度</div>
             <div class="text-sm font-bold">{{ currentDetailOrder.is_installed ? '✅ 已确认安装' : '⏳ 待确认' }}</div>
             <div v-if="currentDetailOrder.is_installed" class="text-[10px] text-slate-400 mt-1">
-              师傅: {{ currentDetailOrder.installer?.name }}<br>
+              送货: {{ currentDetailOrder.delivery_person?.name || '-' }}<br>
+              安装: {{ currentDetailOrder.installer?.name }}<br>
               时间: {{ formatDate(currentDetailOrder.install_time) }}
             </div>
           </div>
@@ -443,8 +537,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Wallet, Close } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 import dayjs from 'dayjs'
@@ -540,6 +634,8 @@ const orderSearchKeyword = ref('')
 const installDialogVisible = ref(false)
 const installTargetOrder = ref(null)
 const selectedInstallerId = ref(null)
+const selectedDeliveryPersonId = ref(null)
+const selectedInstallTime = ref(null)
 const detailDialogVisible = ref(false)
 const currentDetailOrder = ref(null)
 
@@ -589,6 +685,8 @@ const fetchMyOrders = async () => {
 const handleStaffInstall = (order) => {
   installTargetOrder.value = order
   selectedInstallerId.value = null
+  selectedDeliveryPersonId.value = null
+  selectedInstallTime.value = new Date()
   installDialogVisible.value = true
 }
 
@@ -596,7 +694,9 @@ const confirmStaffInstall = async () => {
   if (!selectedInstallerId.value) return
   try {
     const res = await axios.put(`/api/orders/${installTargetOrder.value.id}/install`, {
-      installer_id: selectedInstallerId.value
+      installer_id: selectedInstallerId.value,
+      delivery_person_id: selectedDeliveryPersonId.value,
+      install_time: selectedInstallTime.value
     })
     if (res.data.code === 200) {
       ElMessage.success('安装确认成功')
@@ -690,8 +790,9 @@ const isMobile = ref(window.innerWidth < 768)
 
 const customerName = ref('')
 const customerPhone = ref('')
+const customerAddress = ref('')
 const paymentMethod = ref(1)
-const deliveryMethod = ref(1)
+const deliveryMethod = ref(2)
 
 const fetchCategories = async () => {
   try {
@@ -768,12 +869,63 @@ const totalPayable = computed(() => {
   return Math.max(0, originalTotal.value - subsidyAmount.value)
 })
 
+// 自动计算默认定金：50% 并取整 (如 4329 -> 2000)
+watch([isDepositMode, totalPayable], ([newMode, newTotal]) => {
+  if (newMode) {
+    const half = newTotal * 0.5
+    if (half >= 1000) {
+      depositAmount.value = Math.floor(half / 500) * 500
+    } else if (half >= 100) {
+      depositAmount.value = Math.floor(half / 100) * 100
+    } else {
+      depositAmount.value = Math.floor(half)
+    }
+  }
+})
+
+// 强制国补订单使用公户
+watch(isSubsidized, (newVal) => {
+  if (newVal) {
+    paymentMethod.value = 3
+  }
+})
+
 const actualReceipt = computed(() => {
   return isDepositMode.value ? depositAmount.value : totalPayable.value
 })
 
+// 处理物理返回键/手势返回：拦截并关闭结算抽屉
+let isInternalBack = false
+const handlePopState = () => {
+  if (drawerVisible.value) {
+    isInternalBack = true
+    drawerVisible.value = false
+  }
+}
+
+watch(drawerVisible, (newVal) => {
+  if (newVal) {
+    window.history.pushState({ drawer: 'checkout' }, '')
+  } else {
+    if (!isInternalBack && window.history.state?.drawer === 'checkout') {
+      window.history.back()
+    }
+    isInternalBack = false
+  }
+})
+
+onMounted(() => {
+  window.addEventListener('popstate', handlePopState)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('popstate', handlePopState)
+})
+
 const handleCheckout = async () => {
   if (!customerName.value) return ElMessage.warning('请输入客户姓名')
+  if (!customerPhone.value) return ElMessage.warning('请输入客户手机号')
+  if (!customerAddress.value) return ElMessage.warning('请输入客户收货地址')
   
   try {
     const type = isDepositMode.value ? '定金' : '全款'
@@ -792,6 +944,7 @@ const handleCheckout = async () => {
       deposit_amount: isDepositMode.value ? depositAmount.value : 0,
       customer_name: customerName.value,
       customer_phone: customerPhone.value,
+      customer_address: customerAddress.value,
       employee_id: currentEmployee.value.id,
       payment_method: paymentMethod.value,
       delivery_method: deliveryMethod.value
@@ -802,9 +955,11 @@ const handleCheckout = async () => {
       cart.value = []
       customerName.value = ''
       customerPhone.value = ''
+      customerAddress.value = ''
       isSubsidized.value = false
       isDepositMode.value = false
       depositAmount.value = 0
+      deliveryMethod.value = 2
       drawerVisible.value = false
       fetchProducts()
     }

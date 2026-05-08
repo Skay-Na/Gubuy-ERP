@@ -26,6 +26,7 @@ type CreateOrderRequest struct {
 	DepositAmount float64            `json:"deposit_amount"`
 	CustomerName  string             `json:"customer_name"`
 	CustomerPhone string             `json:"customer_phone"`
+	CustomerAddress string           `json:"customer_address"`
 	EmployeeID    *uint              `json:"employee_id"`
 	ReferrerName  string             `json:"referrer_name"`
 	ReferralFee   float64            `json:"referral_fee"`
@@ -136,6 +137,17 @@ func CreateOrder(c *gin.Context) {
 			}
 		}
 
+		// 记录库存流水
+		beforeQty := 0
+		if req.DeliveryMethod == 1 {
+			beforeQty = product.StoreStock
+		} else if req.DeliveryMethod == 2 {
+			beforeQty = product.MainStock
+		} else if req.DeliveryMethod == 3 {
+			beforeQty = product.CloudStock
+		}
+		WriteInventoryLog(tx, product.ID, req.DeliveryMethod, "sale", beforeQty, -item.Quantity, "", "销售开单")
+
 		unitPrice := item.UnitPrice
 		if item.IsGift {
 			unitPrice = 0
@@ -193,6 +205,7 @@ func CreateOrder(c *gin.Context) {
 		OrderNo:         orderNo,
 		CustomerName:    req.CustomerName,
 		CustomerPhone:   req.CustomerPhone,
+		CustomerAddress: req.CustomerAddress,
 		TotalAmount:     totalAmount,
 		SubsidyAmount:   subsidyAmount,
 		ActualPayAmount: actualPayAmount,
@@ -280,7 +293,7 @@ func GetOrders(c *gin.Context) {
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
-	query := config.DB.Preload("OrderItems.Product").Preload("Employee").Preload("Account").Preload("Installer").Order("created_at desc")
+	query := config.DB.Preload("OrderItems.Product").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
 	if keyword != "" {
 		k := "%" + keyword + "%"
 		query = query.Where(
@@ -592,6 +605,10 @@ func CancelOrder(c *gin.Context) {
 					})
 					return
 				}
+				// 记录云仓库存回滚流水
+				var product models.Product
+				tx.First(&product, item.ProductID)
+				WriteInventoryLog(tx, item.ProductID, 3, "cancel", product.CloudStock-item.CloudDeductionQty, item.CloudDeductionQty, order.OrderNo, "订单取消云仓库存回滚")
 			}
 			continue
 		}
@@ -604,6 +621,21 @@ func CancelOrder(c *gin.Context) {
 			})
 			return
 		}
+
+		// 记录库存回滚流水
+		var product models.Product
+		tx.First(&product, item.ProductID)
+		beforeQty := 0
+		warehouseType := order.DeliveryMethod
+		if warehouseType == 1 {
+			beforeQty = product.StoreStock - item.Quantity
+		} else if warehouseType == 2 {
+			beforeQty = product.MainStock - item.Quantity
+		} else if warehouseType == 3 {
+			beforeQty = product.CloudStock - item.Quantity
+		}
+
+		WriteInventoryLog(tx, item.ProductID, warehouseType, "cancel", beforeQty, item.Quantity, order.OrderNo, "订单取消库存回滚")
 	}
 
 	// 4. 退款处理：根据支付状态决定退款金额
@@ -664,7 +696,9 @@ func CancelOrder(c *gin.Context) {
 
 // UpdateInstallStatusRequest 确认安装请求体
 type UpdateInstallStatusRequest struct {
-	InstallerID uint `json:"installer_id" binding:"required"`
+	InstallerID      uint       `json:"installer_id" binding:"required"`
+	DeliveryPersonID uint       `json:"delivery_person_id"`
+	InstallTime      *time.Time `json:"install_time"`
 }
 
 // UpdateInstallStatus 确认安装接口
@@ -704,11 +738,16 @@ func UpdateInstallStatus(c *gin.Context) {
 		}
 	}()
 
-	now := time.Now()
+	installTime := time.Now()
+	if req.InstallTime != nil {
+		installTime = *req.InstallTime
+	}
+
 	updates := map[string]interface{}{
-		"is_installed": true,
-		"installer_id": req.InstallerID,
-		"install_time": now,
+		"is_installed":       true,
+		"installer_id":       req.InstallerID,
+		"install_time":       installTime,
+		"delivery_person_id": req.DeliveryPersonID,
 	}
 
 	if err := tx.Model(&order).Updates(updates).Error; err != nil {
