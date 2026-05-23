@@ -192,13 +192,31 @@
 
       <!-- 库存告急 -->
       <div class="space-y-4">
-        <div class="flex items-center gap-2">
-          <div class="w-1 h-4 bg-purple-600 rounded-full"></div>
-          <span class="text-lg font-bold text-slate-800">运营提醒：库存告急 ({{ warningProducts.length }})</span>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-1 h-4 bg-purple-600 rounded-full"></div>
+            <span class="text-lg font-bold text-slate-800">运营提醒：库存告急 ({{ warningProducts.length }})</span>
+          </div>
+          <el-button 
+            v-if="warningProducts.length > 6" 
+            type="primary" 
+            link 
+            class="!text-slate-400 hover:!text-purple-600"
+            @click="isWarningExpanded = !isWarningExpanded"
+          >
+            {{ isWarningExpanded ? '收起' : '展开全部' }}
+            <el-icon class="ml-1">
+              <component :is="isWarningExpanded ? 'ArrowUp' : 'ArrowDown'" />
+            </el-icon>
+          </el-button>
         </div>
         <el-card shadow="never" class="!rounded-3xl border-slate-100">
-          <div v-if="warningProducts.length > 0" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div v-for="row in warningProducts" :key="row.id" class="p-3 bg-slate-50 rounded-2xl flex justify-between items-center border border-transparent hover:border-purple-200 transition-all">
+          <div 
+            v-if="warningProducts.length > 0" 
+            class="grid grid-cols-1 sm:grid-cols-2 gap-3 transition-all duration-300 overflow-y-auto no-scrollbar"
+            :style="{ maxHeight: isWarningExpanded ? '400px' : 'auto' }"
+          >
+            <div v-for="row in displayedWarningProducts" :key="row.id" class="p-3 bg-slate-50 rounded-2xl flex justify-between items-center border border-transparent hover:border-purple-200 transition-all">
               <div class="min-w-0">
                 <div class="text-sm font-bold text-slate-700 truncate">{{ row.name }}</div>
                 <div class="text-[10px] text-slate-400">全仓剩余: <span class="text-red-500 font-bold">{{ row.main_stock + row.store_stock + row.cloud_stock }}</span></div>
@@ -217,7 +235,7 @@
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
-import { Money, Wallet, Bell, Box, QuestionFilled, Right, Plus } from '@element-plus/icons-vue'
+import { Money, Wallet, Bell, Box, QuestionFilled, Right, Plus, ArrowUp, ArrowDown } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const loading = ref(true)
@@ -242,9 +260,15 @@ const summary = ref({
 
 const allProducts = ref([])
 const pendingOrders = ref([])
+const isWarningExpanded = ref(false)
 
 const warningProducts = computed(() => {
   return allProducts.value.filter(p => (p.main_stock + p.store_stock + p.cloud_stock) < 5)
+})
+
+const displayedWarningProducts = computed(() => {
+  if (isWarningExpanded.value) return warningProducts.value
+  return warningProducts.value.slice(0, 6)
 })
 
 const totalBalance = computed(() => {

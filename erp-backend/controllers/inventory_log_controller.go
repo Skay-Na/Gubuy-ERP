@@ -18,7 +18,7 @@ import (
 // changeQty: 变动量（正=增加，负=减少）
 // relatedNo: 关联单号（如订单号）
 // remark: 说明
-func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType string, beforeQty int, changeQty int, relatedNo string, remark string) error {
+func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType string, beforeQty int, changeQty int, unitCost float64, relatedNo string, remark string) error {
 	log := models.InventoryLog{
 		ProductID:     productID,
 		WarehouseType: warehouseType,
@@ -26,6 +26,7 @@ func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType s
 		ChangeQty:     changeQty,
 		BeforeQty:     beforeQty,
 		AfterQty:      beforeQty + changeQty,
+		UnitCost:      unitCost,
 		RelatedNo:     relatedNo,
 		Remark:        remark,
 	}
@@ -79,12 +80,14 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 	warehouseType := c.Query("warehouse_type")
 	logType := c.Query("log_type")
 	productID := c.Query("product_id")
+	keyword := c.Query("keyword")
 	page := c.DefaultQuery("page", "1")
 	pageSize := c.DefaultQuery("page_size", "50")
 	_ = page
 	_ = pageSize
 
 	query := config.DB.
+		Model(&models.InventoryLog{}).
 		Preload("Product").
 		Order("created_at desc")
 
@@ -96,6 +99,12 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 	}
 	if productID != "" {
 		query = query.Where("product_id = ?", productID)
+	}
+	if keyword != "" {
+		k := "%" + keyword + "%"
+		// 需要联表查询商品名称和备注
+		query = query.Joins("JOIN products ON inventory_logs.product_id = products.id").
+			Where("(products.name LIKE ? OR products.sku LIKE ? OR inventory_logs.remark LIKE ?)", k, k, k)
 	}
 
 	var total int64

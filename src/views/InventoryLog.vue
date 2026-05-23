@@ -7,22 +7,31 @@
         <p class="text-xs text-slate-400 mt-1">追踪入库、出库、调拨及盘点历史</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <el-select v-model="filters.log_type" placeholder="变动类型" clearable class="!w-[calc(50%-4px)] md:!w-32">
+        <el-input 
+          v-model="filters.keyword" 
+          placeholder="搜索商品或备注..." 
+          clearable 
+          class="!w-full md:!w-64"
+          @input="handleKeywordInput"
+          @clear="handleFilter"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-select v-model="filters.log_type" placeholder="变动类型" clearable class="!w-[calc(50%-4px)] md:!w-32" @change="handleFilter">
           <el-option label="采购入库" value="purchase" />
           <el-option label="销售出库" value="sale" />
           <el-option label="库存调拨" value="transfer" />
           <el-option label="盘点调整" value="stocktake" />
           <el-option label="取消退库" value="cancel" />
         </el-select>
-        <el-select v-model="filters.warehouse_type" placeholder="选择仓库" clearable class="!w-[calc(50%-4px)] md:!w-32">
+        <el-select v-model="filters.warehouse_type" placeholder="选择仓库" clearable class="!w-[calc(50%-4px)] md:!w-32" @change="handleFilter">
           <el-option label="主仓" :value="1" />
           <el-option label="门店" :value="2" />
           <el-option label="云仓" :value="3" />
           <el-option label="样机" :value="4" />
         </el-select>
-        <el-button type="primary" @click="handleFilter" class="!rounded-xl h-10 flex-1 md:flex-none">
-          <el-icon class="mr-1"><Search /></el-icon>筛选
-        </el-button>
         <el-button @click="resetFilters" class="!rounded-xl h-10">重置</el-button>
       </div>
     </div>
@@ -48,7 +57,7 @@
           <template #default="{ row }">
             <div class="flex flex-col">
               <span class="font-bold text-slate-800 text-sm">{{ row.product?.name || '未知商品' }}</span>
-              <el-tag size="small" effect="plain" class="!rounded-lg !px-1.5 self-start text-[10px]">{{ row.product?.sku }}</el-tag>
+              <el-tag size="small" effect="plain" class="!rounded-lg !px-1.5 self-start text-[10px]">{{ row.product?.remark || '-' }}</el-tag>
             </div>
           </template>
         </el-table-column>
@@ -71,12 +80,45 @@
             </span>
           </template>
         </el-table-column>
+        <el-table-column label="变动单价" width="100" align="right">
+          <template #default="{ row }">
+            <span v-if="row.unit_cost" class="font-mono text-xs text-slate-600">¥{{ row.unit_cost.toFixed(2) }}</span>
+            <span v-else class="text-slate-300">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="库存快照" width="120" align="center">
           <template #default="{ row }">
              <span class="text-xs text-slate-400">{{ row.before_qty }} &rarr; <span class="font-bold text-slate-700">{{ row.after_qty }}</span></span>
           </template>
         </el-table-column>
         <el-table-column prop="remark" label="操作备注" min-width="200" show-overflow-tooltip />
+        <el-table-column label="操作" width="110" align="center">
+          <template #default="{ row }">
+            <div class="flex flex-col gap-1 items-center justify-center">
+              <el-button 
+                v-if="row.log_type === 'purchase' && row.related_no" 
+                type="danger" 
+                link 
+                size="small"
+                class="!mx-0"
+                @click="handleCancelInbound(row)"
+              >
+                撤销入库
+              </el-button>
+              <el-button 
+                v-if="row.log_type === 'purchase' || row.log_type === 'purchase_void'" 
+                type="primary" 
+                link 
+                size="small"
+                class="!mx-0"
+                @click="handleUpdatePrice(row)"
+              >
+                修正进价
+              </el-button>
+              <span v-if="row.log_type !== 'purchase' && row.log_type !== 'purchase_void'" class="text-slate-300">-</span>
+            </div>
+          </template>
+        </el-table-column>
       </el-table>
 
       <!-- Mobile View -->
@@ -101,6 +143,28 @@
              <div class="text-[11px] text-slate-500 line-clamp-2">{{ row.remark || '无备注' }}</div>
              <div class="mt-2 text-[10px] text-slate-400 font-mono">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}</div>
           </div>
+          <!-- Mobile action -->
+          <div v-if="row.log_type === 'purchase' || row.log_type === 'purchase_void'" class="mt-3 pt-3 border-t border-slate-100 flex justify-end gap-2">
+            <el-button 
+              v-if="row.log_type === 'purchase' && row.related_no"
+              type="danger" 
+              plain
+              size="small"
+              class="!rounded-xl"
+              @click="handleCancelInbound(row)"
+            >
+              撤销入库
+            </el-button>
+            <el-button 
+              type="primary" 
+              plain
+              size="small"
+              class="!rounded-xl"
+              @click="handleUpdatePrice(row)"
+            >
+              修正进价
+            </el-button>
+          </div>
         </div>
         <el-empty v-if="!loading && logList.length === 0" description="暂无变动记录" />
       </div>
@@ -112,11 +176,12 @@
 import { ref, onMounted, reactive } from 'vue'
 import { Search, Right } from '@element-plus/icons-vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
 const logList = ref([])
 const filters = reactive({
+  keyword: '',
   log_type: '',
   warehouse_type: '',
   product_id: ''
@@ -138,15 +203,102 @@ const fetchLogs = async () => {
   }
 }
 
+let searchTimer = null
+const handleKeywordInput = () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    fetchLogs()
+  }, 500)
+}
+
 const handleFilter = () => {
   fetchLogs()
 }
 
 const resetFilters = () => {
+  filters.keyword = ''
   filters.log_type = ''
   filters.warehouse_type = ''
   filters.product_id = ''
   fetchLogs()
+}
+
+const handleCancelInbound = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定要撤销商品【${row.product?.name || '未知商品'}】的这笔采购入库记录吗？<br/>` +
+      `系统将自动执行以下操作：<br/>` +
+      `1. 从当前 <b class="text-red-600">${getWarehouseName(row.warehouse_type)}</b> 扣减该商品数量 <b class="text-red-600">${row.change_qty}</b> 件；<br/>` +
+      `2. 原路退还采购货款 <b class="text-green-600">¥${(row.change_qty * row.unit_cost).toFixed(2)}</b> 至原付款账户；<br/>` +
+      `3. 自动重新核算该商品的移动加权平均成本。<br/><br/>` +
+      `<span class="text-xs text-gray-400">* 此操作不可逆，且要求该仓库当前可用库存充足。</span>`,
+      '确认撤销入库记录',
+      {
+        confirmButtonText: '确定撤销',
+        cancelButtonText: '取消',
+        type: 'warning',
+        dangerouslyUseHTMLString: true,
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+
+    loading.value = true
+    const res = await axios.post(`/api/inbounds/cancel-by-log/${row.id}`)
+    if (res.data.code === 200) {
+      ElMessage.success(res.data.msg || '入库流水撤销成功！')
+      fetchLogs()
+    } else {
+      ElMessage.error(res.data.msg || '撤销失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('Cancel inbound error:', error)
+      ElMessage.error(error.response?.data?.msg || '操作异常，请检查网络或库存')
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+const handleUpdatePrice = async (row) => {
+  try {
+    const { value: newPriceStr } = await ElMessageBox.prompt(
+      `请输入该流水【${row.product?.name || '未知商品'}】的正确入库进价（元）：`,
+      '手动修正历史入库价格',
+      {
+        confirmButtonText: '确认修正',
+        cancelButtonText: '取消',
+        inputPattern: /^\d+(\.\d{1,2})?$/,
+        inputErrorMessage: '请输入有效的价格（最多2位小数）',
+        inputValue: row.unit_cost ? row.unit_cost.toString() : ''
+      }
+    )
+    
+    if (!newPriceStr) return
+    const newPrice = parseFloat(newPriceStr)
+    if (isNaN(newPrice) || newPrice <= 0) {
+      return ElMessage.warning('价格必须大于0')
+    }
+    
+    loading.value = true
+    const res = await axios.post(`/api/inbounds/update-price/${row.id}`, {
+      new_price: newPrice
+    })
+    
+    if (res.data.code === 200) {
+      ElMessage.success('进价修正及系统平均成本重算成功！')
+      fetchLogs()
+    } else {
+      ElMessage.error(res.data.msg || '修正失败')
+    }
+  } catch (err) {
+    if (err !== 'cancel') {
+      console.error(err)
+      ElMessage.error('修正操作异常')
+    }
+  } finally {
+    loading.value = false
+  }
 }
 
 const getWarehouseName = (type) => {

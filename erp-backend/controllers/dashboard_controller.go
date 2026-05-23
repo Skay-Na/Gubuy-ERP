@@ -62,11 +62,12 @@ func GetFinanceSummary(c *gin.Context) {
 	}
 	expenseDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalExpense)
 
-	// 3. 国补待回款 (PendingSubsidy) - 存量数据，不随时间周期变动
-	config.DB.Model(&models.Order{}).
-		Where("subsidy_status IN ? AND order_status = 1", []int{1, 2}).
-		Select("COALESCE(SUM(subsidy_amount), 0)").
-		Scan(&summary.PendingSubsidy)
+	// 3. 国补待回款 (PendingSubsidy) - 新逻辑：累计产生 - 累计回款
+	var totalSubsidyGenerated float64
+	var totalSubsidyReceived float64
+	config.DB.Model(&models.Order{}).Where("order_status = 1").Select("COALESCE(SUM(subsidy_amount), 0)").Scan(&totalSubsidyGenerated)
+	config.DB.Model(&models.SubsidySettlement{}).Select("COALESCE(SUM(amount), 0)").Scan(&totalSubsidyReceived)
+	summary.PendingSubsidy = totalSubsidyGenerated - totalSubsidyReceived
 
 	// 4. 订单数 (OrderCount) - 仅正常订单
 	orderCountDB := config.DB.Model(&models.Order{}).Where("order_status = 1")

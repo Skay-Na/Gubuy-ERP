@@ -62,6 +62,12 @@ const routes = [
         meta: { title: '财务总览' }
       },
       {
+        path: 'subsidy',
+        name: 'SubsidyManage',
+        component: () => import('../views/SubsidyManage.vue'),
+        meta: { title: '国补回款管理' }
+      },
+      {
         path: 'settings',
         name: 'SystemSettings',
         component: () => import('../views/SystemSettings.vue'),

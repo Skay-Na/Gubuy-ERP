@@ -131,9 +131,9 @@ func TransferProduct(c *gin.Context) {
 	if destWarehouse == 1 { destBefore = product.MainStock } else if destWarehouse == 2 { destBefore = product.StoreStock } else if destWarehouse == 3 { destBefore = product.CloudStock } else if destWarehouse == 4 { destBefore = product.SampleStock }
 
 	// 写入出库流
-	WriteInventoryLog(tx, product.ID, sourceWarehouse, "transfer", sourceBefore, -req.Quantity, "", sourceRemark)
+	WriteInventoryLog(tx, product.ID, sourceWarehouse, "transfer", sourceBefore, -req.Quantity, product.LatestCost, "", sourceRemark)
 	// 写入入库流
-	WriteInventoryLog(tx, product.ID, destWarehouse, "transfer", destBefore, req.Quantity, "", destRemark)
+	WriteInventoryLog(tx, product.ID, destWarehouse, "transfer", destBefore, req.Quantity, product.LatestCost, "", destRemark)
 
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "事务提交失败"})
@@ -178,19 +178,15 @@ func ProductStocktake(c *gin.Context) {
 
 	var beforeStock int
 	var updateField string
-	var warehouseName string
 	if req.WarehouseType == 1 {
 		beforeStock = product.MainStock
 		updateField = "main_stock"
-		warehouseName = "主仓"
 	} else if req.WarehouseType == 2 {
 		beforeStock = product.StoreStock
 		updateField = "store_stock"
-		warehouseName = "门店"
 	} else if req.WarehouseType == 3 {
 		beforeStock = product.CloudStock
 		updateField = "cloud_stock"
-		warehouseName = "云仓"
 	}
 
 	diff := req.ActualStock - beforeStock
@@ -225,39 +221,13 @@ func ProductStocktake(c *gin.Context) {
 	}
 
 	// 记录库存流水
-	if err := WriteInventoryLog(tx, product.ID, req.WarehouseType, "stocktake", beforeStock, diff, "", fmt.Sprintf("库存盘点：%s", req.Remark)); err != nil {
+	if err := WriteInventoryLog(tx, product.ID, req.WarehouseType, "stocktake", beforeStock, diff, product.LatestCost, "", fmt.Sprintf("库存盘点：%s", req.Remark)); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "库存流水写入失败"})
 		return
 	}
 
-	// 仅当盘亏 且 性质为"正常损耗(1)"时，才生成财务亏损记录
-	// "业务调整(2)"（如其它门店销售、移库）仅修正库存，不计亏损
-	if diff < 0 && stocktakeType == 1 {
-		lossAmount := float64(-diff) * product.LatestCost
-
-		// 优先寻找公户，否则找任意账户
-		var account models.Account
-		if err := tx.Where("name = ?", "公户").First(&account).Error; err != nil {
-			tx.First(&account) // 兜底，忽略错误
-		}
-
-		if account.ID != 0 {
-			if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance - ?", lossAmount)).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "扣除盘亏财务账户失败"})
-				return
-			}
-			
-			var updatedAccount models.Account
-			tx.First(&updatedAccount, account.ID)
-			if err := WriteFinancialLog(tx, account.ID, 2, "盘亏损耗", lossAmount, updatedAccount.Balance, "", fmt.Sprintf("%s商品 %s 盘亏 %d 件，损耗成本 ¥%.2f", warehouseName, product.Name, -diff, lossAmount)); err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "生成财务损失记录失败"})
-				return
-			}
-		}
-	}
+	// 盘亏损耗不再从现金账户扣减，只在库存日志和盘点记录中呈现，遵循正确的资产减值财务规范
 
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "事务提交失败"})

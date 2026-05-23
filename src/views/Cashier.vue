@@ -12,7 +12,7 @@
       <div class="flex gap-2 mb-3">
         <el-input
           v-model="searchQuery"
-          placeholder="搜索商品名称、型号或 SKU..."
+          placeholder="搜索商品名称、型号或备注..."
           prefix-icon="Search"
           clearable
           size="large"
@@ -52,17 +52,48 @@
 
     <!-- 中间滚动区域：商品网格 -->
     <div class="flex-1 overflow-y-auto p-4">
-      <div v-if="productList.length === 0" class="py-10 text-center">
+      <!-- 加载中：骨架屏 -->
+      <div v-if="loading" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+        <el-skeleton v-for="i in 10" :key="i" animated>
+          <template #template>
+            <div class="bg-white rounded-xl p-3 border border-slate-100 flex flex-col gap-3">
+              <el-skeleton-item variant="rect" class="h-9 w-full rounded" />
+              <div class="flex gap-1">
+                <el-skeleton-item variant="text" class="w-10 h-5" />
+                <el-skeleton-item variant="text" class="w-10 h-5" />
+              </div>
+              <div class="mt-auto pt-2 border-t border-slate-50 flex justify-between items-end">
+                <div class="flex flex-col gap-1">
+                  <el-skeleton-item variant="text" class="w-16 h-6" />
+                  <el-skeleton-item variant="text" class="w-10 h-3" />
+                </div>
+                <el-skeleton-item variant="rect" class="w-8 h-8 rounded-lg" />
+              </div>
+            </div>
+          </template>
+        </el-skeleton>
+      </div>
+
+      <div v-else-if="productList.length === 0" class="py-10 text-center">
         <el-empty description="暂无符合条件的商品" :image-size="100" />
       </div>
       
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+      <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         <div 
           v-for="row in productList" 
           :key="row.id" 
-          class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group"
+          v-memo="[row.id, row.store_stock, row.main_stock, row.cloud_stock, row.special_price, isSpecialActive(row)]"
+          class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
+          :class="isSpecialActive(row) ? 'special-offer-card border-red-200' : ''"
           @click="addToCart(row)"
         >
+          <!-- 特价角标 -->
+          <div v-if="isSpecialActive(row)" class="absolute top-0 right-0 z-10">
+            <div class="bg-red-500 text-white text-[10px] font-black px-2 py-0.5 rounded-bl-lg shadow-sm flex items-center gap-0.5 animate-pulse">
+              <el-icon><Lightning /></el-icon>SALE
+            </div>
+          </div>
+
           <!-- Info Section -->
           <div class="flex-1 min-w-0">
             <div class="font-bold text-slate-800 text-sm line-clamp-2 leading-tight h-9 mb-1 group-hover:text-blue-600 transition-colors">
@@ -84,10 +115,23 @@
           <!-- Price & Action Section -->
           <div class="flex justify-between items-end mt-auto pt-2 border-t border-slate-50">
             <div class="flex flex-col">
-              <span class="text-[10px] text-slate-400 line-through">¥{{ (calculateMinPrice(row) * 1.2).toFixed(0) }}</span>
-              <span class="font-bold text-red-600 text-base leading-none">
-                <span class="text-xs">¥</span>{{ calculateMinPrice(row).toFixed(0) }}
-              </span>
+              <div v-if="isSpecialActive(row)" class="flex flex-col">
+                <span class="text-[10px] text-slate-400 line-through">¥{{ ((row.avg_cost || row.latest_cost || 0) / (1 - (row.margin_rate || 0))).toFixed(0) }}</span>
+                <div class="flex items-center gap-1">
+                  <span class="font-black text-red-600 text-lg leading-none">
+                    <span class="text-xs">¥</span>{{ row.special_price.toFixed(0) }}
+                  </span>
+                  <span class="bg-red-50 text-red-500 text-[9px] px-1 rounded font-bold border border-red-100">
+                    立省 ¥{{ (((row.avg_cost || row.latest_cost || 0) / (1 - (row.margin_rate || 0))) - row.special_price).toFixed(0) }}
+                  </span>
+                </div>
+              </div>
+              <div v-else class="flex flex-col">
+                <span class="font-bold text-slate-800 text-base leading-none">
+                  <span class="text-xs">¥</span>{{ calculateMinPrice(row).toFixed(0) }}
+                </span>
+                <span class="text-[9px] text-slate-400 mt-0.5">成本: ¥{{ (row.avg_cost || row.latest_cost).toFixed(1) }}</span>
+              </div>
             </div>
             <div class="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm shadow-blue-200 group-hover:scale-110 transition-transform">
               <el-icon :size="16"><Plus /></el-icon>
@@ -204,12 +248,65 @@
                   </div>
                   <div 
                     class="flex justify-between items-center p-3 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer active:bg-slate-50 transition-all"
+                    @click="isTradeIn = !isTradeIn"
+                  >
+                    <span class="text-xs font-bold text-slate-600">以旧换新</span>
+                    <el-switch v-model="isTradeIn" size="small" @click.stop />
+                  </div>
+                  <div 
+                    class="col-span-2 flex justify-between items-center p-3 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer active:bg-slate-50 transition-all"
                     @click="isDepositMode = !isDepositMode"
                   >
-                    <span class="text-xs font-bold text-slate-600">支付定金</span>
+                    <span class="text-xs font-bold text-slate-600">支付定金模式</span>
                     <el-switch v-model="isDepositMode" size="small" @click.stop />
                   </div>
                 </div>
+
+                <el-collapse-transition>
+                  <div v-if="isTradeIn" class="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-3">
+                    <div class="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
+                      <el-icon><Refresh /></el-icon>以旧换新折抵设置
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                      <div>
+                        <span class="text-[10px] text-slate-400 font-medium pl-1">折抵金额(元)</span>
+                        <el-input-number 
+                          v-model="tradeInAmount" 
+                          :min="0" 
+                          :precision="2" 
+                          class="w-full pos-customer-input" 
+                          :controls="false" 
+                          placeholder="抵扣金额" 
+                        />
+                      </div>
+                      <div>
+                        <span class="text-[10px] text-slate-400 font-medium pl-1">旧件品类</span>
+                        <el-select 
+                          v-model="tradeInType" 
+                          placeholder="选择/输入品类" 
+                          class="w-full"
+                          filterable 
+                          allow-create 
+                          default-first-option
+                        >
+                          <el-option label="旧电视" value="旧电视" />
+                          <el-option label="旧冰箱" value="旧冰箱" />
+                          <el-option label="旧洗衣机" value="旧洗衣机" />
+                          <el-option label="旧空调" value="旧空调" />
+                          <el-option label="旧热水器" value="旧热水器" />
+                        </el-select>
+                      </div>
+                    </div>
+                    <div>
+                      <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
+                      <el-input 
+                        v-model="tradeInRemark" 
+                        placeholder="品牌/成色/是否通电等" 
+                        class="pos-customer-input" 
+                      />
+                    </div>
+                  </div>
+                </el-collapse-transition>
 
                 <el-collapse-transition>
                   <div v-if="isDepositMode" class="bg-purple-50 p-3 rounded-xl border border-purple-100">
@@ -295,6 +392,10 @@
                     <span>国补减免</span>
                     <span>-¥{{ subsidyAmount.toFixed(2) }}</span>
                   </div>
+                  <div v-if="isTradeIn" class="flex justify-between text-xs text-emerald-300 mb-1">
+                    <span>以旧换新折抵</span>
+                    <span>-¥{{ (tradeInAmount || 0).toFixed(2) }}</span>
+                  </div>
                   <div class="flex justify-between items-end mt-2">
                     <span class="text-sm font-bold">{{ isDepositMode ? '预收定金' : '应付全款' }}</span>
                     <span class="text-2xl font-black">¥{{ actualReceipt.toFixed(2) }}</span>
@@ -302,7 +403,7 @@
                 </div>
 
                 <div class="flex flex-col gap-3">
-                  <el-button type="primary" size="large" class="w-full !h-14 !rounded-2xl !border-none shadow-xl shadow-blue-500/20 !font-bold" @click="handleCheckout" :loading="loading" :disabled="cart.length === 0 || hasPriceViolation || hasStockViolation">
+                  <el-button type="primary" size="large" class="w-full !h-14 !rounded-2xl !border-none shadow-xl shadow-blue-500/20 !font-bold" @click="handleCheckout" :loading="loading" :disabled="cart.length === 0 || hasStockViolation">
                     确认开单提交
                   </el-button>
                   <el-button size="large" class="w-full !h-10 !rounded-xl !border-none !bg-slate-100 !text-slate-400" @click="drawerVisible = false">
@@ -405,6 +506,15 @@
                 </div>
                 <div 
                   class="flex justify-between items-center p-3 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all"
+                  @click="isTradeIn = !isTradeIn"
+                >
+                  <span class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                    <el-icon :size="18" color="#10b981"><Refresh /></el-icon>以旧换新抵扣
+                  </span>
+                  <el-switch v-model="isTradeIn" size="small" @click.stop />
+                </div>
+                <div 
+                  class="flex justify-between items-center p-3 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all"
                   @click="isDepositMode = !isDepositMode"
                 >
                   <span class="text-sm font-bold text-slate-700 flex items-center gap-2">
@@ -413,6 +523,52 @@
                   <el-switch v-model="isDepositMode" size="small" @click.stop />
                 </div>
               </div>
+
+              <el-collapse-transition>
+                <div v-if="isTradeIn" class="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-3">
+                  <div class="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
+                    <el-icon><Refresh /></el-icon>以旧换新折抵设置
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <span class="text-[10px] text-slate-400 font-medium pl-1">折抵金额(元)</span>
+                      <el-input-number 
+                        v-model="tradeInAmount" 
+                        :min="0" 
+                        :precision="2" 
+                        class="w-full pos-customer-input" 
+                        :controls="false" 
+                        placeholder="抵扣金额" 
+                      />
+                    </div>
+                    <div>
+                      <span class="text-[10px] text-slate-400 font-medium pl-1">旧件品类</span>
+                      <el-select 
+                        v-model="tradeInType" 
+                        placeholder="选择/输入品类" 
+                        class="w-full"
+                        filterable 
+                        allow-create 
+                        default-first-option
+                      >
+                        <el-option label="旧电视" value="旧电视" />
+                        <el-option label="旧冰箱" value="旧冰箱" />
+                        <el-option label="旧洗衣机" value="旧洗衣机" />
+                        <el-option label="旧空调" value="旧空调" />
+                        <el-option label="旧热水器" value="旧热水器" />
+                      </el-select>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
+                    <el-input 
+                      v-model="tradeInRemark" 
+                      placeholder="品牌/成色/是否通电等" 
+                      class="pos-customer-input" 
+                    />
+                  </div>
+                </div>
+              </el-collapse-transition>
 
               <el-collapse-transition>
                 <div v-if="isDepositMode" class="bg-purple-50 p-2 rounded-lg border border-purple-100">
@@ -491,13 +647,14 @@
               <div class="bg-slate-50 p-3 rounded-lg border border-slate-100 space-y-1">
                 <div class="flex justify-between text-xs text-slate-500"><span>商品合计</span><span>¥{{ originalTotal.toFixed(2) }}</span></div>
                 <div v-if="isSubsidized" class="flex justify-between text-xs text-orange-600"><span>国家补贴减免</span><span>-¥{{ subsidyAmount.toFixed(2) }}</span></div>
+                <div v-if="isTradeIn" class="flex justify-between text-xs text-emerald-600"><span>以旧换新折抵</span><span>-¥{{ (tradeInAmount || 0).toFixed(2) }}</span></div>
                 <div class="flex justify-between text-sm text-slate-800 font-bold pt-1 border-t border-slate-200 mt-1">
                   <span>{{ isDepositMode ? '本次预收定金' : '本次应付全款' }}</span>
                   <span class="text-blue-600 text-xl font-mono">¥{{ actualReceipt.toFixed(2) }}</span>
                 </div>
               </div>
 
-              <el-button type="primary" size="large" class="w-full !h-12 !text-base !rounded-xl !border-none shadow-md shadow-blue-200 pos-submit-btn" :disabled="cart.length === 0 || hasPriceViolation || hasStockViolation" :loading="loading" @click="handleCheckout">
+              <el-button type="primary" size="large" class="w-full !h-12 !text-base !rounded-xl !border-none shadow-md shadow-blue-200 pos-submit-btn" :disabled="cart.length === 0 || hasStockViolation" :loading="loading" @click="handleCheckout">
                 <span class="font-bold tracking-widest text-[16px]">确认开单</span>
               </el-button>
             </div>
@@ -510,7 +667,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { Search, ShoppingCart, Delete, Promotion, Wallet, User, Warning, WarningFilled, Files, Plus, Fold, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Back, Close } from '@element-plus/icons-vue'
+import { Search, ShoppingCart, Delete, Promotion, Wallet, User, Warning, WarningFilled, Files, Plus, Fold, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Back, Close, Lightning } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import axios from 'axios'
 
@@ -546,6 +703,7 @@ const selectCategory = (id) => {
 
 // 获取商品数据
 const fetchProducts = async () => {
+  loading.value = true
   try {
     const response = await axios.get('/api/products', {
       params: { 
@@ -561,6 +719,8 @@ const fetchProducts = async () => {
   } catch (error) {
     console.error('Fetch products error:', error)
     ElMessage.error('无法连接到后端服务')
+  } finally {
+    loading.value = false
   }
 }
 
@@ -581,8 +741,22 @@ onMounted(() => {
   fetchCategories()
 })
 
+const isSpecialActive = (product) => {
+  if (!product.special_price || product.special_price <= 0) return false
+  if (!product.special_price_start || !product.special_price_end) return false
+  const now = new Date()
+  const start = new Date(product.special_price_start)
+  const end = new Date(product.special_price_end)
+  return now >= start && now <= end
+}
+
 const calculateMinPrice = (product) => {
-  return (product.latest_cost || 0) / (1 - (product.margin_rate || 0))
+  if (isSpecialActive(product)) {
+    return product.special_price
+  }
+  const cost = Number(product.avg_cost || product.latest_cost) || 0
+  const rate = Number(product.margin_rate) || 0
+  return cost / (1 - rate)
 }
 
 // 购物车状态
@@ -625,6 +799,10 @@ const clearCart = () => {
 
 // 结算状态
 const isSubsidized = ref(false)
+const isTradeIn = ref(false)
+const tradeInAmount = ref(0)
+const tradeInType = ref('')
+const tradeInRemark = ref('')
 const isDepositMode = ref(false)
 const depositAmount = ref(0)
 
@@ -652,7 +830,8 @@ const subsidyAmount = computed(() => {
 })
 
 const totalPayable = computed(() => {
-  return Math.max(0, originalTotal.value - subsidyAmount.value)
+  const discount = isTradeIn.value ? (tradeInAmount.value || 0) : 0
+  return Math.max(0, originalTotal.value - subsidyAmount.value - discount)
 })
 
 // 自动计算默认定金：50% 并取整 (如 4329 -> 2000)
@@ -722,20 +901,29 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('popstate', handlePopState)
 })
-
 const handleCheckout = async () => {
-  if (cart.value.length === 0 || hasPriceViolation.value) return
-  
   if (!customerName.value) return ElMessage.warning('请输入客户姓名')
   if (!customerPhone.value) return ElMessage.warning('请输入客户手机号')
   if (!customerAddress.value) return ElMessage.warning('请输入客户收货地址')
 
-  const type = isDepositMode.value ? '定金' : '全款'
-  const amount = actualReceipt.value.toFixed(2)
-  
-  try {
-    await ElMessageBox.confirm(
-      `确认收取客户 ${type} ¥${amount} 并生成订单吗？`,
+    if (hasPriceViolation.value) {
+      await ElMessageBox.confirm(
+        '部分商品成交价低于成本底价，确定要强制开单吗？',
+        '价格授权确认',
+        {
+          confirmButtonText: '强制开单',
+          cancelButtonText: '取消',
+          type: 'error',
+        }
+      )
+    }
+
+    const type = isDepositMode.value ? '定金' : '全款'
+    const amount = actualReceipt.value.toFixed(2)
+    
+    try {
+      await ElMessageBox.confirm(
+        `确认收取客户 ${type} ¥${amount} 并生成订单吗？`,
       '结算确认',
       {
         confirmButtonText: '确认',
@@ -762,7 +950,11 @@ const handleCheckout = async () => {
       referrer_name: referrerName.value,
       referral_fee: referralFee.value,
       payment_method: paymentMethod.value,
-      delivery_method: deliveryMethod.value
+      delivery_method: deliveryMethod.value,
+      bypass_price_check: hasPriceViolation.value,
+      trade_in_amount: isTradeIn.value ? tradeInAmount.value : 0,
+      trade_in_type: isTradeIn.value ? tradeInType.value : '',
+      trade_in_remark: isTradeIn.value ? tradeInRemark.value : ''
     }
     
     const response = await axios.post('/api/orders', payload)
@@ -771,6 +963,10 @@ const handleCheckout = async () => {
       ElMessage.success('开单成功！')
       clearCart()
       isSubsidized.value = false
+      isTradeIn.value = false
+      tradeInAmount.value = 0
+      tradeInType.value = ''
+      tradeInRemark.value = ''
       isDepositMode.value = false
       depositAmount.value = 0
       customerName.value = ''
@@ -906,5 +1102,18 @@ const handleCheckout = async () => {
 ::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
+}
+.special-offer-card {
+  border-color: #fee2e2 !important;
+  background: linear-gradient(135deg, #ffffff 0%, #fffcfc 100%) !important;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.08) !important;
+}
+
+.special-offer-card:hover {
+  border-color: #ef4444 !important;
+}
+
+.special-offer-card .text-slate-800 {
+  color: #991b1b !important;
 }
 </style>

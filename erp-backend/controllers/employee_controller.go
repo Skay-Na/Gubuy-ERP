@@ -36,6 +36,8 @@ type CreateEmployeeRequest struct {
 	BaseSalary     float64    `json:"base_salary"`
 	CommissionRate float64    `json:"commission_rate"`
 	EntryDate      *time.Time `json:"entry_date"`
+	IsOutsourced   bool       `json:"is_outsourced"`
+	OutsourcedType string     `json:"outsourced_type"`
 }
 
 // CreateEmployee 创建员工
@@ -57,6 +59,8 @@ func CreateEmployee(c *gin.Context) {
 		BaseSalary:     req.BaseSalary,
 		CommissionRate: req.CommissionRate,
 		EntryDate:      req.EntryDate,
+		IsOutsourced:   req.IsOutsourced,
+		OutsourcedType: req.OutsourcedType,
 	}
 
 	if err := config.DB.Create(&employee).Error; err != nil {
@@ -83,6 +87,8 @@ type UpdateEmployeeRequest struct {
 	BaseSalary     float64    `json:"base_salary"`
 	CommissionRate float64    `json:"commission_rate"`
 	EntryDate      *time.Time `json:"entry_date"`
+	IsOutsourced   bool       `json:"is_outsourced"`
+	OutsourcedType string     `json:"outsourced_type"`
 }
 
 // UpdateEmployee 更新员工信息
@@ -114,6 +120,8 @@ func UpdateEmployee(c *gin.Context) {
 		"base_salary":     req.BaseSalary,
 		"commission_rate": req.CommissionRate,
 		"entry_date":      req.EntryDate,
+		"is_outsourced":   req.IsOutsourced,
+		"outsourced_type": req.OutsourcedType,
 	}
 
 	if err := config.DB.Model(&employee).Updates(updates).Error; err != nil {
@@ -232,9 +240,9 @@ func GetCommissionReport(c *gin.Context) {
 	}
 	endMonth := startMonth.AddDate(0, 1, 0)
 
-	// 2. 查询员工信息 (包含已删除的员工，避免历史记录丢失)
+	// 2. 查询员工信息 (包含已删除的员工，避免历史记录丢失，并且只统计正式员工)
 	var employees []models.Employee
-	if err := config.DB.Unscoped().Find(&employees).Error; err != nil {
+	if err := config.DB.Unscoped().Where("is_outsourced = ?", false).Find(&employees).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,
 			"msg":  "查询员工失败",
@@ -285,7 +293,7 @@ func GetCommissionReport(c *gin.Context) {
 		}
 		
 		reportItem.TotalSales += orderSales
-		reportItem.TotalCommission += orderSales * reportItem.CommissionRate
+		reportItem.TotalCommission += order.CommissionAmount
 	}
 
 	daysInMonth := time.Date(startMonth.Year(), startMonth.Month()+1, 0, 0, 0, 0, 0, time.Local).Day()
@@ -376,8 +384,8 @@ func GetEmployeeMeStats(c *gin.Context) {
 			orderAmt += item.UnitPrice * float64(item.Quantity)
 		}
 		stats.TotalSales += orderAmt
+		stats.EstimatedComm += order.CommissionAmount
 	}
-	stats.EstimatedComm = stats.TotalSales * employee.CommissionRate
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,

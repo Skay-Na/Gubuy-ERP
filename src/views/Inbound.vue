@@ -36,7 +36,7 @@
                   >
                     <div class="flex justify-between items-center">
                       <span class="text-sm">{{ item.name }}</span>
-                      <span class="text-gray-400 text-[10px] ml-2">SKU: {{ item.sku }}</span>
+                      <span class="text-gray-400 text-[10px] ml-2">备注: {{ item.remark || '-' }}</span>
                     </div>
                   </el-option>
                 </el-select>
@@ -119,7 +119,7 @@
               <h3 class="text-lg font-bold text-slate-700">实时库存大盘</h3>
               <el-input
                 v-model="searchKeyword"
-                placeholder="搜索名称或 SKU..."
+                placeholder="搜索名称或备注..."
                 prefix-icon="Search"
                 class="!w-full sm:!w-64"
                 clearable
@@ -136,7 +136,11 @@
               class="desktop-only hidden md:block"
             >
               <el-table-column prop="name" label="商品名称" min-width="150" />
-              <el-table-column prop="sku" label="SKU" width="120" />
+              <el-table-column label="商品备注" width="120">
+                <template #default="{ row }">
+                  {{ row.remark || '-' }}
+                </template>
+              </el-table-column>
               <el-table-column label="库存详情" width="120" align="center">
                 <template #default="scope">
                   <div class="flex flex-col gap-1 text-[10px]">
@@ -167,7 +171,7 @@
                 <div class="flex-1 min-w-0 mr-4">
                   <div class="font-bold text-slate-800 text-sm truncate">{{ row.name }}</div>
                   <div class="text-[10px] text-slate-400 mt-1">
-                    SKU: {{ row.sku }} | 主:{{ row.main_stock }} 店:{{ row.store_stock }}
+                    备注: {{ row.remark || '-' }} | 主:{{ row.main_stock }} 店:{{ row.store_stock }}
                   </div>
                 </div>
                 <el-button type="primary" plain size="small" @click="preFillForm(row)" class="!rounded-lg">填入</el-button>

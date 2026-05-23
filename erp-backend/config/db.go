@@ -59,6 +59,7 @@ func InitDB() {
 		&models.FinancialLog{},
 		&models.AdminUser{},
 		&models.DailyAttendance{},
+		&models.SubsidySettlement{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to auto migrate database: %v", err)
@@ -66,6 +67,7 @@ func InitDB() {
 
 	fmt.Println("Database migration completed")
 	DB = db
+
 
 	// 初始化基础账户数据 (Seed)
 	seedAccounts(db)

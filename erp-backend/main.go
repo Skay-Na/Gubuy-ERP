@@ -25,6 +25,10 @@ func main() {
 	r.Run(":8080")
 }
 
+func strPtr(s string) *string {
+	return &s
+}
+
 // seedData 插入 Mock 数据
 func seedData() {
 	var count int64
@@ -33,7 +37,7 @@ func seedData() {
 		products := []models.Product{
 			{
 				Name:       "海尔冰箱 BCD-500",
-				SKU:        "HR-RF-500",
+				Remark:     strPtr("HR-RF-500"),
 				LatestCost: 3200.00,
 				MarginRate:  0.15,
 				MainStock:   10,
@@ -42,7 +46,7 @@ func seedData() {
 			},
 			{
 				Name:       "美的洗衣机 MD-100",
-				SKU:        "MD-WM-100",
+				Remark:     strPtr("MD-WM-100"),
 				LatestCost: 1800.00,
 				MarginRate:  0.12,
 				MainStock:   5,
@@ -51,7 +55,7 @@ func seedData() {
 			},
 			{
 				Name:       "小米电视 65寸",
-				SKU:        "XM-TV-65",
+				Remark:     strPtr("XM-TV-65"),
 				LatestCost: 2500.00,
 				MarginRate:  0.10,
 				MainStock:   8,

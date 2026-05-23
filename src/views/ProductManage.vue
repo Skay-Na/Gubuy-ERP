@@ -6,33 +6,72 @@
         <h1 class="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mb-1">商品库管理</h1>
         <p class="text-sm text-slate-400">维护商品基础档案，设定编码与毛利率</p>
       </div>
-      <div class="flex flex-col sm:flex-row gap-3">
-        <el-select
-          v-model="selectedCategoryId"
-          placeholder="全部分类"
-          class="!w-full sm:!w-40"
-          clearable
-          @change="handleSearch"
-        >
-          <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
-        </el-select>
-        <el-input
-          v-model="searchQuery"
-          placeholder="搜索名称或 SKU"
-          class="!w-full sm:!w-48"
-          clearable
-          @input="handleSearch"
-        >
-          <template #prefix>
-            <el-icon><Search /></el-icon>
-          </template>
-        </el-input>
-        <el-button type="primary" class="!rounded-xl h-10 shadow-sm" @click="openAddDialog">
+      <div class="flex flex-wrap gap-3">
+        <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-blue-400" @click="handleRecalculateCosts">
+          <el-icon class="mr-1 text-orange-500"><MagicStick /></el-icon>重构历史成本
+        </el-button>
+        <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-blue-400" @click="openCategoryManage">
+          <el-icon class="mr-1"><Setting /></el-icon>分类管理
+        </el-button>
+        <el-button type="primary" class="!rounded-xl h-10 shadow-md shadow-blue-100" @click="openAddDialog">
           <el-icon class="mr-1"><Plus /></el-icon>新增商品
         </el-button>
-        <el-button plain class="!rounded-xl h-10" @click="openCategoryManage">
-          分类管理
-        </el-button>
+      </div>
+    </div>
+
+    <!-- Enhanced Filter Bar -->
+    <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-6 space-y-4">
+      <div class="flex flex-col md:flex-row gap-4 items-center">
+        <!-- Search Input -->
+        <div class="w-full md:w-96">
+          <el-input
+            v-model="searchQuery"
+            placeholder="输入商品名称、备注关键词..."
+            class="custom-search-input"
+            clearable
+            @input="handleSearch"
+          >
+            <template #prefix>
+              <el-icon size="18" class="text-blue-500"><Search /></el-icon>
+            </template>
+          </el-input>
+        </div>
+        
+        <!-- Status Filters -->
+        <div class="flex items-center gap-4 ml-auto">
+          <div 
+            class="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all cursor-pointer select-none"
+            :class="onlySpecial ? 'bg-red-50 border-red-200 text-red-600 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-200'"
+            @click="toggleSpecial"
+          >
+            <el-icon :class="{'animate-pulse': onlySpecial}"><Lightning /></el-icon>
+            <span class="text-sm font-bold">仅看特价促销</span>
+            <el-switch v-model="onlySpecial" size="small" @click.stop @change="handleSearch" class="ml-1" />
+          </div>
+        </div>
+      </div>
+
+      <!-- Category Chips -->
+      <div class="flex items-center gap-2 pt-2 border-t border-slate-50">
+        <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">分类筛选:</div>
+        <div class="flex-1 flex flex-wrap gap-2">
+          <div 
+            class="category-chip"
+            :class="{ active: selectedCategoryId === '' }"
+            @click="selectCategory('')"
+          >
+            全部
+          </div>
+          <div 
+            v-for="cat in categories" 
+            :key="cat.id"
+            class="category-chip"
+            :class="{ active: selectedCategoryId === cat.id }"
+            @click="selectCategory(cat.id)"
+          >
+            {{ cat.name }}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -41,7 +80,7 @@
       <!-- PC View -->
       <el-table 
         v-loading="loading"
-        :data="productList" 
+        :data="paginatedProductList" 
         style="width: 100%" 
         border
         stripe
@@ -50,9 +89,9 @@
       >
         <el-table-column prop="id" label="ID" width="80" align="center" />
         <el-table-column prop="name" label="商品名称" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="sku" label="SKU 编码" width="150" align="center">
+        <el-table-column prop="remark" label="商品备注" width="150" align="center">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain" class="!rounded-lg">{{ row.sku }}</el-tag>
+            <el-tag size="small" effect="plain" class="!rounded-lg">{{ row.remark || '-' }}</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="分类" width="120" align="center">
@@ -66,9 +105,24 @@
             <span class="font-bold text-slate-700">{{ (row.margin_rate * 100).toFixed(0) }}%</span>
           </template>
         </el-table-column>
-        <el-table-column prop="latest_cost" label="最新进价" width="120" align="right">
+        <el-table-column prop="latest_cost" label="成本/价格" width="150" align="right">
           <template #default="{ row }">
-            <span class="font-mono font-bold text-green-600">¥{{ row.latest_cost.toFixed(2) }}</span>
+            <div class="flex flex-col items-end gap-0.5">
+              <div class="flex items-center gap-1">
+                <span class="text-[10px] text-slate-400">平均:</span>
+                <span class="font-mono text-xs font-bold text-blue-600">¥{{ (row.avg_cost || row.latest_cost).toFixed(2) }}</span>
+              </div>
+              <div class="flex items-center gap-1">
+                <span class="text-[10px] text-slate-400">最新:</span>
+                <span class="font-mono text-xs text-slate-500">¥{{ row.latest_cost.toFixed(2) }}</span>
+              </div>
+              <div class="mt-1 pt-1 border-t border-slate-50 w-full text-right">
+                <span class="font-mono font-bold" :class="isSpecialActive(row) ? 'text-red-500' : 'text-slate-800'">
+                  ¥{{ (isSpecialActive(row) ? row.special_price : (row.avg_cost || row.latest_cost) / (1 - row.margin_rate)).toFixed(0) }}
+                </span>
+                <el-tag v-if="isSpecialActive(row)" size="small" type="danger" effect="dark" class="ml-1 !scale-75 !px-1">特价</el-tag>
+              </div>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="库存详情" min-width="220">
@@ -117,12 +171,12 @@
 
       <!-- Mobile View -->
       <div class="mobile-only md:hidden p-4 space-y-4" v-loading="loading">
-        <div v-for="row in productList" :key="row.id" class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
+        <div v-for="row in paginatedProductList" :key="row.id" class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
           <div class="flex justify-between items-start mb-3">
             <div class="flex-1 min-w-0 pr-2">
               <div class="font-bold text-slate-800 text-base leading-tight mb-1">{{ row.name }}</div>
               <div class="flex items-center gap-2">
-                <el-tag size="small" effect="plain" class="!rounded-lg !px-2 font-mono">{{ row.sku }}</el-tag>
+                <el-tag size="small" effect="plain" class="!rounded-lg !px-2 font-mono">{{ row.remark || '-' }}</el-tag>
                 <span class="text-[11px] text-slate-400">利润率: {{ (row.margin_rate * 100).toFixed(0) }}%</span>
               </div>
             </div>
@@ -169,6 +223,21 @@
         </div>
         <el-empty v-if="!loading && productList.length === 0" description="暂无商品" />
       </div>
+
+      <!-- Enhanced Pagination -->
+      <div class="flex justify-end p-4 border-t border-slate-100 bg-slate-50/30">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :page-sizes="[10, 15, 20, 50]"
+          layout="total, sizes, prev, pager, next"
+          :total="totalProducts"
+          background
+          class="custom-pagination"
+          @current-change="fetchProducts"
+          @size-change="handleSizeChange"
+        />
+      </div>
     </el-card>
 
     <!-- Product Form Dialog -->
@@ -189,8 +258,8 @@
         <el-form-item label="商品名称" prop="name">
           <el-input v-model="productForm.name" placeholder="请输入商品完整名称" />
         </el-form-item>
-        <el-form-item label="SKU 编码" prop="sku">
-          <el-input v-model="productForm.sku" placeholder="请输入唯一商品编码 (条码)" />
+        <el-form-item label="商品备注 (特征说明)" prop="remark">
+          <el-input v-model="productForm.remark" placeholder="请输入商品特征或备注" />
         </el-form-item>
         <el-form-item label="商品分类" prop="category_id">
           <el-select v-model="productForm.category_id" placeholder="请选择分类" class="w-full">
@@ -206,11 +275,52 @@
             :max="1"
             style="width: 100%"
           />
-          <div class="input-tip">预览销售利润：{{ (productForm.margin_rate * 100).toFixed(0) }}%</div>
+          <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? ((productForm.avg_cost || 0) / (1 - productForm.margin_rate)).toFixed(2) : '0.00' }} (平均成本: ¥{{ (productForm.avg_cost || 0).toFixed(2) }})</div>
         </el-form-item>
         <el-form-item label="云仓代发" prop="support_cloud">
           <el-switch v-model="productForm.support_cloud" active-text="支持" inactive-text="不支持" />
         </el-form-item>
+
+        <div v-if="isEdit" class="mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
+          <div class="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
+            <el-icon><InfoFilled /></el-icon>成本校准 (基于移动加权平均)
+          </div>
+          <el-form-item label="平均成本 (如果系统计算有误，请手动修正)" prop="avg_cost">
+            <el-input-number 
+              v-model="productForm.avg_cost" 
+              :precision="2" 
+              :min="0" 
+              style="width: 100%" 
+              placeholder="请输入正确的平均进价"
+            />
+          </el-form-item>
+          <div class="text-[10px] text-slate-400 mt-1 italic px-2">
+            * 修正此数值将直接影响收银台的“销售底价”计算。
+          </div>
+        </div>
+
+        <!-- 限时特价设置 -->
+        <div class="mt-4 p-4 bg-orange-50/50 rounded-2xl border border-orange-100">
+          <div class="text-xs font-bold text-orange-600 mb-3 flex items-center gap-1">
+            <el-icon><Calendar /></el-icon>限时特价设置 (引流/促销)
+          </div>
+          <div class="space-y-4">
+            <el-form-item label="特价金额 (不设请留0)" prop="special_price">
+              <el-input-number v-model="productForm.special_price" :precision="2" :min="0" style="width: 100%" />
+            </el-form-item>
+            <el-form-item label="特价有效时间范围" prop="special_range">
+              <el-date-picker
+                v-model="productForm.special_range"
+                type="datetimerange"
+                range-separator="至"
+                start-placeholder="开始时间"
+                end-placeholder="结束时间"
+                class="!w-full"
+                value-format="YYYY-MM-DDTHH:mm:ss"
+              />
+            </el-form-item>
+          </div>
+        </div>
       </el-form>
       <template #footer>
         <div class="dialog-footer">
@@ -329,6 +439,12 @@
             </span>
           </template>
         </el-table-column>
+        <el-table-column label="单价/进价" width="100" align="right">
+          <template #default="{ row }">
+            <span v-if="row.unit_cost" class="font-mono text-xs text-slate-600">¥{{ row.unit_cost.toFixed(2) }}</span>
+            <span v-else class="text-slate-300">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="库存快照" width="120" align="center">
           <template #default="{ row }">
             <span class="text-xs text-slate-500">{{ row.before_qty }} &rarr; <span class="font-bold text-slate-700">{{ row.after_qty }}</span></span>
@@ -375,10 +491,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
-import { Plus, Search, ArrowDown } from '@element-plus/icons-vue'
+import { ref, onMounted, reactive, computed } from 'vue'
+import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled } from '@element-plus/icons-vue'
 import axios from 'axios'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -386,23 +502,35 @@ const dialogVisible = ref(false)
 const productList = ref([])
 const categories = ref([])
 const selectedCategoryId = ref('')
+const onlySpecial = ref(false)
 const searchQuery = ref('')
 const productFormRef = ref(null)
+
+// Pagination Setup
+const currentPage = ref(1)
+const pageSize = ref(15)
+const totalProducts = ref(0)
+const paginatedProductList = computed(() => {
+  return productList.value
+})
 
 const isEdit = ref(false)
 const currentEditId = ref(null)
 
 const productForm = reactive({
   name: '',
-  sku: '',
+  remark: '',
   category_id: null,
   margin_rate: 0.15,
-  support_cloud: false
+  support_cloud: false,
+  special_price: 0,
+  special_range: [],
+  avg_cost: 0
 })
 
 const formRules = {
   name: [{ required: true, message: '请输入商品名称', trigger: 'blur' }],
-  sku: [{ required: true, message: '请输入SKU编码', trigger: 'blur' }],
+  remark: [{ required: false, message: '请输入备注', trigger: 'blur' }],
   category_id: [{ required: true, message: '请选择商品分类', trigger: 'change' }],
   margin_rate: [{ required: true, message: '请设置毛利率', trigger: 'blur' }]
 }
@@ -425,17 +553,27 @@ const fetchProducts = async () => {
       params: { 
         keyword: searchQuery.value,
         category_id: selectedCategoryId.value,
-        all: 1
+        only_special: onlySpecial.value ? 1 : 0,
+        all: 1,
+        page: currentPage.value,
+        page_size: pageSize.value
       }
     })
     if (res.data.code === 200) {
       productList.value = res.data.data
+      totalProducts.value = res.data.total || 0
     }
   } catch (error) {
     ElMessage.error('获取商品列表失败')
   } finally {
     loading.value = false
   }
+}
+
+const handleSizeChange = (val) => {
+  pageSize.value = val
+  currentPage.value = 1
+  fetchProducts()
 }
 
 // 分类管理相关
@@ -489,6 +627,47 @@ const handleDeleteCategory = async (id) => {
 }
 
 const handleSearch = () => {
+  currentPage.value = 1
+  fetchProducts()
+}
+
+const handleRecalculateCosts = async () => {
+  try {
+    await ElMessageBox.confirm(
+      '此操作将扫描所有历史采购流水，根据真实的入库价格重新计算每个商品的平均成本。这通常用于修复因算法升级前导致的数据偏差。是否继续？',
+      '重构历史成本',
+      {
+        confirmButtonText: '立即重构',
+        cancelButtonText: '取消',
+        type: 'warning',
+        icon: MagicStick
+      }
+    )
+    
+    loading.value = true
+    const res = await axios.post('/api/products/recalculate-costs')
+    if (res.data.code === 200) {
+      ElMessage.success(res.data.msg)
+      fetchProducts()
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('重构失败：' + (error.response?.data?.msg || error.message))
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+const selectCategory = (id) => {
+  selectedCategoryId.value = id
+  currentPage.value = 1
+  fetchProducts()
+}
+
+const toggleSpecial = () => {
+  onlySpecial.value = !onlySpecial.value
+  currentPage.value = 1
   fetchProducts()
 }
 
@@ -496,10 +675,13 @@ const openAddDialog = () => {
   isEdit.value = false
   currentEditId.value = null
   productForm.name = ''
-  productForm.sku = ''
+  productForm.remark = ''
   productForm.category_id = null
   productForm.margin_rate = 0.15
   productForm.support_cloud = false
+  productForm.special_price = 0
+  productForm.special_range = []
+  productForm.avg_cost = 0
   dialogVisible.value = true
 }
 
@@ -507,10 +689,17 @@ const handleEdit = (row) => {
   isEdit.value = true
   currentEditId.value = row.id
   productForm.name = row.name
-  productForm.sku = row.sku
+  productForm.remark = row.remark
   productForm.category_id = row.category_id
   productForm.margin_rate = row.margin_rate
+  productForm.avg_cost = row.avg_cost || row.latest_cost || 0
   productForm.support_cloud = row.support_cloud || false
+  productForm.special_price = row.special_price || 0
+  if (row.special_price_start && row.special_price_end) {
+    productForm.special_range = [row.special_price_start, row.special_price_end]
+  } else {
+    productForm.special_range = []
+  }
   dialogVisible.value = true
 }
 
@@ -651,11 +840,21 @@ const submitProduct = async () => {
     if (valid) {
       submitting.value = true
       try {
+        const submitData = { ...productForm }
+        if (productForm.special_range && productForm.special_range.length === 2) {
+          submitData.special_price_start = productForm.special_range[0]
+          submitData.special_price_end = productForm.special_range[1]
+        } else {
+          submitData.special_price_start = null
+          submitData.special_price_end = null
+        }
+        delete submitData.special_range
+
         let res
         if (isEdit.value) {
-          res = await axios.put(`/api/products/${currentEditId.value}`, productForm)
+          res = await axios.put(`/api/products/${currentEditId.value}`, submitData)
         } else {
-          res = await axios.post('/api/products', productForm)
+          res = await axios.post('/api/products', submitData)
         }
         
         if (res.data.code === 200) {
@@ -666,12 +865,21 @@ const submitProduct = async () => {
           ElMessage.error(res.data.msg || '操作失败')
         }
       } catch (error) {
-        ElMessage.error('服务器响应错误')
+        ElMessage.error(error.response?.data?.msg || '服务器响应错误')
       } finally {
         submitting.value = false
       }
     }
   })
+}
+
+const isSpecialActive = (product) => {
+  if (!product.special_price || product.special_price <= 0) return false
+  if (!product.special_price_start || !product.special_price_end) return false
+  const now = new Date()
+  const start = new Date(product.special_price_start)
+  const end = new Date(product.special_price_end)
+  return now >= start && now <= end
 }
 
 onMounted(() => {
@@ -768,5 +976,91 @@ onMounted(() => {
 
 :deep(.el-table th.el-table__cell) {
   font-weight: 600;
+}
+
+/* New Modern UI Styles */
+.custom-search-input :deep(.el-input__wrapper) {
+  border-radius: 14px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02) inset;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  padding: 4px 12px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.custom-search-input :deep(.el-input__wrapper.is-focus) {
+  background-color: #fff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+}
+
+.category-chip {
+  padding: 6px 16px;
+  border-radius: 10px;
+  background-color: #f1f5f9;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+}
+
+.category-chip:hover {
+  background-color: #e2e8f0;
+  color: #1e293b;
+}
+
+.category-chip.active {
+  background-color: #3b82f6;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+}
+
+.special-offer-card {
+  border-color: #fee2e2 !important;
+  background: linear-gradient(135deg, #ffffff 0%, #fffcfc 100%) !important;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.08) !important;
+}
+
+.special-offer-card:hover {
+  border-color: #ef4444 !important;
+}
+
+.special-offer-card .text-slate-800 {
+  color: #991b1b !important;
+}
+
+/* Premium Pagination Styles */
+.custom-pagination :deep(.el-pager li) {
+  border-radius: 8px;
+  font-weight: 700;
+  border: 1px solid #f1f5f9;
+  background-color: #ffffff;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: #64748b;
+  font-family: 'Inter', system-ui;
+}
+.custom-pagination :deep(.el-pager li:hover) {
+  color: #3b82f6;
+  border-color: #3b82f6;
+}
+.custom-pagination :deep(.el-pager li.is-active) {
+  background-color: #3b82f6 !important;
+  color: #ffffff !important;
+  border-color: #3b82f6;
+  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+}
+.custom-pagination :deep(.btn-prev),
+.custom-pagination :deep(.btn-next) {
+  border-radius: 8px;
+  border: 1px solid #f1f5f9;
+  background-color: #ffffff !important;
+  color: #64748b;
+}
+.custom-pagination :deep(.btn-prev:disabled),
+.custom-pagination :deep(.btn-next:disabled) {
+  border-color: #f1f5f9;
+  color: #cbd5e1;
 }
 </style>

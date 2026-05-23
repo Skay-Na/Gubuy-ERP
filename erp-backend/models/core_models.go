@@ -50,14 +50,18 @@ type Category struct {
 type Product struct {
 	ID           uint           `gorm:"primaryKey;comment:主键ID" json:"id"`
 	Name         string         `gorm:"type:varchar(255);not null;comment:商品名称" json:"name"`
-	SKU          string         `gorm:"type:varchar(100);uniqueIndex;not null;comment:唯一编码" json:"sku"`
+	Remark       *string        `gorm:"column:sku;type:varchar(255);comment:商品备注" json:"remark"`
 	LatestCost   float64        `gorm:"type:decimal(10,2);not null;default:0;comment:最新进价" json:"latest_cost"`
+	AvgCost      float64        `gorm:"type:decimal(10,2);not null;default:0;comment:平均成本" json:"avg_cost"`
 	MarginRate   float64        `gorm:"type:decimal(5,2);not null;default:0.1;comment:固定毛利率" json:"margin_rate"`
 	MainStock    int            `gorm:"type:int;not null;default:0;comment:主仓库存" json:"main_stock"`
 	StoreStock   int            `gorm:"type:int;not null;default:0;comment:门店可用库存" json:"store_stock"`
 	SampleStock  int            `gorm:"type:int;not null;default:0;comment:门店样机数量" json:"sample_stock"`
 	CloudStock   int            `gorm:"type:int;not null;default:0;comment:云仓自有库存" json:"cloud_stock"`
 	SupportCloud bool           `gorm:"not null;default:false;comment:是否支持云仓代发" json:"support_cloud"`
+	SpecialPrice float64        `gorm:"type:decimal(10,2);default:0;comment:特价金额" json:"special_price"`
+	SpecialPriceStart *time.Time `gorm:"comment:特价开始时间" json:"special_price_start"`
+	SpecialPriceEnd   *time.Time `gorm:"comment:特价结束时间" json:"special_price_end"`
 	CategoryID   uint           `gorm:"index;comment:所属分类ID" json:"category_id"`
 	Category     *Category      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
 	CreatedAt    time.Time      `json:"created_at"`
@@ -75,6 +79,8 @@ type Employee struct {
 	CommissionRate float64        `gorm:"type:decimal(5,4);not null;default:0;comment:提成比例" json:"commission_rate"`
 	PinCode        string         `gorm:"type:varchar(10);comment:终端登录PIN码" json:"pin_code"`
 	EntryDate      *time.Time     `gorm:"type:date;comment:入职时间" json:"entry_date"`
+	IsOutsourced   bool           `gorm:"default:false;comment:是否为外包人员" json:"is_outsourced"`
+	OutsourcedType string         `gorm:"type:varchar(20);default:'';comment:外包类型：install(安装), delivery(送货)" json:"outsourced_type"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
@@ -119,9 +125,13 @@ type Order struct {
 	PaymentStatus   int     `gorm:"type:tinyint;not null;default:1;comment:支付状态：1-仅付定金, 2-已结全款" json:"payment_status"`
 	SubsidyStatus   int     `gorm:"type:tinyint;not null;default:0;comment:国补资料状态：0-无国补, 1-待提交, 2-已提交, 3-已回款" json:"subsidy_status"`
 	// 新增：安装相关字段
+	IsDelivered       bool       `gorm:"default:false;comment:是否已送货" json:"is_delivered"`
+	DeliveryTime      *time.Time `json:"delivery_time"`
 	IsInstalled       bool       `gorm:"default:false;comment:是否已安装" json:"is_installed"`
 	InstallerID       *uint      `gorm:"index;comment:安装人ID" json:"installer_id"`
 	InstallTime       *time.Time `json:"install_time"`
+	InstallationFee   float64    `gorm:"type:decimal(10,2);not null;default:0;comment:实际安装费用" json:"installation_fee"`
+	DeliveryFee       float64    `gorm:"type:decimal(10,2);not null;default:0;comment:实际送货费用" json:"delivery_fee"`
 	Installer         *Employee  `gorm:"foreignKey:InstallerID" json:"installer,omitempty"`
 	DeliveryPersonID  *uint      `gorm:"index;comment:送货人ID" json:"delivery_person_id"`
 	DeliveryPerson    *Employee  `gorm:"foreignKey:DeliveryPersonID" json:"delivery_person,omitempty"`
@@ -138,8 +148,13 @@ type Order struct {
 	ReferrerName      string      `gorm:"type:varchar(100);comment:推荐人姓名" json:"referrer_name"`
 	ReferralFee       float64     `gorm:"type:decimal(10,2);not null;default:0;comment:第三方带单提成金额" json:"referral_fee"`
 	IsReferralFeePaid bool        `gorm:"not null;default:false;comment:推荐提成是否已发" json:"is_referral_fee_paid"`
+	CommissionAmount  float64        `gorm:"type:decimal(10,2);not null;default:0;comment:业务提成金额" json:"commission_amount"`
 	// 新增：发货/提货方式 (1-门店自提, 2-主仓发货, 3-云仓代发)
 	DeliveryMethod int            `gorm:"type:tinyint;not null;default:1;comment:发货方式：1-门店自提, 2-主仓发货, 3-云仓代发" json:"delivery_method"`
+	// 新增：以旧换新相关字段
+	TradeInAmount float64 `gorm:"type:decimal(10,2);not null;default:0;comment:以旧换新折抵金额" json:"trade_in_amount"`
+	TradeInType   string  `gorm:"type:varchar(100);comment:以旧换新旧件品类" json:"trade_in_type"`
+	TradeInRemark string  `gorm:"type:varchar(255);comment:以旧换新备注描述" json:"trade_in_remark"`
 	CreatedAt      time.Time      `json:"created_at"`
 	UpdatedAt      time.Time      `json:"updated_at"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
@@ -156,6 +171,21 @@ type OrderItem struct {
 	CloudDeductionQty int       `gorm:"type:int;not null;default:0;comment:从云仓自有库存扣除的数量" json:"cloud_deduction_qty"`
 	IsGift            bool      `gorm:"type:tinyint(1);not null;default:0;comment:是否为赠品" json:"is_gift"`
 	Product           *Product  `gorm:"foreignKey:ProductID" json:"product,omitempty"`
+
+	// 新增：单品级配送追踪
+	IsDelivered      bool       `gorm:"not null;default:false;comment:是否已送货" json:"is_delivered"`
+	DeliveryTime     *time.Time `gorm:"comment:送货时间" json:"delivery_time"`
+	DeliveryPersonID *uint      `gorm:"index;comment:送货人员ID" json:"delivery_person_id"`
+	DeliveryPerson   *Employee  `gorm:"foreignKey:DeliveryPersonID" json:"delivery_person,omitempty"`
+	DeliveryFee      float64    `gorm:"type:decimal(10,2);not null;default:0;comment:单品送货费" json:"delivery_fee"`
+
+	// 新增：单品级安装追踪
+	IsInstalled     bool       `gorm:"not null;default:false;comment:是否已安装" json:"is_installed"`
+	InstallTime     *time.Time `gorm:"comment:安装时间" json:"install_time"`
+	InstallerID     *uint      `gorm:"index;comment:安装师傅ID" json:"installer_id"`
+	Installer       *Employee  `gorm:"foreignKey:InstallerID" json:"installer,omitempty"`
+	InstallationFee float64    `gorm:"type:decimal(10,2);not null;default:0;comment:单品安装费" json:"installation_fee"`
+
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 }
@@ -225,6 +255,17 @@ type InventoryLog struct {
 	ChangeQty     int       `gorm:"not null;comment:变动数量(正数增加，负数扣减)" json:"change_qty"`
 	AfterQty      int       `gorm:"not null;comment:变动后库存快照" json:"after_qty"`
 	RelatedNo     string    `gorm:"type:varchar(100);comment:关联业务单号" json:"related_no"`
+	UnitCost      float64   `gorm:"type:decimal(10,2);not null;default:0;comment:单价快照" json:"unit_cost"`
 	Remark        string    `gorm:"type:varchar(255);comment:操作备注" json:"remark"`
 	CreatedAt     time.Time `json:"created_at"`
+}
+
+// SubsidySettlement 国补回款记录表
+type SubsidySettlement struct {
+	ID        uint      `gorm:"primaryKey;comment:主键ID" json:"id"`
+	Amount    float64   `gorm:"type:decimal(12,2);not null;comment:回款金额" json:"amount"`
+	AccountID uint      `gorm:"not null;index;comment:收款账户ID" json:"account_id"`
+	Account   *Account  `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	Remark    string    `gorm:"type:varchar(255);comment:备注说明" json:"remark"`
+	CreatedAt time.Time `json:"created_at"`
 }

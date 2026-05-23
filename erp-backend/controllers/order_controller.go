@@ -34,6 +34,11 @@ type CreateOrderRequest struct {
 	PaymentMethod int `json:"payment_method" binding:"required"`
 	// 发货方式: 1-门店自提, 2-主仓发货, 3-云仓代发
 	DeliveryMethod int `json:"delivery_method" binding:"required,oneof=1 2 3"`
+	BypassPriceCheck bool `json:"bypass_price_check"`
+	// 新增：以旧换新相关字段
+	TradeInAmount float64 `json:"trade_in_amount"`
+	TradeInType   string  `json:"trade_in_type"`
+	TradeInRemark string  `json:"trade_in_remark"`
 }
 
 // CreateOrder 提交开单接口
@@ -139,18 +144,37 @@ func CreateOrder(c *gin.Context) {
 
 		// 记录库存流水
 		beforeQty := 0
+		changeQty := -item.Quantity
+		shouldWriteLog := true
 		if req.DeliveryMethod == 1 {
 			beforeQty = product.StoreStock
 		} else if req.DeliveryMethod == 2 {
 			beforeQty = product.MainStock
 		} else if req.DeliveryMethod == 3 {
 			beforeQty = product.CloudStock
+			changeQty = -cloudDeductionQty
+			// 如果没有从自有的云仓库存中扣除数量（直接由云仓提供网上代发），则不写入我们自己资产的流水
+			if cloudDeductionQty == 0 {
+				shouldWriteLog = false
+			}
 		}
-		WriteInventoryLog(tx, product.ID, req.DeliveryMethod, "sale", beforeQty, -item.Quantity, "", "销售开单")
+		if shouldWriteLog {
+			WriteInventoryLog(tx, product.ID, req.DeliveryMethod, "sale", beforeQty, changeQty, product.LatestCost, "", "销售开单")
+		}
 
 		unitPrice := item.UnitPrice
 		if item.IsGift {
 			unitPrice = 0
+		} else {
+			// 核心防御：成交价不能低于移动平均成本（除非 AvgCost 为 0，即新商品未入库，或者管理员手动跳过校验）
+			if !req.BypassPriceCheck && product.AvgCost > 0 && unitPrice < product.AvgCost {
+				tx.Rollback()
+				c.JSON(http.StatusBadRequest, gin.H{
+					"code": 400,
+					"msg":  fmt.Sprintf("商品 %s 成交价(¥%.2f)低于成本价(¥%.2f)，请联系管理员授权", product.Name, unitPrice, product.AvgCost),
+				})
+				return
+			}
 		}
 
 		totalAmount += unitPrice * float64(item.Quantity)
@@ -175,7 +199,10 @@ func CreateOrder(c *gin.Context) {
 		}
 	}
 
-	actualPayAmount := totalAmount - subsidyAmount
+	actualPayAmount := totalAmount - subsidyAmount - req.TradeInAmount
+	if actualPayAmount < 0 {
+		actualPayAmount = 0
+	}
 
 	if req.DepositAmount > actualPayAmount {
 		tx.Rollback()
@@ -199,26 +226,39 @@ func CreateOrder(c *gin.Context) {
 
 	accountID := uint(req.PaymentMethod)
 
+	// 5.5 计算默认业务提成金额
+	var commissionAmount float64
+	if req.EmployeeID != nil {
+		var employee models.Employee
+		if err := tx.First(&employee, *req.EmployeeID).Error; err == nil {
+			commissionAmount = actualPayAmount * employee.CommissionRate
+		}
+	}
+
 	// 6. 生成订单号并落库
 	orderNo := fmt.Sprintf("ORD%d", time.Now().UnixNano()/1e6)
 	order := models.Order{
-		OrderNo:         orderNo,
-		CustomerName:    req.CustomerName,
-		CustomerPhone:   req.CustomerPhone,
-		CustomerAddress: req.CustomerAddress,
-		TotalAmount:     totalAmount,
-		SubsidyAmount:   subsidyAmount,
-		ActualPayAmount: actualPayAmount,
-		DepositAmount:   req.DepositAmount,
-		PaymentStatus:   paymentStatus,
-		SubsidyStatus:   subsidyStatus,
-		PaymentMethod:   req.PaymentMethod,
-		DeliveryMethod:  req.DeliveryMethod,
-		OrderStatus:     1, // 正常
-		AccountID:       &accountID,
-		EmployeeID:      req.EmployeeID,
-		ReferrerName:    req.ReferrerName,
-		ReferralFee:     req.ReferralFee,
+		OrderNo:          orderNo,
+		CustomerName:     req.CustomerName,
+		CustomerPhone:    req.CustomerPhone,
+		CustomerAddress:  req.CustomerAddress,
+		TotalAmount:      totalAmount,
+		SubsidyAmount:    subsidyAmount,
+		ActualPayAmount:  actualPayAmount,
+		DepositAmount:    req.DepositAmount,
+		PaymentStatus:    paymentStatus,
+		SubsidyStatus:    subsidyStatus,
+		PaymentMethod:    req.PaymentMethod,
+		DeliveryMethod:   req.DeliveryMethod,
+		OrderStatus:      1, // 正常
+		AccountID:        &accountID,
+		EmployeeID:       req.EmployeeID,
+		ReferrerName:     req.ReferrerName,
+		ReferralFee:      req.ReferralFee,
+		CommissionAmount: commissionAmount,
+		TradeInAmount:    req.TradeInAmount,
+		TradeInType:      req.TradeInType,
+		TradeInRemark:    req.TradeInRemark,
 	}
 
 	if err := tx.Create(&order).Error; err != nil {
@@ -250,7 +290,11 @@ func CreateOrder(c *gin.Context) {
 	// 获取更新后的账户余额
 	var updatedAccount models.Account
 	tx.First(&updatedAccount, accountID)
-	if err := WriteFinancialLog(tx, accountID, 1, category, receiptAmount, updatedAccount.Balance, orderNo, fmt.Sprintf("订单 %s 收款", orderNo)); err != nil {
+	logRemark := fmt.Sprintf("订单 %s 收款", orderNo)
+	if order.TradeInAmount > 0 {
+		logRemark = fmt.Sprintf("订单 %s 收款 (含以旧换新折抵 ¥%.2f)", orderNo, order.TradeInAmount)
+	}
+	if err := WriteFinancialLog(tx, accountID, 1, category, receiptAmount, updatedAccount.Balance, orderNo, logRemark); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "财务流水写入失败"})
 		return
@@ -293,7 +337,7 @@ func GetOrders(c *gin.Context) {
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
-	query := config.DB.Preload("OrderItems.Product").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
+	query := config.DB.Preload("OrderItems.Product").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
 	if keyword != "" {
 		k := "%" + keyword + "%"
 		query = query.Where(
@@ -432,7 +476,7 @@ func PayOrderBalance(c *gin.Context) {
 	}
 
 	var order models.Order
-	if err := config.DB.First(&order, id).Error; err != nil {
+	if err := config.DB.Set("gorm:query_option", "FOR UPDATE").First(&order, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
 			"msg":  "订单不存在",
@@ -467,7 +511,14 @@ func PayOrderBalance(c *gin.Context) {
 
 	// ========== 第一步：定金对冲退款 ==========
 	if order.DepositAmount > 0 && order.AccountID != nil {
-		// 1a. 从原账户扣除定金
+		// 1a. 锁定原账户（取消余额校验，对冲定金）
+		var oldAccount models.Account
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&oldAccount, *order.AccountID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询原账户失败"})
+			return
+		}
+
 		if err := tx.Model(&models.Account{}).Where("id = ?", *order.AccountID).
 			UpdateColumn("balance", gorm.Expr("balance - ?", order.DepositAmount)).Error; err != nil {
 			tx.Rollback()
@@ -479,7 +530,6 @@ func PayOrderBalance(c *gin.Context) {
 		}
 
 		// 1b. 插入"定金退还"流水记录
-		var oldAccount models.Account
 		tx.First(&oldAccount, *order.AccountID)
 		if err := WriteFinancialLog(tx, *order.AccountID, 2, "退还定金", order.DepositAmount, oldAccount.Balance, order.OrderNo, fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, order.DepositAmount)); err != nil {
 			tx.Rollback()
@@ -565,9 +615,9 @@ func CancelOrder(c *gin.Context) {
 		}
 	}()
 
-	// 1. 查询订单（加载 OrderItems）
+	// 1. 查询订单（锁定行，加载 OrderItems）
 	var order models.Order
-	if err := tx.Preload("OrderItems").First(&order, id).Error; err != nil {
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").Preload("OrderItems").First(&order, id).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
@@ -584,6 +634,18 @@ func CancelOrder(c *gin.Context) {
 			"msg":  "订单已取消，请勿重复操作",
 		})
 		return
+	}
+
+	// 2.5 检查生命周期状态：已送货或已安装商品不能直接取消订单，防止商户钱货两空
+	for _, item := range order.OrderItems {
+		if item.IsDelivered || item.IsInstalled {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code": 400,
+				"msg":  "订单中已有商品完成了配送送货或上门安装，无法直接取消订单",
+			})
+			return
+		}
 	}
 
 	// 3. 库存回滚：将每个商品的库存加回去 (基于订单当时的发货方式回滚)
@@ -608,7 +670,7 @@ func CancelOrder(c *gin.Context) {
 				// 记录云仓库存回滚流水
 				var product models.Product
 				tx.First(&product, item.ProductID)
-				WriteInventoryLog(tx, item.ProductID, 3, "cancel", product.CloudStock-item.CloudDeductionQty, item.CloudDeductionQty, order.OrderNo, "订单取消云仓库存回滚")
+				WriteInventoryLog(tx, item.ProductID, 3, "cancel", product.CloudStock-item.CloudDeductionQty, item.CloudDeductionQty, product.LatestCost, order.OrderNo, "订单取消云仓库存回滚")
 			}
 			continue
 		}
@@ -635,7 +697,7 @@ func CancelOrder(c *gin.Context) {
 			beforeQty = product.CloudStock - item.Quantity
 		}
 
-		WriteInventoryLog(tx, item.ProductID, warehouseType, "cancel", beforeQty, item.Quantity, order.OrderNo, "订单取消库存回滚")
+		WriteInventoryLog(tx, item.ProductID, warehouseType, "cancel", beforeQty, item.Quantity, product.LatestCost, order.OrderNo, "订单取消库存回滚")
 	}
 
 	// 4. 退款处理：根据支付状态决定退款金额
@@ -649,6 +711,19 @@ func CancelOrder(c *gin.Context) {
 	}
 
 	if refundAmount > 0 && order.AccountID != nil {
+		// 校验原收款账户余额是否足够退款
+		var targetAccount models.Account
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&targetAccount, *order.AccountID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询退款账户失败"})
+			return
+		}
+		if targetAccount.Balance < refundAmount {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "退款账户余额不足，无法取消订单"})
+			return
+		}
+
 		// 从账户扣除已收款项 (退款)
 		if err := tx.Model(&models.Account{}).Where("id = ?", *order.AccountID).
 			UpdateColumn("balance", gorm.Expr("balance - ?", refundAmount)).Error; err != nil {
@@ -694,28 +769,28 @@ func CancelOrder(c *gin.Context) {
 	})
 }
 
-// UpdateInstallStatusRequest 确认安装请求体
-type UpdateInstallStatusRequest struct {
-	InstallerID      uint       `json:"installer_id" binding:"required"`
-	DeliveryPersonID uint       `json:"delivery_person_id"`
-	InstallTime      *time.Time `json:"install_time"`
+// UpdateDeliveryStatusRequest 确认送货请求体
+type UpdateDeliveryStatusRequest struct {
+	DeliveryPersonID uint       `json:"delivery_person_id" binding:"required"`
+	DeliveryFee      float64    `json:"delivery_fee"`
+	DeliveryTime     *time.Time `json:"delivery_time"`
 }
 
-// UpdateInstallStatus 确认安装接口
-func UpdateInstallStatus(c *gin.Context) {
+// UpdateDeliveryStatus 确认送货接口
+func UpdateDeliveryStatus(c *gin.Context) {
 	id := c.Param("id")
 
-	var req UpdateInstallStatusRequest
+	var req UpdateDeliveryStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 400,
-			"msg":  "请选择安装师傅",
+			"msg":  "参数错误: " + err.Error(),
 		})
 		return
 	}
 
 	var order models.Order
-	if err := config.DB.First(&order, id).Error; err != nil {
+	if err := config.DB.Set("gorm:query_option", "FOR UPDATE").First(&order, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
 			"msg":  "订单不存在",
@@ -738,16 +813,16 @@ func UpdateInstallStatus(c *gin.Context) {
 		}
 	}()
 
-	installTime := time.Now()
-	if req.InstallTime != nil {
-		installTime = *req.InstallTime
+	deliveryTime := time.Now()
+	if req.DeliveryTime != nil {
+		deliveryTime = *req.DeliveryTime
 	}
 
 	updates := map[string]interface{}{
-		"is_installed":       true,
-		"installer_id":       req.InstallerID,
-		"install_time":       installTime,
+		"is_delivered":       true,
 		"delivery_person_id": req.DeliveryPersonID,
+		"delivery_fee":       req.DeliveryFee,
+		"delivery_time":      deliveryTime,
 	}
 
 	if err := tx.Model(&order).Updates(updates).Error; err != nil {
@@ -758,6 +833,94 @@ func UpdateInstallStatus(c *gin.Context) {
 		})
 		return
 	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 500,
+			"msg":  "事务提交失败",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  "送货确认成功",
+	})
+}
+
+// UpdateInstallStatusRequest 确认安装请求体
+type UpdateInstallStatusRequest struct {
+	InstallerID      uint       `json:"installer_id" binding:"required"`
+	InstallTime      *time.Time `json:"install_time"`
+	InstallationFee  float64    `json:"installation_fee"`
+}
+
+// UpdateInstallStatus 确认安装接口
+func UpdateInstallStatus(c *gin.Context) {
+	id := c.Param("id")
+
+	var req UpdateInstallStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	var order models.Order
+	if err := config.DB.Set("gorm:query_option", "FOR UPDATE").First(&order, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code": 404,
+			"msg":  "订单不存在",
+		})
+		return
+	}
+
+	if order.OrderStatus == 2 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "订单已取消，无法操作",
+		})
+		return
+	}
+
+	if !order.IsDelivered {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "订单尚未送货，请先进行送货操作",
+		})
+		return
+	}
+
+	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	installTime := time.Now()
+	if req.InstallTime != nil {
+		installTime = *req.InstallTime
+	}
+
+	updates := map[string]interface{}{
+		"is_installed":       true,
+		"installer_id":       req.InstallerID,
+		"install_time":       installTime,
+		"installation_fee":   req.InstallationFee,
+	}
+
+	if err := tx.Model(&order).Updates(updates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 500,
+			"msg":  "状态更新失败",
+		})
+		return
+	}
+
 
 	order.IsInstalled = true
 	// 判断是否需要下发推荐人提成 (安装由于可能是结清全款之后的事情，因此也作为触发点)
@@ -803,3 +966,282 @@ func checkAndPayReferralFee(tx *gorm.DB, order *models.Order) error {
 	}
 	return nil
 }
+// UpdateCommissionRequest 更新提成金额请求体
+type UpdateCommissionRequest struct {
+	CommissionAmount float64 `json:"commission_amount" binding:"min=0"`
+}
+
+// UpdateOrderCommission 手动调整订单提成金额
+func UpdateOrderCommission(c *gin.Context) {
+	id := c.Param("id")
+	var req UpdateCommissionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+
+	var order models.Order
+	if err := config.DB.First(&order, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "订单不存在"})
+		return
+	}
+
+	// 核心防御：提成金额不能超过订单实付金额的 30%
+	maxCommission := order.ActualPayAmount * 0.3
+	if req.CommissionAmount > maxCommission {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400, 
+			"msg":  fmt.Sprintf("提成金额超出合理范围(上限 ¥%.2f)", maxCommission),
+		})
+		return
+	}
+
+	if err := config.DB.Model(&models.Order{}).Where("id = ?", id).Update("commission_amount", req.CommissionAmount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "更新提成失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "提成调整成功"})
+}
+
+// UpdateItemDeliveryStatus 确认单品送货接口
+func UpdateItemDeliveryStatus(c *gin.Context) {
+	itemID := c.Param("item_id")
+
+	var req UpdateDeliveryStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	var item models.OrderItem
+	if err := config.DB.First(&item, itemID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code": 404,
+			"msg":  "商品明细不存在",
+		})
+		return
+	}
+
+	var order models.Order
+	if err := config.DB.Set("gorm:query_option", "FOR UPDATE").First(&order, item.OrderID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code": 404,
+			"msg":  "关联订单不存在",
+		})
+		return
+	}
+
+	if order.OrderStatus == 2 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "订单已取消，无法操作",
+		})
+		return
+	}
+
+	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	deliveryTime := time.Now()
+	if req.DeliveryTime != nil {
+		deliveryTime = *req.DeliveryTime
+	}
+
+	// 1. 更新单品送货状态
+	itemUpdates := map[string]interface{}{
+		"is_delivered":       true,
+		"delivery_person_id": req.DeliveryPersonID,
+		"delivery_fee":       req.DeliveryFee,
+		"delivery_time":      deliveryTime,
+	}
+	if err := tx.Model(&item).Updates(itemUpdates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "商品送货状态更新失败"})
+		return
+	}
+
+	// 2. 重新聚合父订单配送状态与送货费用总和
+	var items []models.OrderItem
+	if err := tx.Where("order_id = ?", order.ID).Find(&items).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询商品明细失败"})
+		return
+	}
+
+	allDelivered := true
+	totalDeliveryFee := 0.0
+	for _, it := range items {
+		if it.ID == item.ID {
+			totalDeliveryFee += req.DeliveryFee
+		} else {
+			if !it.IsDelivered {
+				allDelivered = false
+			}
+			totalDeliveryFee += it.DeliveryFee
+		}
+	}
+
+	orderUpdates := map[string]interface{}{
+		"is_delivered": allDelivered,
+		"delivery_fee": totalDeliveryFee,
+	}
+	if order.DeliveryPersonID == nil {
+		orderUpdates["delivery_person_id"] = req.DeliveryPersonID
+	}
+	if order.DeliveryTime == nil {
+		orderUpdates["delivery_time"] = deliveryTime
+	}
+
+	if err := tx.Model(&order).Updates(orderUpdates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "订单状态聚合失败"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "事务提交失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  "商品送货确认成功",
+	})
+}
+
+// UpdateItemInstallStatus 确认单品安装接口
+func UpdateItemInstallStatus(c *gin.Context) {
+	itemID := c.Param("item_id")
+
+	var req UpdateInstallStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	var item models.OrderItem
+	if err := config.DB.First(&item, itemID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code": 404,
+			"msg":  "商品明细不存在",
+		})
+		return
+	}
+
+	if !item.IsDelivered {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "该商品尚未送货，请先送货！",
+		})
+		return
+	}
+
+	var order models.Order
+	if err := config.DB.Set("gorm:query_option", "FOR UPDATE").First(&order, item.OrderID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{
+			"code": 404,
+			"msg":  "关联订单不存在",
+		})
+		return
+	}
+
+	if order.OrderStatus == 2 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "订单已取消，无法操作",
+		})
+		return
+	}
+
+	tx := config.DB.Begin()
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	installTime := time.Now()
+	if req.InstallTime != nil {
+		installTime = *req.InstallTime
+	}
+
+	// 1. 更新单品安装状态
+	itemUpdates := map[string]interface{}{
+		"is_installed":     true,
+		"installer_id":     req.InstallerID,
+		"installation_fee": req.InstallationFee,
+		"install_time":     installTime,
+	}
+	if err := tx.Model(&item).Updates(itemUpdates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "商品安装状态更新失败"})
+		return
+	}
+
+	// 2. 重新聚合父订单安装状态与费用
+	var items []models.OrderItem
+	if err := tx.Where("order_id = ?", order.ID).Find(&items).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询商品明细失败"})
+		return
+	}
+
+	allInstalled := true
+	totalInstallationFee := 0.0
+	for _, it := range items {
+		if it.ID == item.ID {
+			totalInstallationFee += req.InstallationFee
+		} else {
+			if !it.IsInstalled {
+				allInstalled = false
+			}
+			totalInstallationFee += it.InstallationFee
+		}
+	}
+
+	orderUpdates := map[string]interface{}{
+		"is_installed":     allInstalled,
+		"installation_fee": totalInstallationFee,
+	}
+	if order.InstallerID == nil {
+		orderUpdates["installer_id"] = req.InstallerID
+	}
+	if order.InstallTime == nil {
+		orderUpdates["install_time"] = installTime
+	}
+
+	if err := tx.Model(&order).Updates(orderUpdates).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "订单状态聚合失败"})
+		return
+	}
+
+	order.IsInstalled = allInstalled
+	if err := checkAndPayReferralFee(tx, &order); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "第三方提成下发失败"})
+		return
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "事务提交失败"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  "商品安装确认成功",
+	})
+}
+

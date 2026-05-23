@@ -154,7 +154,8 @@ import {
   List,
   SwitchButton,
   Close,
-  Setting
+  Setting,
+  Money
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import axios from 'axios'
@@ -224,6 +225,7 @@ const menuItems = ref([
   { title: '库存流水', path: '/admin/inventory-logs', icon: List },
   { title: '订单', path: '/admin/orders', icon: Memo },
   { title: '财务', path: '/admin/finance', icon: DataLine },
+  { title: '国补管理', path: '/admin/subsidy', icon: Money },
   { title: '员工', path: '/admin/employees', icon: User },
   { title: '系统设置', path: '/admin/settings', icon: Setting },
 ])
@@ -234,6 +236,7 @@ const mobileMenuItems = ref([
   { title: '商品', path: '/admin/products', icon: Box },
   { title: '库存流水', path: '/admin/inventory-logs', icon: List },
   { title: '订单', path: '/admin/orders', icon: Memo },
+  { title: '国补', path: '/admin/subsidy', icon: Money },
 ])
 </script>
 

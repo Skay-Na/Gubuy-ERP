@@ -71,7 +71,7 @@
               </div>
 
               <el-table :data="row.order_items" size="small" border class="shadow-sm rounded-lg overflow-hidden mb-6">
-                <el-table-column label="商品信息" min-width="250">
+                <el-table-column label="商品信息" min-width="200">
                   <template #default="scope">
                     <div class="flex flex-col">
                       <span class="font-bold text-slate-700">{{ scope.row.product?.name || '未知商品' }}</span>
@@ -79,16 +79,46 @@
                     </div>
                   </template>
                 </el-table-column>
-                <el-table-column label="单价" width="150" align="center">
+                <el-table-column label="单价" width="100" align="center">
                   <template #default="scope">
                     <span :class="{'line-through text-slate-400': scope.row.is_gift, 'font-bold': !scope.row.is_gift}">¥{{ scope.row.unit_price.toFixed(2) }}</span>
                     <el-tag v-if="scope.row.is_gift" size="small" type="danger" effect="dark" class="ml-1">赠</el-tag>
                   </template>
                 </el-table-column>
-                <el-table-column prop="quantity" label="数量" width="100" align="center" />
-                <el-table-column label="小计" width="120" align="right">
+                <el-table-column prop="quantity" label="数量" width="70" align="center" />
+                <el-table-column label="小计" width="90" align="right">
                   <template #default="scope">
                     <span class="font-bold text-slate-700">¥{{ (scope.row.unit_price * scope.row.quantity).toFixed(2) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="配送状态" min-width="160">
+                  <template #default="scope">
+                    <div v-if="scope.row.is_delivered" class="flex flex-col text-[11px] leading-tight">
+                      <span class="text-blue-600 font-bold">🚚 已送货</span>
+                      <span class="text-slate-500">送货: {{ scope.row.delivery_person?.name || '-' }} <el-tag v-if="scope.row.delivery_person?.is_outsourced" size="small" type="warning" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
+                      <span class="text-slate-400">运费: ¥{{ scope.row.delivery_fee.toFixed(2) }}</span>
+                    </div>
+                    <span v-else class="text-slate-400">⏳ 待送货</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="安装状态" min-width="160">
+                  <template #default="scope">
+                    <div v-if="scope.row.is_installed" class="flex flex-col text-[11px] leading-tight">
+                      <span class="text-green-600 font-bold">✅ 已完成安装</span>
+                      <span class="text-slate-500">师傅: {{ scope.row.installer?.name || '-' }} <el-tag v-if="scope.row.installer?.is_outsourced" size="small" type="success" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
+                      <span class="text-slate-400">费用: ¥{{ scope.row.installation_fee.toFixed(2) }}</span>
+                    </div>
+                    <span v-else class="text-slate-400">⏳ 待安装</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="履约操作" width="130" align="center" v-if="row.order_status !== 2">
+                  <template #default="scope">
+                    <span v-if="row.delivery_method === 1" class="text-slate-400">门店自提</span>
+                    <div v-else class="flex flex-col gap-1 items-center">
+                      <el-button size="small" type="warning" class="!rounded-md !px-2 !py-1" @click="handleDeliver(scope.row)" v-if="!scope.row.is_delivered">确认送货</el-button>
+                      <el-button size="small" type="primary" class="!rounded-md !px-2 !py-1" @click="handleInstall(scope.row)" v-else-if="!scope.row.is_installed">确认安装</el-button>
+                      <span v-else class="text-green-600 font-bold">🎉 已完工</span>
+                    </div>
                   </template>
                 </el-table-column>
               </el-table>
@@ -119,20 +149,29 @@
                   <el-descriptions-item label="交付方式">
                     <el-tag size="small" effect="plain">{{ getDeliveryMethodLabel(row.delivery_method) }}</el-tag>
                   </el-descriptions-item>
-                  <el-descriptions-item label="安装状态">
-                    <span :class="row.is_installed ? 'text-green-600' : 'text-slate-400'">
-                      {{ row.is_installed ? '✅ 已确认安装' : '⏳ 待安装' }}
-                    </span>
+                  <el-descriptions-item label="配送与安装">
+                    <span v-if="row.is_installed" class="text-green-600 font-bold">✅ 已完成安装</span>
+                    <span v-else-if="row.is_delivered" class="text-blue-600 font-bold">🚚 已送货 / ⏳ 待安装</span>
+                    <span v-else class="text-slate-400">⏳ 待送货</span>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="送货人员" v-if="row.is_delivered">
+                    <span>{{ row.delivery_person?.name || '-' }}</span>
+                    <el-tag v-if="row.delivery_person?.is_outsourced" size="small" type="warning" effect="plain" class="ml-2 !rounded-md">外包</el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="送货费用" v-if="row.is_delivered">
+                    <span class="font-bold text-orange-600">¥{{ (row.delivery_fee || 0).toFixed(2) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装人员" v-if="row.is_installed">
-                    {{ row.installer?.name }}
+                    <span>{{ row.installer?.name || '-' }}</span>
+                    <el-tag v-if="row.installer?.is_outsourced" size="small" type="success" effect="plain" class="ml-2 !rounded-md">外包</el-tag>
                   </el-descriptions-item>
-                  <el-descriptions-item label="送货人员" v-if="row.is_installed">
-                    {{ row.delivery_person?.name || '-' }}
+                  <el-descriptions-item label="安装费用" v-if="row.is_installed">
+                    <span class="font-bold text-orange-600">¥{{ (row.installation_fee || 0).toFixed(2) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装时间" v-if="row.is_installed">
                     {{ formatDate(row.install_time) }}
                   </el-descriptions-item>
+
                 </el-descriptions>
 
                 <!-- 国补资料 -->
@@ -145,6 +184,19 @@
                   </el-descriptions-item>
                   <el-descriptions-item label="资料进度" v-if="row.subsidy_amount > 0">
                     <el-tag :type="getSubsidyType(row.subsidy_status)">{{ getSubsidyLabel(row.subsidy_status) }}</el-tag>
+                  </el-descriptions-item>
+                </el-descriptions>
+
+                <!-- 以旧换新 -->
+                <el-descriptions v-if="row.trade_in_amount > 0" title="以旧换新" :column="1" border size="small" class="bg-white p-3 rounded-xl shadow-sm">
+                  <el-descriptions-item label="折抵金额">
+                    <span class="text-emerald-600 font-bold">¥{{ row.trade_in_amount.toFixed(2) }}</span>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="旧件品类">
+                    <el-tag size="small" type="success" effect="plain" class="!rounded-md">{{ row.trade_in_type || '未指定' }}</el-tag>
+                  </el-descriptions-item>
+                  <el-descriptions-item label="折旧备注">
+                    <span class="text-slate-500 font-medium">{{ row.trade_in_remark || '无特殊描述' }}</span>
                   </el-descriptions-item>
                 </el-descriptions>
 
@@ -168,8 +220,11 @@
         <el-table-column prop="order_no" label="订单号" min-width="180" />
         <el-table-column label="客户信息" min-width="150">
           <template #default="{ row }">
-            <div class="flex flex-col">
-              <span class="font-bold text-slate-700">{{ row.customer_name || '散客' }}</span>
+            <div class="flex flex-col gap-0.5">
+              <div class="flex items-center gap-1">
+                <span class="font-bold text-slate-700">{{ row.customer_name || '散客' }}</span>
+                <el-tag v-if="row.trade_in_amount > 0" size="small" type="success" effect="plain" class="!rounded-md !px-1 shrink-0">♻️ 换新</el-tag>
+              </div>
               <span class="text-[10px] text-slate-400 font-mono">{{ row.customer_phone || '-' }}</span>
             </div>
           </template>
@@ -177,6 +232,14 @@
         <el-table-column label="订单金额" width="120">
           <template #default="{ row }">
             <span class="font-bold text-slate-900">¥{{ row.actual_pay_amount.toFixed(2) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="业务提成" width="120">
+          <template #default="{ row }">
+            <div class="flex items-center gap-1 cursor-pointer group" @click="openCommissionDialog(row)">
+              <span class="font-bold text-orange-600">¥{{ (row.commission_amount || 0).toFixed(2) }}</span>
+              <el-icon class="text-slate-300 group-hover:text-blue-500 transition-colors"><Edit /></el-icon>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="支付状态" width="100" align="center">
@@ -187,11 +250,14 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="安装状态" width="100" align="center">
+        <el-table-column label="配送与安装" width="140" align="center">
           <template #default="{ row }">
-            <el-tag v-if="row.order_status !== 2" :type="row.is_installed ? 'primary' : 'info'" effect="plain">
-              {{ row.is_installed ? '已安装' : '待安装' }}
-            </el-tag>
+            <template v-if="row.order_status !== 2">
+              <el-tag v-if="row.is_installed" type="success" effect="plain">已安装</el-tag>
+              <el-tag v-else-if="row.is_delivered" type="primary" effect="plain">已送货/待安装</el-tag>
+              <el-tag v-else-if="row.order_items && row.order_items.some(it => it.is_delivered || it.is_installed)" type="warning" effect="plain">部分履约</el-tag>
+              <el-tag v-else type="info" effect="plain">待送货</el-tag>
+            </template>
             <span v-else>-</span>
           </template>
         </el-table-column>
@@ -204,17 +270,17 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right" align="center">
+        <el-table-column label="操作" width="120" fixed="right" align="center">
           <template #default="{ row }">
             <div v-if="row.order_status === 1" class="flex items-center justify-center gap-2">
-              <el-button v-if="!row.is_installed" type="primary" size="small" @click="handleInstall(row)">安装</el-button>
-              <el-button v-if="row.payment_status === 1" type="success" size="small" @click="handlePayBalance(row)">结清</el-button>
+              <el-button v-slot v-if="row.payment_status === 1" type="success" size="small" @click="handlePayBalance(row)">结清</el-button>
               <el-dropdown trigger="click">
                 <el-button size="small" class="px-2"><el-icon><MoreFilled /></el-icon></el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item v-if="row.subsidy_status === 1" @click="handleSubmitSubsidy(row)">提交国补</el-dropdown-item>
                     <el-dropdown-item v-if="row.subsidy_status === 2" @click="handleVerify(row)">国补核销</el-dropdown-item>
+                    <el-dropdown-item @click="openCommissionDialog(row)">调整提成</el-dropdown-item>
                     <el-dropdown-item divided type="danger" @click="handleCancel(row)" class="!text-red-500">取消订单</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -243,11 +309,29 @@
                {{ row.order_status === 2 ? '已取消' : (row.payment_status === 1 ? '定金' : '全款') }}
              </el-tag>
              <el-tag size="small" v-if="row.order_status !== 2" :type="getSubsidyType(row.subsidy_status)">国补:{{ getSubsidyLabel(row.subsidy_status) }}</el-tag>
-             <el-tag size="small" v-if="row.order_status !== 2" :type="row.is_installed ? 'primary' : 'info'">{{ row.is_installed ? '已安装' : '待安装' }}</el-tag>
+             <el-tag size="small" v-if="row.order_status !== 2" :type="row.is_installed ? 'success' : (row.is_delivered ? 'primary' : 'warning')">{{ row.is_installed ? '已安装' : (row.is_delivered ? '已送货，待安装' : '待送货') }}</el-tag>
           </div>
 
-          <div v-if="row.order_status === 1" class="flex justify-end gap-2 pt-3 border-t border-slate-100">
-            <el-button v-if="!row.is_installed" size="small" type="primary" @click="handleInstall(row)" class="!rounded-lg">确认安装</el-button>
+          <!-- 商品及履约进度清单 (移动端专属) -->
+          <div class="space-y-3 border-t border-b border-slate-100 py-3 my-3">
+             <div v-for="item in row.order_items" :key="item.id" class="flex justify-between items-center text-xs">
+                <div class="flex-1 pr-2">
+                   <div class="font-bold text-slate-700">{{ item.product?.name }}</div>
+                   <div class="text-[10px] text-slate-400">数量: {{ item.quantity }} | 单价: ¥{{ item.unit_price.toFixed(2) }}</div>
+                </div>
+                <div class="flex gap-2 items-center">
+                   <!-- 送货 -->
+                   <el-button v-if="!item.is_delivered && row.delivery_method !== 1" size="small" type="warning" class="!px-2 !py-0.5 !h-6 !text-[10px] !rounded-md" @click="handleDeliver(item)">送货</el-button>
+                   <span v-else-if="item.is_delivered && !item.is_installed" class="text-blue-600 text-[10px] font-bold">🚚已送</span>
+                   
+                   <!-- 安装 -->
+                   <el-button v-if="item.is_delivered && !item.is_installed && row.delivery_method !== 1" size="small" type="primary" class="!px-2 !py-0.5 !h-6 !text-[10px] !rounded-md" @click="handleInstall(item)">安装</el-button>
+                   <span v-else-if="item.is_installed" class="text-green-600 text-[10px] font-bold">✅已装</span>
+                </div>
+             </div>
+          </div>
+
+          <div v-if="row.order_status === 1" class="flex justify-end gap-2 pt-1">
             <el-button v-if="row.payment_status === 1" size="small" type="success" @click="handlePayBalance(row)" class="!rounded-lg">结尾款</el-button>
             <el-dropdown trigger="click">
               <el-button size="small" class="!rounded-lg px-2"><el-icon><MoreFilled /></el-icon></el-button>
@@ -287,19 +371,47 @@
       </template>
     </el-dialog>
 
-    <!-- 确认安装弹窗 -->
-    <el-dialog v-model="installDialogVisible" title="确认安装" width="400px" destroy-on-close class="!rounded-2xl">
+    <!-- 确认送货弹窗 -->
+    <el-dialog v-model="deliveryDialogVisible" title="确认送货完成" width="400px" destroy-on-close class="!rounded-2xl">
       <div class="space-y-4">
         <div>
           <label class="block text-sm font-bold text-slate-700 mb-2">选择送货人员</label>
-          <el-select v-model="selectedDeliveryPersonId" class="w-full" placeholder="请选择送货员">
-            <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
+          <el-select v-model="selectedDeliveryPersonId" class="w-full" placeholder="请选择送货员" filterable clearable>
+            <el-option-group v-for="group in deliveryPersonOptions" :key="group.label" :label="group.label">
+              <el-option v-for="emp in group.options" :key="emp.id" :label="emp.name" :value="emp.id" />
+            </el-option-group>
           </el-select>
         </div>
         <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">送货时间</label>
+          <el-date-picker
+            v-model="selectedDeliveryTime"
+            type="datetime"
+            placeholder="选择送货时间"
+            class="!w-full"
+            format="YYYY-MM-DD HH:mm"
+          />
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">实际送货费用 (支出)</label>
+          <el-input-number v-model="deliveryFee" :min="0" :precision="2" class="!w-full" controls-position="right" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="deliveryDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmDeliver" :disabled="!selectedDeliveryPersonId">确认提交</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 确认安装弹窗 -->
+    <el-dialog v-model="installDialogVisible" title="确认安装完成" width="400px" destroy-on-close class="!rounded-2xl">
+      <div class="space-y-4">
+        <div>
           <label class="block text-sm font-bold text-slate-700 mb-2">选择安装师傅</label>
-          <el-select v-model="selectedInstallerId" class="w-full" placeholder="请选择师傅">
-            <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
+          <el-select v-model="selectedInstallerId" class="w-full" placeholder="请选择师傅" filterable clearable>
+            <el-option-group v-for="group in installerOptions" :key="group.label" :label="group.label">
+              <el-option v-for="emp in group.options" :key="emp.id" :label="emp.name" :value="emp.id" />
+            </el-option-group>
           </el-select>
         </div>
         <div>
@@ -312,20 +424,42 @@
             format="YYYY-MM-DD HH:mm"
           />
         </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">实际安装费用 (支出)</label>
+          <el-input-number v-model="installationFee" :min="0" :precision="2" class="!w-full" controls-position="right" />
+        </div>
       </div>
       <template #footer>
         <el-button @click="installDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="confirmInstall" :disabled="!selectedInstallerId">确认提交</el-button>
       </template>
     </el-dialog>
+
+    <!-- 调整提成弹窗 -->
+    <el-dialog v-model="commissionDialogVisible" title="调整业务提成" width="400px" destroy-on-close class="!rounded-2xl">
+      <div v-if="commissionTargetOrder" class="space-y-4">
+        <el-alert title="提示" type="warning" :closable="false" show-icon class="!rounded-xl">请根据与店长/员工商定的最终结果进行手动调整。</el-alert>
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
+          <div class="text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider">订单号: {{ commissionTargetOrder.order_no }}</div>
+          <div class="text-sm font-bold text-slate-700 mb-4">当前订单实收: ¥{{ commissionTargetOrder.actual_pay_amount.toFixed(2) }}</div>
+          
+          <label class="block text-sm font-bold text-slate-700 mb-2">最终提成金额 (元)</label>
+          <el-input-number v-model="newCommissionAmount" :min="0" :precision="2" class="!w-full" controls-position="right" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="commissionDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmUpdateCommission">确认修改</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, InfoFilled, MoreFilled } from '@element-plus/icons-vue'
+import { Search, InfoFilled, MoreFilled, Edit } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 
 const orders = ref([])
@@ -472,12 +606,36 @@ const handleCancel = (row) => {
   })
 }
 
-const installDialogVisible = ref(false)
-const installTargetOrder = ref(null)
-const selectedInstallerId = ref(null)
+const deliveryDialogVisible = ref(false)
+const deliveryTargetItem = ref(null)
 const selectedDeliveryPersonId = ref(null)
+const selectedDeliveryTime = ref(null)
+const deliveryFee = ref(0)
+
+const installDialogVisible = ref(false)
+const installTargetItem = ref(null)
+const selectedInstallerId = ref(null)
 const selectedInstallTime = ref(null)
+const installationFee = ref(0)
 const employees = ref([])
+
+const deliveryPersonOptions = computed(() => {
+  const outsourced = employees.value.filter(emp => emp.is_outsourced)
+  const staff = employees.value.filter(emp => !emp.is_outsourced)
+  return [
+    { label: '外包合作人员', options: outsourced },
+    { label: '店内正式员工', options: staff }
+  ]
+})
+
+const installerOptions = computed(() => {
+  const outsourced = employees.value.filter(emp => emp.is_outsourced)
+  const staff = employees.value.filter(emp => !emp.is_outsourced)
+  return [
+    { label: '外包合作人员', options: outsourced },
+    { label: '店内正式员工', options: staff }
+  ]
+})
 
 const fetchEmployees = async () => {
   try {
@@ -486,11 +644,36 @@ const fetchEmployees = async () => {
   } catch (error) {}
 }
 
-const handleInstall = (row) => {
-  installTargetOrder.value = row
-  selectedInstallerId.value = null
+const handleDeliver = (item) => {
+  deliveryTargetItem.value = item
   selectedDeliveryPersonId.value = null
+  selectedDeliveryTime.value = new Date()
+  deliveryFee.value = 0
+  if (employees.value.length === 0) fetchEmployees()
+  deliveryDialogVisible.value = true
+}
+
+const confirmDeliver = async () => {
+  if (!selectedDeliveryPersonId.value) return
+  try {
+    const res = await axios.put(`/api/order-items/${deliveryTargetItem.value.id}/deliver`, {
+      delivery_person_id: selectedDeliveryPersonId.value,
+      delivery_fee: deliveryFee.value,
+      delivery_time: selectedDeliveryTime.value
+    })
+    if (res.data.code === 200) {
+      ElMessage.success('送货确认成功')
+      deliveryDialogVisible.value = false
+      fetchOrders()
+    }
+  } catch (error) { ElMessage.error('操作失败') }
+}
+
+const handleInstall = (item) => {
+  installTargetItem.value = item
+  selectedInstallerId.value = null
   selectedInstallTime.value = new Date()
+  installationFee.value = 0
   if (employees.value.length === 0) fetchEmployees()
   installDialogVisible.value = true
 }
@@ -498,17 +681,43 @@ const handleInstall = (row) => {
 const confirmInstall = async () => {
   if (!selectedInstallerId.value) return
   try {
-    const res = await axios.put(`/api/orders/${installTargetOrder.value.id}/install`, {
+    const res = await axios.put(`/api/order-items/${installTargetItem.value.id}/install`, {
       installer_id: selectedInstallerId.value,
-      delivery_person_id: selectedDeliveryPersonId.value,
-      install_time: selectedInstallTime.value
+      install_time: selectedInstallTime.value,
+      installation_fee: installationFee.value
     })
     if (res.data.code === 200) {
       ElMessage.success('安装确认成功')
       installDialogVisible.value = false
       fetchOrders()
     }
-  } catch (error) { ElMessage.error('操作失败') }
+  } catch (error) { ElMessage.error(error.response?.data?.msg || '操作失败') }
+}
+
+
+const commissionDialogVisible = ref(false)
+const commissionTargetOrder = ref(null)
+const newCommissionAmount = ref(0)
+
+const openCommissionDialog = (row) => {
+  commissionTargetOrder.value = row
+  newCommissionAmount.value = row.commission_amount || 0
+  commissionDialogVisible.value = true
+}
+
+const confirmUpdateCommission = async () => {
+  try {
+    const res = await axios.put(`/api/orders/${commissionTargetOrder.value.id}/commission`, {
+      commission_amount: newCommissionAmount.value
+    })
+    if (res.data.code === 200) {
+      ElMessage.success('提成调整成功')
+      commissionDialogVisible.value = false
+      fetchOrders()
+    }
+  } catch (error) {
+    ElMessage.error('调整失败')
+  }
 }
 
 onMounted(() => fetchOrders())
