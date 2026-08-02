@@ -379,11 +379,128 @@ git commit -m "fix(audit): pair refund log with deposit log via reversal_pair_id
 ## Task 4: 新增 T-A2 / T-A3 / T-A4 / T-A5 测试 + 验证全部通过
 
 **Files:**
+- Modify: `erp-backend/controllers/order_controller.go`（扩展 `PayOrderBalance` 支持多账户定金退款，前置步骤 4.0）
 - Modify: `erp-backend/controllers/audit_financial_test.go`（追加 4 个测试）
 
 **Interfaces:**
 - Consumes: `setupAudit()`、已有 helper
-- Produces: 4 个新测试函数
+- Produces: 4 个新测试函数 + 多账户定金退款支持
+
+> **前置：Task 4.0 多账户定金退款扩展。**
+> 当前工作树的 `PayOrderBalance` 只处理单一 `*order.AccountID` 的定金退款（Task 3 implementer 适配）。但主仓库工作树里有一个未提交的多账户版本（使用 `getOrderPaymentBreakdown` helper，按 `order.payment_breakdown` JSON 拆分定金到不同账户，分别退）。Task 4 必须先把多账户逻辑 port 进来，否则 T-A3（200 支付宝 + 100 现金 定金 + 700 公户 尾款）无法通过。
+> 参考源码位置：主仓库 `erp-backend/controllers/order_controller.go:272`（`getOrderPaymentBreakdown` 定义）和 `:1035`（多账户退款循环）。请用 `git show main:erp-backend/controllers/order_controller.go` 或直接 read 主仓库文件（不在 worktree 内），把多账户退款的核心逻辑移植到 worktree 的 `PayOrderBalance` 里。
+
+- [ ] **Step 4.0: 扩展 `PayOrderBalance` 支持多账户定金退款**
+
+把当前 `PayOrderBalance` 第一步的"定金对冲退款"块（`if order.DepositAmount > 0 && order.AccountID != nil { ... }`）改为按 `order.payment_breakdown` 拆分的循环，逐 split 处理：
+
+```go
+if order.DepositAmount > 0 {
+    depositSplits, err := getOrderPaymentBreakdown(tx, order, order.DepositAmount)
+    if err != nil {
+        tx.Rollback()
+        c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询原账户失败"})
+        return
+    }
+    for _, split := range depositSplits {
+        var refundAccount models.Account
+        if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&refundAccount, split.AccountID).Error; err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "code": 500,
+                "msg":  fmt.Sprintf("定金账户(ID %d)查询失败，无法完成结算", split.AccountID),
+            })
+            return
+        }
+        if refundAccount.Balance < split.Amount {
+            tx.Rollback()
+            c.JSON(http.StatusBadRequest, gin.H{
+                "code": 400,
+                "msg":  fmt.Sprintf("账户「%s」余额 ¥%.2f 不足以退还定金 ¥%.2f，无法完成结算，请先补充账户余额或调整收款账户", refundAccount.Name, refundAccount.Balance, split.Amount),
+            })
+            return
+        }
+
+        var depositLog models.FinancialLog
+        if err := tx.Where("related_no = ? AND account_id = ? AND category = ? AND reversal_pair_id IS NULL",
+            order.OrderNo, split.AccountID, "预付定金").
+            Order("id DESC").
+            First(&depositLog).Error; err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "code": 500,
+                "msg":  fmt.Sprintf("未找到订单 %s 账户 %d 的原定金流水，无法完成冲销对账", order.OrderNo, split.AccountID),
+            })
+            return
+        }
+
+        if err := tx.Model(&models.Account{}).Where("id = ?", split.AccountID).
+            UpdateColumn("balance", gorm.Expr("balance - ?", split.Amount)).Error; err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "原账户定金退还失败"})
+            return
+        }
+
+        var updatedAccount models.Account
+        tx.First(&updatedAccount, split.AccountID)
+
+        if err := WriteReversalLog(tx,
+            depositLog.ID,
+            split.AccountID,
+            2, // flow_type=支出
+            "退还定金",
+            split.Amount,
+            updatedAccount.Balance,
+            order.OrderNo,
+            fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, split.Amount),
+        ); err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "定金退还记录写入失败"})
+            return
+        }
+    }
+}
+```
+
+并把 `getOrderPaymentBreakdown` 和 `PaymentBreakdownItem` 类型定义从主仓库 port 到本文件末尾（参见 `erp-backend/controllers/order_controller.go:272-300` 区域）：
+
+```go
+type PaymentBreakdownItem struct {
+    PaymentMethod int     `json:"payment_method"`
+    AccountID     uint    `json:"account_id"`
+    Amount        float64 `json:"amount"`
+}
+
+func encodePaymentBreakdown(items []PaymentBreakdownItem) string { ... } // 已有
+func decodePaymentBreakdown(s string) ([]PaymentBreakdownItem, error) { ... } // 已有
+
+func getOrderPaymentBreakdown(tx *gorm.DB, order models.Order, fallbackAmount float64) ([]PaymentBreakdownItem, error) {
+    if order.PaymentBreakdown != "" {
+        items, err := decodePaymentBreakdown(order.PaymentBreakdown)
+        if err == nil && len(items) > 0 {
+            return items, nil
+        }
+    }
+    if order.AccountID != nil {
+        return []PaymentBreakdownItem{{
+            PaymentMethod: 1,
+            AccountID:     *order.AccountID,
+            Amount:        fallbackAmount,
+        }}, nil
+    }
+    return nil, fmt.Errorf("订单 %s 既无 payment_breakdown 也无 account_id", order.OrderNo)
+}
+```
+
+**注意**：`getOrderPaymentBreakdown` / `PaymentBreakdownItem` / `encodePaymentBreakdown` / `decodePaymentBreakdown` 可能已经在 worktree 中存在（取决于上次 port 是否带过来）。如果存在就直接复用，不要重复声明。
+
+验证：
+```bash
+cd erp-backend
+go build ./controllers/... ./models/...
+DB_NAME=erp_audit_test go test ./controllers -run 'TestAudit_SameAccount|TestAudit_DepositThenSettle|TestAudit_DuplicateSettle|TestAudit_SettleRefund' -v -count=1
+```
+预期：所有 settle 相关测试仍通过（含 Task 1 / Task 3 写入的 T-A1）。
 
 - [ ] **Step 4.1: 追加 `TestAudit_CrossAccountDepositThenSettle`**
 
