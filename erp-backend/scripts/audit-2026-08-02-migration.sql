@@ -33,7 +33,7 @@ USE erp_db;
 --   ON collect.related_no = refund.related_no
 --   AND collect.account_id = refund.account_id
 --   AND collect.category = '销售货款'
---   AND refund.category IN ('订单取消退款', '订单红冲')
+--   AND refund.category IN ('订单退款')
 --   AND collect.reversal_pair_id IS NULL
 --   AND refund.reversal_pair_id IS NULL
 -- SET refund.reversal_pair_id = collect.id,
