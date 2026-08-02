@@ -73,17 +73,11 @@ func main() {
 		sort.Slice(logs, func(i, j int) bool { return logs[i].ID < logs[j].ID })
 
 		replayed := 0.0
-		for _, l := range logs {
-			switch l.FlowType {
-			case 1, 3: // 收入 / 内部调拨（划入）
-				replayed += l.Amount
-			case 2: // 支出
-				replayed -= l.Amount
-			case 4: // 校准：差额方向已经在 amount 的符号里
-				// 按当前实现：diff>0 → flow_type=1 / amount=diff；
-				//             diff<0 → flow_type=2 / amount=-diff
-				// 上面已覆盖
-			}
+		if len(logs) > 0 {
+			// 优先使用最后一条 flow_type=4 校准日志的 balance_after 作为 replayed 终点。
+			// CalibrateAccount 在 Task 7 之后写入的 flow_type=4 是绝对 amount（符号信息丢失），
+			// 用最后一行 balance_after 可避免对 amount 符号的猜测。
+			replayed = logs[len(logs)-1].BalanceAft
 		}
 		diff := a.Current - replayed
 		fmt.Printf("%-5d %-15s %12.2f %12.2f %12.2f %12d\n",
