@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"erp-backend/config"
 	"erp-backend/models"
 	"fmt"
@@ -10,6 +11,40 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+// PaymentBreakdownItem 订单收款分摊明细项
+type PaymentBreakdownItem struct {
+	PaymentMethod int     `json:"payment_method"`
+	AccountID     uint    `json:"account_id"`
+	Amount        float64 `json:"amount"`
+}
+
+func encodePaymentBreakdown(items []PaymentBreakdownItem) string {
+	data, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// getOrderPaymentBreakdown 解析订单收款账户分摊：优先用 payment_breakdown JSON，
+// 否则回退到单账户 (order.AccountID)。
+func getOrderPaymentBreakdown(tx *gorm.DB, order models.Order, fallbackAmount float64) ([]PaymentBreakdownItem, error) {
+	if order.PaymentBreakdown != "" {
+		var splits []PaymentBreakdownItem
+		if err := json.Unmarshal([]byte(order.PaymentBreakdown), &splits); err == nil && len(splits) > 0 {
+			return splits, nil
+		}
+	}
+	if order.AccountID == nil {
+		return nil, fmt.Errorf("订单 %s 既无 payment_breakdown 也无 account_id", order.OrderNo)
+	}
+	return []PaymentBreakdownItem{{
+		PaymentMethod: order.PaymentMethod,
+		AccountID:     *order.AccountID,
+		Amount:        fallbackAmount,
+	}}, nil
+}
 
 // OrderItemRequest 购物车单个商品项
 type OrderItemRequest struct {
@@ -510,68 +545,80 @@ func PayOrderBalance(c *gin.Context) {
 	}()
 
 	// ========== 第一步：定金对冲退款（写入冲销配对日志，排除于总收支汇总）==========
-	if order.DepositAmount > 0 && order.AccountID != nil {
-		// 1a. 锁定原账户
-		var oldAccount models.Account
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&oldAccount, *order.AccountID).Error; err != nil {
+	if order.DepositAmount > 0 {
+		depositSplits, err := getOrderPaymentBreakdown(tx, order, order.DepositAmount)
+		if err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询原账户失败"})
 			return
 		}
-		if oldAccount.Balance < order.DepositAmount {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code": 400,
-				"msg":  fmt.Sprintf("账户「%s」余额 ¥%.2f 不足以退还定金 ¥%.2f，无法完成结算，请先补充账户余额或调整收款账户", oldAccount.Name, oldAccount.Balance, order.DepositAmount),
-			})
-			return
-		}
 
-		// 1b. 查找该订单/账户对应的原定金流水（必须是未被配对的）
-		var depositLog models.FinancialLog
-		if err := tx.Where("related_no = ? AND account_id = ? AND category = ? AND reversal_pair_id IS NULL",
-			order.OrderNo, *order.AccountID, "预付定金").
-			Order("id DESC").
-			First(&depositLog).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  fmt.Sprintf("未找到订单 %s 账户 %d 的原定金流水，无法完成冲销对账", order.OrderNo, *order.AccountID),
-			})
-			return
-		}
+		for _, split := range depositSplits {
+			// 1a. 锁定原账户
+			var oldAccount models.Account
+			if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&oldAccount, split.AccountID).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"code": 500,
+					"msg":  fmt.Sprintf("定金账户(ID %d)查询失败，无法完成结算", split.AccountID),
+				})
+				return
+			}
+			if oldAccount.Balance < split.Amount {
+				tx.Rollback()
+				c.JSON(http.StatusBadRequest, gin.H{
+					"code": 400,
+					"msg":  fmt.Sprintf("账户「%s」余额 ¥%.2f 不足以退还定金 ¥%.2f，无法完成结算，请先补充账户余额或调整收款账户", oldAccount.Name, oldAccount.Balance, split.Amount),
+				})
+				return
+			}
 
-		// 1c. 扣减原账户余额
-		if err := tx.Model(&models.Account{}).Where("id = ?", *order.AccountID).
-			UpdateColumn("balance", gorm.Expr("balance - ?", order.DepositAmount)).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  "原账户定金退还失败",
-			})
-			return
-		}
+			// 1b. 查找该订单/账户对应的原定金流水（必须是未被配对的）
+			var depositLog models.FinancialLog
+			if err := tx.Where("related_no = ? AND account_id = ? AND category = ? AND reversal_pair_id IS NULL",
+				order.OrderNo, split.AccountID, "预付定金").
+				Order("id DESC").
+				First(&depositLog).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"code": 500,
+					"msg":  fmt.Sprintf("未找到订单 %s 账户 %d 的原定金流水，无法完成冲销对账", order.OrderNo, split.AccountID),
+				})
+				return
+			}
 
-		// 1d. 用 WriteReversalLog：自动把原 depositLog 标记 reversal_pair_id = depositLog.ID，
-		// 并写入冲销日志共享同一 pair_id
-		var updatedAccount models.Account
-		tx.First(&updatedAccount, *order.AccountID)
-		if err := WriteReversalLog(tx,
-			depositLog.ID,
-			*order.AccountID,
-			2, // flow_type=支出
-			"退还定金",
-			order.DepositAmount,
-			updatedAccount.Balance,
-			order.OrderNo,
-			fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, order.DepositAmount),
-		); err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  "定金退还记录写入失败",
-			})
-			return
+			// 1c. 扣减原账户余额
+			if err := tx.Model(&models.Account{}).Where("id = ?", split.AccountID).
+				UpdateColumn("balance", gorm.Expr("balance - ?", split.Amount)).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"code": 500,
+					"msg":  "原账户定金退还失败",
+				})
+				return
+			}
+
+			// 1d. 用 WriteReversalLog：自动把原 depositLog 标记 reversal_pair_id = depositLog.ID，
+			// 并写入冲销日志共享同一 pair_id
+			var updatedAccount models.Account
+			tx.First(&updatedAccount, split.AccountID)
+			if err := WriteReversalLog(tx,
+				depositLog.ID,
+				split.AccountID,
+				2, // flow_type=支出
+				"退还定金",
+				split.Amount,
+				updatedAccount.Balance,
+				order.OrderNo,
+				fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, split.Amount),
+			); err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"code": 500,
+					"msg":  "定金退还记录写入失败",
+				})
+				return
+			}
 		}
 	}
 

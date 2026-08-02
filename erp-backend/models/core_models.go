@@ -137,6 +137,7 @@ type Order struct {
 	DeliveryPerson    *Employee  `gorm:"foreignKey:DeliveryPersonID" json:"delivery_person,omitempty"`
 	// 新增：支付方式 (1-支付宝, 2-微信, 3-公户)
 	PaymentMethod int `gorm:"type:tinyint;not null;default:1;comment:支付方式：1-支付宝, 2-微信, 3-公户" json:"payment_method"`
+	PaymentBreakdown string `gorm:"type:text;comment:支付拆分明细JSON" json:"payment_breakdown"`
 	// 新增：订单状态 (1-正常, 2-已取消)
 	OrderStatus int `gorm:"type:tinyint;not null;default:1;comment:订单状态：1-正常, 2-已取消" json:"order_status"`
 	// 新增：关联账户
