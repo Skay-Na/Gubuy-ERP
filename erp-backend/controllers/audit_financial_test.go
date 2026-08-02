@@ -1289,20 +1289,22 @@ func TestAudit_SameAccountDepositThenSettle(t *testing.T) {
 		t.Fatalf("支付宝净余额应为 1000，实际 %.2f", alipayBal)
 	}
 
-	// 验证 TotalIncome（用 financial_logs 直查，会失败）
+	// 验证 TotalIncome（用 financial_logs 直查，排除已配对的冲销日志）
 	var totalIncome float64
 	config.DB.Model(&models.FinancialLog{}).
 		Where("flow_type = ?", 1).
+		Where("reversal_pair_id IS NULL").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&totalIncome)
 	if math.Abs(totalIncome-1000) > 0.01 {
 		t.Fatalf("TotalIncome 应为 1000（修复后），实际 %.2f — BUG-002 复现", totalIncome)
 	}
 
-	// 验证 TotalExpense 应为 0
+	// 验证 TotalExpense 应为 0（退还定金的冲销日志被配对，被排除）
 	var totalExpense float64
 	config.DB.Model(&models.FinancialLog{}).
 		Where("flow_type = ?", 2).
+		Where("reversal_pair_id IS NULL").
 		Select("COALESCE(SUM(amount), 0)").
 		Scan(&totalExpense)
 	if totalExpense > 0.01 {
@@ -1316,5 +1318,8 @@ func TestAudit_SameAccountDepositThenSettle(t *testing.T) {
 	}
 	if order.ActualPayAmount != 1000 {
 		t.Fatalf("订单实际应付应为 1000，实际 %.2f", order.ActualPayAmount)
+	}
+	if order.DepositAmount != 0 {
+		t.Fatalf("订单结清后 DepositAmount 应清零，实际 %.2f", order.DepositAmount)
 	}
 }

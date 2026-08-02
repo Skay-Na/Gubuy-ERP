@@ -509,16 +509,39 @@ func PayOrderBalance(c *gin.Context) {
 		}
 	}()
 
-	// ========== 第一步：定金对冲退款 ==========
+	// ========== 第一步：定金对冲退款（写入冲销配对日志，排除于总收支汇总）==========
 	if order.DepositAmount > 0 && order.AccountID != nil {
-		// 1a. 锁定原账户（取消余额校验，对冲定金）
+		// 1a. 锁定原账户
 		var oldAccount models.Account
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&oldAccount, *order.AccountID).Error; err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询原账户失败"})
 			return
 		}
+		if oldAccount.Balance < order.DepositAmount {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{
+				"code": 400,
+				"msg":  fmt.Sprintf("账户「%s」余额 ¥%.2f 不足以退还定金 ¥%.2f，无法完成结算，请先补充账户余额或调整收款账户", oldAccount.Name, oldAccount.Balance, order.DepositAmount),
+			})
+			return
+		}
 
+		// 1b. 查找该订单/账户对应的原定金流水（必须是未被配对的）
+		var depositLog models.FinancialLog
+		if err := tx.Where("related_no = ? AND account_id = ? AND category = ? AND reversal_pair_id IS NULL",
+			order.OrderNo, *order.AccountID, "预付定金").
+			Order("id DESC").
+			First(&depositLog).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"code": 500,
+				"msg":  fmt.Sprintf("未找到订单 %s 账户 %d 的原定金流水，无法完成冲销对账", order.OrderNo, *order.AccountID),
+			})
+			return
+		}
+
+		// 1c. 扣减原账户余额
 		if err := tx.Model(&models.Account{}).Where("id = ?", *order.AccountID).
 			UpdateColumn("balance", gorm.Expr("balance - ?", order.DepositAmount)).Error; err != nil {
 			tx.Rollback()
@@ -529,9 +552,20 @@ func PayOrderBalance(c *gin.Context) {
 			return
 		}
 
-		// 1b. 插入"定金退还"流水记录
-		tx.First(&oldAccount, *order.AccountID)
-		if err := WriteFinancialLog(tx, *order.AccountID, 2, "退还定金", order.DepositAmount, oldAccount.Balance, order.OrderNo, fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, order.DepositAmount)); err != nil {
+		// 1d. 用 WriteReversalLog：自动把原 depositLog 标记 reversal_pair_id = depositLog.ID，
+		// 并写入冲销日志共享同一 pair_id
+		var updatedAccount models.Account
+		tx.First(&updatedAccount, *order.AccountID)
+		if err := WriteReversalLog(tx,
+			depositLog.ID,
+			*order.AccountID,
+			2, // flow_type=支出
+			"退还定金",
+			order.DepositAmount,
+			updatedAccount.Balance,
+			order.OrderNo,
+			fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, order.DepositAmount),
+		); err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"code": 500,
