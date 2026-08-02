@@ -1041,19 +1041,54 @@ func TestAudit_CalibrateAccount(t *testing.T) {
 }
 ```
 
-- [ ] **Step 7.4: 修正 dashboard / stats 聚合：排除 flow_type=4（系统校准）**
+- [ ] **Step 7.4: 修正 CalibrateAccount 使用 `flow_type=4` + dashboard / stats 排除 flow_type=4**
 
-修改 `dashboard_controller.go` 的 income/expense 查询，加 `Where("flow_type IN (?, ?)", 1, 2)`：
+`CalibrateAccount` 当前实现把校准日志写成 `flow_type=1`（diff>0）或 `flow_type=2`（diff<0），导致它被计入收入 / 支出。`FinancialLog.FlowType` 的文档约定 `flow_type=4` = 余额校准，但代码从未使用。修正步骤：
+
+**a) 修改 `erp-backend/controllers/account_controller.go` 的 `CalibrateAccount`：**
+
+定位写入日志的代码块（约 line 263-275），把：
+```go
+flowType := 2
+amount := -diff
+if diff > 0 {
+    flowType = 1
+    amount = diff
+}
+```
+改为：
+```go
+flowType := 4 // 余额校准 — 不计入收入 / 支出
+amount := diff
+if amount < 0 {
+    amount = -amount
+}
+```
+即统一使用 `flow_type=4`，金额为绝对值。
+
+**b) 修改 `dashboard_controller.go` 的 income / expense 查询：**
 
 ```go
 incomeDB := config.DB.Model(&models.FinancialLog{}).
     Where("flow_type = ?", 1).
-    Where("flow_type <> ?", 4). // 排除校准
+    Where("flow_type <> ?", 4).
     Where("reversal_pair_id IS NULL")
-// ... expense 同样排除 flow_type=4
+// ... expense 同样
+expenseDB := config.DB.Model(&models.FinancialLog{}).
+    Where("flow_type = ?", 2).
+    Where("flow_type <> ?", 4).
+    Where("reversal_pair_id IS NULL")
 ```
 
-注意：`flow_type=4` 当前在 `CalibrateAccount` 的实现里只在 `diff>0` 时设 `flowType=1`、`diff<0` 时设 `flowType=2`。所以"校准计入收入/支出"是历史 BUG（应排除）。本任务顺带修复。
+**c) 修改 `stats_controller.go` 的 expense 查询：**
+
+```go
+config.DB.Model(&models.FinancialLog{}).
+    Where("flow_type = ? AND flow_type <> ? AND reversal_pair_id IS NULL", 2, 4).
+    Where("created_at >= ? AND created_at <= ?", startTime, endTime).
+    Select("COALESCE(SUM(amount), 0)").
+    Scan(&stats.Expense)
+```
 
 - [ ] **Step 7.5: 跑测试验证**
 
