@@ -1813,3 +1813,94 @@ func TestAudit_CalibrateAccount(t *testing.T) {
 		t.Fatalf("校准不应影响 TotalIncome=%.2f / TotalExpense=%.2f", summary.Data.TotalIncome, summary.Data.TotalExpense)
 	}
 }
+
+// T-A6: 仅付定金订单取消 — 退款日志应配对到原"预付定金"流水
+// 复现 Fix #4 修复的 bug：未配对的退款日志会被 dashboard 重复计入收入 / 支出
+func TestAudit_DepositOnlyCancelPairs(t *testing.T) {
+	setupAudit(t)
+	productID := ensureProduct(t, "审计商品-仅定金取消", 1000.00, 600, 100)
+
+	body := gin.H{
+		"items":            []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300,
+		"customer_name":    "仅定金取消客户",
+		"customer_phone":   "13800000008",
+		"customer_address": "测试地址-仅定金取消",
+	}
+	w := postJSON("/api/orders", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("下单失败: %d %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		OrderNo string `json:"order_no"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp.OrderNo == "" {
+		t.Fatalf("下单未返回订单号: %s", w.Body.String())
+	}
+	order := readOrder(t, resp.OrderNo)
+
+	// 验证前置：订单仅付了定金 (payment_status=1)，账户余额 300
+	if order.PaymentStatus != 1 {
+		t.Fatalf("前置条件失败：订单应为仅付定金(payment_status=1)，实际 %d", order.PaymentStatus)
+	}
+	if math.Abs(accountBalance(t, "支付宝")-300) > 0.01 {
+		t.Fatalf("前置条件失败：定金收取后支付宝余额 %.2f 应为 300", accountBalance(t, "支付宝"))
+	}
+
+	// 取消订单（不走 /balance 结算路径，直接 cancel）
+	cancelW := putJSON("/api/orders/"+strconv.Itoa(int(order.ID))+"/cancel", gin.H{})
+	if cancelW.Code != http.StatusOK {
+		t.Fatalf("取消失败: %d %s", cancelW.Code, cancelW.Body.String())
+	}
+
+	// 核心断言：退款日志必须被配对到原"预付定金"流水 (reversal_pair_id NOT NULL)
+	var refundLog models.FinancialLog
+	if err := config.DB.Where("related_no = ? AND category = ?", order.OrderNo, "订单退款").
+		Order("id DESC").First(&refundLog).Error; err != nil {
+		t.Fatalf("未找到退款日志: %v", err)
+	}
+	if refundLog.ReversalPairID == nil {
+		t.Fatalf("BUG: 仅定金订单取消的退款日志未被配对 (reversal_pair_id IS NULL)")
+	}
+
+	// 验证配对目标：pair_id 应指向原"预付定金"日志
+	var depositLog models.FinancialLog
+	if err := config.DB.Where("related_no = ? AND category = ?", order.OrderNo, "预付定金").
+		Order("id ASC").First(&depositLog).Error; err != nil {
+		t.Fatalf("未找到原定金日志: %v", err)
+	}
+	if refundLog.ReversalPairID == nil || *refundLog.ReversalPairID != depositLog.ID {
+		var got *uint = refundLog.ReversalPairID
+		var want uint = depositLog.ID
+		if got == nil {
+			t.Fatalf("BUG: 退款日志 reversal_pair_id 为 nil，期望 %d (原定金日志ID)", want)
+		}
+		t.Fatalf("退款日志 reversal_pair_id=%d 与原定金日志 ID=%d 不一致", *got, want)
+	}
+
+	// 配对的原定金日志也必须被打上 pair_id（dashboard 排除已配对项）
+	if depositLog.ReversalPairID == nil {
+		t.Fatalf("BUG: 原定金日志未被标记为已配对")
+	}
+
+	// 余额 / dashboard 汇总：定金+退款成对后相抵消
+	if math.Abs(accountBalance(t, "支付宝")) > 0.01 {
+		t.Fatalf("BUG: 仅定金订单取消后支付宝余额 %.2f 应为 0", accountBalance(t, "支付宝"))
+	}
+	var income, expense float64
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NULL", 1).
+		Select("COALESCE(SUM(amount), 0)").Scan(&income)
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NULL", 2).
+		Select("COALESCE(SUM(amount), 0)").Scan(&expense)
+	if math.Abs(income) > 0.01 {
+		t.Fatalf("BUG: 仅定金订单取消后 TotalIncome=%.2f 应为 0（定金被 pair 排除）", income)
+	}
+	if math.Abs(expense) > 0.01 {
+		t.Fatalf("BUG: 仅定金订单取消后 TotalExpense=%.2f 应为 0（退款被 pair 排除）", expense)
+	}
+}

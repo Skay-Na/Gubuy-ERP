@@ -830,8 +830,9 @@ func cancelOrderWithOptions(c *gin.Context, actionName string, allowFulfilled bo
 				return
 			}
 
-			// 写入退款流水：若找到对应的"销售货款"收款流水，使用 WriteReversalLog 配对
-			// 配对后该笔销售 / 退款在 dashboard 中按 WHERE reversal_pair_id IS NULL 排除
+			// 写入退款流水：若找到对应的"销售货款"或"预付定金"收款流水，
+			// 使用 WriteReversalLog 配对；配对后该笔销售 / 退款在 dashboard 中
+			// 按 WHERE reversal_pair_id IS NULL 排除
 			var updatedAccount models.Account
 			tx.First(&updatedAccount, split.AccountID)
 
@@ -840,13 +841,27 @@ func cancelOrderWithOptions(c *gin.Context, actionName string, allowFulfilled bo
 				order.OrderNo, split.AccountID, "销售货款").
 				Order("id DESC").
 				First(&collectLog).Error; err != nil {
-				// 找不到原 collect log 时 (例如仅付定金的订单、或老数据无销售货款流水)，
-				// 回退为普通退款日志，不参与配对，保持向后兼容
-				if err := WriteFinancialLog(tx, split.AccountID, 2, "订单退款",
-					split.Amount, updatedAccount.Balance, order.OrderNo,
-					fmt.Sprintf("订单 %s %s，退款 ¥%.2f", order.OrderNo, actionName, split.Amount)); err != nil {
+				// 仅付定金或老数据无"销售货款"流水时，再尝试"预付定金"
+				if err := tx.Where("related_no = ? AND account_id = ? AND category = ? AND reversal_pair_id IS NULL",
+					order.OrderNo, split.AccountID, "预付定金").
+					Order("id DESC").
+					First(&collectLog).Error; err != nil {
+					// 实在找不到原 collect log (例如更老的数据)，
+					// 回退为普通退款日志，不参与配对，保持向后兼容
+					if err := WriteFinancialLog(tx, split.AccountID, 2, "订单退款",
+						split.Amount, updatedAccount.Balance, order.OrderNo,
+						fmt.Sprintf("订单 %s %s，退款 ¥%.2f", order.OrderNo, actionName, split.Amount)); err != nil {
+						tx.Rollback()
+						c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "退款流水写入失败"})
+						return
+					}
+				} else if err := WriteReversalLog(tx, collectLog.ID,
+					split.AccountID, 2, "订单退款", split.Amount,
+					updatedAccount.Balance, order.OrderNo,
+					fmt.Sprintf("订单 %s %s，反向退款 ¥%.2f（仅定金）", order.OrderNo, actionName, split.Amount),
+				); err != nil {
 					tx.Rollback()
-					c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "退款流水写入失败"})
+					c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "退款配对流水写入失败（仅定金）"})
 					return
 				}
 			} else {
