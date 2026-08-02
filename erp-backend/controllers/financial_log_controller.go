@@ -72,3 +72,26 @@ func GetFinancialLogs(c *gin.Context) {
 		"data":  logs,
 	})
 }
+
+// WriteReversalLog 写入一条冲销配对日志。
+// 与 WriteFinancialLog 不同：必须传入 depositLogID 作为 pair_id；同时把原日志的 reversal_pair_id 也置为同一 ID。
+// 同一 pair_id 的两条日志会在 dashboard / stats 汇总时被 WHERE reversal_pair_id IS NULL 排除。
+func WriteReversalLog(tx *gorm.DB, depositLogID uint, accountID uint, flowType int, category string, amount float64, balanceAfter float64, relatedNo string, remark string) error {
+	// 1) 把原日志标记为"已被冲销"，pair_id 自配对 = depositLogID
+	if err := tx.Model(&models.FinancialLog{}).
+		Where("id = ?", depositLogID).
+		Update("reversal_pair_id", depositLogID).Error; err != nil {
+		return err
+	}
+	// 2) 写入冲销日志，共享同一 pair_id
+	return tx.Create(&models.FinancialLog{
+		AccountID:      accountID,
+		FlowType:       flowType,
+		Category:       category,
+		Amount:         amount,
+		BalanceAfter:   balanceAfter,
+		RelatedNo:      relatedNo,
+		Remark:         remark,
+		ReversalPairID: &depositLogID,
+	}).Error
+}

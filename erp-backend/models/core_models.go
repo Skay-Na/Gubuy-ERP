@@ -205,16 +205,17 @@ type Expense struct {
 
 // FinancialLog 全口径财务流水表
 type FinancialLog struct {
-	ID           uint      `gorm:"primaryKey;comment:主键ID" json:"id"`
-	AccountID    uint      `gorm:"not null;index;comment:关联资金账户ID" json:"account_id"`
-	Account      *Account  `gorm:"foreignKey:AccountID" json:"account,omitempty"`
-	FlowType     int       `gorm:"type:tinyint;not null;comment:资金流向" json:"flow_type"`
-	Category     string    `gorm:"type:varchar(50);not null;comment:细分分类" json:"category"`
-	Amount       float64   `gorm:"type:decimal(10,2);not null;comment:变动金额(绝对值)" json:"amount"`
-	BalanceAfter float64   `gorm:"type:decimal(10,2);not null;comment:变动后该账户余额快照" json:"balance_after"`
-	RelatedNo    string    `gorm:"type:varchar(100);comment:关联单号(订单号等)" json:"related_no"`
-	Remark       string    `gorm:"type:varchar(255);comment:备注说明" json:"remark"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID             uint      `gorm:"primaryKey;comment:主键ID" json:"id"`
+	AccountID      uint      `gorm:"not null;index;comment:关联资金账户ID" json:"account_id"`
+	Account        *Account  `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	FlowType       int       `gorm:"type:tinyint;not null;comment:资金流向" json:"flow_type"`
+	Category       string    `gorm:"type:varchar(50);not null;comment:细分分类" json:"category"`
+	Amount         float64   `gorm:"type:decimal(10,2);not null;comment:变动金额(绝对值)" json:"amount"`
+	BalanceAfter   float64   `gorm:"type:decimal(10,2);not null;comment:变动后该账户余额快照" json:"balance_after"`
+	RelatedNo      string    `gorm:"type:varchar(100);comment:关联单号(订单号等)" json:"related_no"`
+	Remark         string    `gorm:"type:varchar(255);comment:备注说明" json:"remark"`
+	ReversalPairID *uint     `gorm:"index;comment:冲销配对ID；配对日志(定金+退定金 / 销售+退款)汇总时排除" json:"reversal_pair_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // InboundRecord 入库记录表
