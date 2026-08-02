@@ -7,6 +7,9 @@
         <p class="text-sm text-slate-400">管理店内正式员工信息及外包服务商（安装/送货）</p>
       </div>
       <div class="flex gap-2 w-full md:w-auto">
+        <el-button type="info" plain class="flex-1 md:flex-none !rounded-xl" @click="handleExport">
+          <el-icon class="mr-1"><Download /></el-icon>导出清单
+        </el-button>
         <el-button v-if="activeTab === 'employees'" type="success" plain class="flex-1 md:flex-none !rounded-xl" @click="openReportDrawer()">
           薪资核算
         </el-button>
@@ -166,7 +169,16 @@
             </div>
           </el-form-item>
           <el-form-item label="入职时间">
+            <input
+              v-if="isMobile"
+              v-model="form.entry_date"
+              type="date"
+              inputmode="none"
+              aria-label="入职时间"
+              class="mobile-native-date-input"
+            />
             <el-date-picker
+              v-else
               v-model="form.entry_date"
               type="date"
               placeholder="选择入职时间"
@@ -187,10 +199,20 @@
       </template>
     </el-dialog>
 
-    <el-drawer v-model="drawerVisible" title="薪资核算表" :size="isMobile ? '100%' : '80%'">
-      <div class="p-4">
-        <div class="mb-4">
+    <el-drawer v-model="drawerVisible" title="薪资核算表" :size="payrollDrawerSize" class="payroll-drawer">
+      <div class="payroll-panel">
+        <div class="payroll-toolbar">
+          <input
+            v-if="isMobile"
+            v-model="reportMonth"
+            type="month"
+            inputmode="none"
+            aria-label="核算月份"
+            class="mobile-native-date-input mobile-native-month-input"
+            @change="fetchReport"
+          />
           <el-date-picker 
+            v-else
             v-model="reportMonth" 
             type="month" 
             format="YYYY-MM" 
@@ -198,35 +220,94 @@
             @change="fetchReport" 
             placeholder="选择月份"
           />
+          <div class="payroll-rules">
+            规则：9:00 上班 / 17:00 下班；未上班打卡默认计入请假，可由管理员在表内直接调整；每月 4 天内不扣款。
+          </div>
         </div>
-        <el-table :data="reportData" style="width: 100%" border v-loading="reportLoading">
-          <el-table-column prop="employee_name" label="姓名" width="120" />
-          <el-table-column prop="base_salary" label="底薪 (元)" width="120" />
-          <el-table-column prop="total_sales" label="当月销售额" width="120">
-            <template #default="{ row }">{{ row.total_sales.toFixed(2) }}</template>
-          </el-table-column>
-          <el-table-column prop="total_commission" label="当月提成" width="120">
-            <template #default="{ row }">{{ row.total_commission.toFixed(2) }}</template>
-          </el-table-column>
-          <el-table-column label="请假天数" width="160">
+
+        <div class="payroll-summary">
+          <div class="payroll-summary-card">
+            <span>应发合计</span>
+            <strong>{{ formatMoney(payrollSummary.finalSalary) }}</strong>
+          </div>
+          <div class="payroll-summary-card">
+            <span>提成合计</span>
+            <strong>{{ formatMoney(payrollSummary.commission) }}</strong>
+          </div>
+          <div class="payroll-summary-card danger">
+            <span>扣款合计</span>
+            <strong>{{ formatMoney(payrollSummary.deduction) }}</strong>
+          </div>
+          <div class="payroll-summary-card">
+            <span>核算人数</span>
+            <strong>{{ reportData.length }} 人</strong>
+          </div>
+        </div>
+
+        <el-table
+          :data="reportData"
+          style="width: 100%"
+          border
+          stripe
+          size="small"
+          height="calc(100vh - 260px)"
+          v-loading="reportLoading"
+          class="payroll-table"
+          :header-cell-style="{ background: '#f8fafc', color: '#475569', fontWeight: 700 }"
+        >
+          <el-table-column prop="employee_name" label="员工" width="140" fixed="left">
             <template #default="{ row }">
-              <el-input-number 
-                v-model="row.leave_days" 
-                :min="0" 
-                :max="31" 
-                size="small" 
-                @change="updateLeaveDays(row)" 
-              />
+              <div class="payroll-employee">
+                <strong>{{ row.employee_name }}</strong>
+                <span>#{{ row.emp_no }}</span>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="deduction" label="超假扣款" width="120">
+          <el-table-column prop="base_salary" label="底薪" width="110" align="right">
+            <template #default="{ row }">{{ formatMoney(row.base_salary) }}</template>
+          </el-table-column>
+          <el-table-column prop="total_sales" label="月销售额" width="120" align="right">
+            <template #default="{ row }">{{ formatMoney(row.total_sales) }}</template>
+          </el-table-column>
+          <el-table-column prop="total_commission" label="提成快照" width="120" align="right">
+            <template #default="{ row }">{{ formatMoney(row.total_commission) }}</template>
+          </el-table-column>
+          <el-table-column label="请假天数（可调）" width="210" align="center">
             <template #default="{ row }">
-              <span class="text-red-500 font-medium">-{{ row.deduction.toFixed(2) }}</span>
+              <div class="leave-editor">
+                <el-input-number
+                  v-model="row.manual_leave_days"
+                  :min="0"
+                  :max="31"
+                  size="small"
+                  :controls="false"
+                  @change="updateLeaveDays(row)"
+                />
+                <div class="leave-actions">
+                  <el-button size="small" text @click="setLeaveDays(row, Math.max(0, row.manual_leave_days - 1))">-1</el-button>
+                  <el-button size="small" text @click="setLeaveDays(row, row.absent_days || 0)">按打卡 {{ row.absent_days || 0 }}天</el-button>
+                  <el-button size="small" text @click="setLeaveDays(row, row.manual_leave_days + 1)">+1</el-button>
+                </div>
+              </div>
             </template>
           </el-table-column>
-          <el-table-column prop="final_salary" label="本月实发" min-width="150" fixed="right">
+          <el-table-column label="扣款依据" width="150">
             <template #default="{ row }">
-              <span class="text-blue-600 font-bold text-lg">{{ row.final_salary.toFixed(2) }}</span>
+              <div class="deduction-meta">
+                <span>请假 {{ row.leave_days || 0 }} 天</span>
+                <span>扣款 {{ row.deduction_days || 0 }} 天</span>
+                <span class="hint">打卡估算 {{ row.absent_days || 0 }} 天</span>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column prop="deduction" label="超假扣款" width="120" align="right">
+            <template #default="{ row }">
+              <span class="text-red-500 font-medium">-{{ formatMoney(row.deduction) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="final_salary" label="本月实发" width="150" fixed="right" align="right">
+            <template #default="{ row }">
+              <span class="text-blue-600 font-bold text-lg">{{ formatMoney(row.final_salary) }}</span>
             </template>
           </el-table-column>
         </el-table>
@@ -238,7 +319,17 @@
       <div v-if="selectedEmpForAttendance" class="space-y-4">
         <div class="flex justify-between items-center mb-4">
           <div class="text-lg font-bold">{{ selectedEmpForAttendance.name }} 的打卡记录</div>
+          <input
+            v-if="isMobile"
+            v-model="attendanceMonth"
+            type="month"
+            inputmode="none"
+            aria-label="考勤月份"
+            class="mobile-native-date-input mobile-native-month-input"
+            @change="fetchAttendanceLogs"
+          />
           <el-date-picker
+            v-else
             v-model="attendanceMonth"
             type="month"
             format="YYYY-MM"
@@ -275,18 +366,24 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import axios from 'axios'
+import request from '../utils/request'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Phone, Edit, Calendar, Delete } from '@element-plus/icons-vue'
+import { Phone, Edit, Calendar, Delete, Download } from '@element-plus/icons-vue'
+import { downloadExcel } from '../utils/export'
 import dayjs from 'dayjs'
 
 const employees = ref([])
 const loading = ref(false)
 const windowWidth = ref(window.innerWidth)
 const isMobile = computed(() => windowWidth.value < 768)
+const payrollDrawerSize = computed(() => isMobile.value ? '100%' : 'calc(100vw - 14rem)')
 
 const handleResize = () => {
   windowWidth.value = window.innerWidth
+}
+
+const handleExport = () => {
+  downloadExcel('/api/employees/export')
 }
 
 const activeTab = ref('employees')
@@ -319,6 +416,16 @@ const reportMonth = ref(dayjs().format('YYYY-MM'))
 const reportData = ref([])
 const reportLoading = ref(false)
 
+const formatMoney = (value) => Number(value || 0).toFixed(2)
+const payrollSummary = computed(() => {
+  return reportData.value.reduce((summary, row) => {
+    summary.finalSalary += Number(row.final_salary || 0)
+    summary.commission += Number(row.total_commission || 0)
+    summary.deduction += Number(row.deduction || 0)
+    return summary
+  }, { finalSalary: 0, commission: 0, deduction: 0 })
+})
+
 // Attendance Logs Logic
 const attendanceDialogVisible = ref(false)
 const selectedEmpForAttendance = ref(null)
@@ -337,7 +444,7 @@ const fetchAttendanceLogs = async () => {
   if (!selectedEmpForAttendance.value) return
   logsLoading.value = true
   try {
-    const res = await axios.get('/api/employees/attendance-logs', {
+    const res = await request.get('/api/employees/attendance-logs', {
       params: {
         employee_id: selectedEmpForAttendance.value.id,
         month: attendanceMonth.value
@@ -376,7 +483,7 @@ const openReportDrawer = () => {
 const fetchReport = async () => {
   reportLoading.value = true
   try {
-    const res = await axios.get(`/api/employees/commission-report?month=${reportMonth.value}`)
+    const res = await request.get(`/api/employees/commission-report?month=${reportMonth.value}`)
     if (res.data.code === 200) {
       reportData.value = res.data.data
     }
@@ -389,10 +496,10 @@ const fetchReport = async () => {
 
 const updateLeaveDays = async (row) => {
   try {
-    await axios.post('/api/employees/attendance', {
+    await request.post('/api/employees/attendance', {
       employee_id: row.employee_id,
       month: reportMonth.value,
-      leave_days: row.leave_days
+      leave_days: row.manual_leave_days || 0
     })
     fetchReport()
   } catch (error) {
@@ -400,10 +507,15 @@ const updateLeaveDays = async (row) => {
   }
 }
 
+const setLeaveDays = (row, days) => {
+  row.manual_leave_days = Math.max(0, Math.min(31, Number(days) || 0))
+  updateLeaveDays(row)
+}
+
 const fetchEmployees = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/employees')
+    const res = await request.get('/api/employees')
     if (res.data.code === 200) {
       employees.value = res.data.data
     }
@@ -488,10 +600,10 @@ const handleSave = async () => {
     }
 
     if (isEdit.value) {
-      await axios.put(`/api/employees/${form.value.id}`, payload)
+      await request.put(`/api/employees/${form.value.id}`, payload)
       ElMessage.success('更新成功')
     } else {
-      await axios.post('/api/employees', payload)
+      await request.post('/api/employees', payload)
       ElMessage.success('创建成功')
     }
     
@@ -515,7 +627,7 @@ const handleDelete = (row) => {
     }
   ).then(async () => {
     try {
-      await axios.delete(`/api/employees/${row.id}`)
+      await request.delete(`/api/employees/${row.id}`)
       ElMessage.success('删除成功')
       fetchEmployees()
     } catch (error) {
@@ -545,5 +657,126 @@ onUnmounted(() => {
 }
 :deep(.custom-table .el-table__inner-wrapper::before) {
   display: none;
+}
+
+.payroll-panel {
+  padding: 16px;
+  background: #f8fafc;
+  min-height: 100%;
+}
+.payroll-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.payroll-rules {
+  flex: 1;
+  color: #64748b;
+  font-size: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.payroll-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.payroll-summary-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.04);
+}
+.payroll-summary-card span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+.payroll-summary-card strong {
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+}
+.payroll-summary-card.danger strong {
+  color: #ef4444;
+}
+.payroll-table {
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+}
+.payroll-employee {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.2;
+}
+.payroll-employee strong {
+  color: #0f172a;
+  font-weight: 800;
+}
+.payroll-employee span,
+.deduction-meta .hint {
+  color: #94a3b8;
+  font-size: 11px;
+}
+.leave-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+}
+.leave-editor :deep(.el-input-number) {
+  width: 76px;
+}
+.leave-actions {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  justify-content: center;
+}
+.leave-actions :deep(.el-button) {
+  padding: 2px 4px;
+  height: 20px;
+  font-size: 11px;
+}
+.deduction-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: #475569;
+  line-height: 1.25;
+}
+.mobile-native-date-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font-size: 16px;
+}
+.mobile-native-month-input {
+  width: auto;
+}
+
+@media (max-width: 900px) {
+  .payroll-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .payroll-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

@@ -5,7 +5,7 @@
       <div class="flex justify-between items-end gap-4 mb-6">
         <div>
           <h1 class="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mb-1">国补核销管理</h1>
-          <p class="text-sm text-slate-400">追踪国家补贴产生、回款进度及批量结算记录</p>
+          <p class="text-sm text-slate-400">追踪国补订单原价应回款、到账进度及批量结算记录</p>
         </div>
         <el-button type="primary" size="large" class="!rounded-xl shadow-lg shadow-blue-100" @click="openSettleDialog">
           <el-icon class="mr-2"><Plus /></el-icon>录入回款记录
@@ -20,7 +20,7 @@
               <el-icon size="24"><PieChart /></el-icon>
             </div>
             <div>
-              <div class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">累计产生国补</div>
+              <div class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">累计应回款</div>
               <div class="text-2xl font-black text-slate-900">¥{{ summary.total_generated?.toLocaleString() || '0.00' }}</div>
             </div>
           </div>
@@ -97,7 +97,7 @@
                 <span class="text-xs text-slate-400">¥{{ item.amount.toLocaleString() }}</span>
               </div>
               <el-progress 
-                :percentage="Math.min(100, (item.amount / summary.total_generated * 100))" 
+                :percentage="getProgressPercentage(item.amount)" 
                 :color="item.color"
                 :stroke-width="10"
                 :show-text="false"
@@ -150,7 +150,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { Plus, PieChart, Checked, Timer, List, DocumentChecked } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import axios from 'axios'
+import request from '../utils/request'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -166,8 +166,14 @@ const form = ref({
   remark: ''
 })
 
+const getProgressPercentage = (amount) => {
+  const total = summary.value.total_generated || 0
+  if (total <= 0) return 0
+  return Math.min(100, (amount / total) * 100)
+}
+
 const fetchSummary = async () => {
-  const res = await axios.get('/api/subsidy/summary')
+  const res = await request.get('/api/subsidy/summary')
   if (res.data.code === 200) {
     summary.value = res.data.data
   }
@@ -175,7 +181,7 @@ const fetchSummary = async () => {
 
 const fetchSettlements = async () => {
   loading.value = true
-  const res = await axios.get('/api/subsidy/settlements')
+  const res = await request.get('/api/subsidy/settlements')
   if (res.data.code === 200) {
     settlements.value = res.data.data
   }
@@ -183,7 +189,7 @@ const fetchSettlements = async () => {
 }
 
 const fetchAccounts = async () => {
-  const res = await axios.get('/api/accounts')
+  const res = await request.get('/api/accounts')
   if (res.data.code === 200) {
     accounts.value = res.data.data
   }
@@ -191,7 +197,7 @@ const fetchAccounts = async () => {
 
 const fetchOrders = async () => {
   // 获取所有带国补的订单来计算进度
-  const res = await axios.get('/api/orders')
+  const res = await request.get('/api/orders')
   if (res.data.code === 200) {
     orders.value = res.data.data.filter(o => o.subsidy_amount > 0 && o.order_status === 1)
   }
@@ -205,13 +211,13 @@ const docProgress = computed(() => {
   return [
     { 
       label: '资料待提交', 
-      amount: pending.reduce((s, o) => s + o.subsidy_amount, 0), 
+      amount: pending.reduce((s, o) => s + o.total_amount, 0), 
       count: pending.length,
       color: '#94a3b8'
     },
     { 
       label: '资料已提交政府', 
-      amount: (submitted.reduce((s, o) => s + o.subsidy_amount, 0) + finished.reduce((s, o) => s + o.subsidy_amount, 0)), 
+      amount: (submitted.reduce((s, o) => s + o.total_amount, 0) + finished.reduce((s, o) => s + o.total_amount, 0)), 
       count: (submitted.length + finished.length),
       color: '#3b82f6'
     }
@@ -230,7 +236,7 @@ const handleSettle = async () => {
 
   try {
     submitting.value = true
-    const res = await axios.post('/api/subsidy/settle', form.value)
+    const res = await request.post('/api/subsidy/settle', form.value)
     if (res.data.code === 200) {
       ElMessage.success('录入成功')
       dialogVisible.value = false

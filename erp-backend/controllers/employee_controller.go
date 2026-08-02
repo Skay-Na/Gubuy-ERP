@@ -2,14 +2,28 @@ package controllers
 
 import (
 	"erp-backend/config"
+	"erp-backend/middlewares"
 	"erp-backend/models"
+	"erp-backend/utils"
 	"net/http"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 // GetEmployees 获取员工列表
+// @Summary 获取员工列表
+// @Description 获取员工列表
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_employees
+// @Router /api/employees [get]
 func GetEmployees(c *gin.Context) {
 	var employees []models.Employee
 	if err := config.DB.Find(&employees).Error; err != nil {
@@ -33,6 +47,7 @@ type CreateEmployeeRequest struct {
 	Phone          string     `json:"phone"`
 	EmpNo          string     `json:"emp_no" binding:"required"`
 	PinCode        string     `json:"pin_code"`
+	Role           string     `json:"role"`
 	BaseSalary     float64    `json:"base_salary"`
 	CommissionRate float64    `json:"commission_rate"`
 	EntryDate      *time.Time `json:"entry_date"`
@@ -41,6 +56,16 @@ type CreateEmployeeRequest struct {
 }
 
 // CreateEmployee 创建员工
+// @Summary 创建员工
+// @Description 创建员工
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Param body body CreateEmployeeRequest true "员工参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employees
+// @Router /api/employees [post]
 func CreateEmployee(c *gin.Context) {
 	var req CreateEmployeeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -51,16 +76,21 @@ func CreateEmployee(c *gin.Context) {
 		return
 	}
 
+	pinyinStr, pinyinInitial := utils.GetPinyin(req.Name)
+
 	employee := models.Employee{
 		Name:           req.Name,
 		Phone:          req.Phone,
 		EmpNo:          req.EmpNo,
 		PinCode:        req.PinCode,
+		Role:           req.Role,
 		BaseSalary:     req.BaseSalary,
 		CommissionRate: req.CommissionRate,
 		EntryDate:      req.EntryDate,
 		IsOutsourced:   req.IsOutsourced,
 		OutsourcedType: req.OutsourcedType,
+		Pinyin:         pinyinStr,
+		PinyinInitial:  pinyinInitial,
 	}
 
 	if err := config.DB.Create(&employee).Error; err != nil {
@@ -84,6 +114,7 @@ type UpdateEmployeeRequest struct {
 	Phone          string     `json:"phone"`
 	EmpNo          string     `json:"emp_no" binding:"required"`
 	PinCode        string     `json:"pin_code"`
+	Role           string     `json:"role"`
 	BaseSalary     float64    `json:"base_salary"`
 	CommissionRate float64    `json:"commission_rate"`
 	EntryDate      *time.Time `json:"entry_date"`
@@ -92,6 +123,17 @@ type UpdateEmployeeRequest struct {
 }
 
 // UpdateEmployee 更新员工信息
+// @Summary 更新员工
+// @Description 更新员工
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Param body body UpdateEmployeeRequest true "员工更新参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID put_api_employees_id
+// @Router /api/employees/{id} [put]
 func UpdateEmployee(c *gin.Context) {
 	id := c.Param("id")
 	var req UpdateEmployeeRequest
@@ -112,16 +154,21 @@ func UpdateEmployee(c *gin.Context) {
 		return
 	}
 
+	pinyinStr, pinyinInitial := utils.GetPinyin(req.Name)
+
 	updates := map[string]interface{}{
 		"name":            req.Name,
 		"phone":           req.Phone,
 		"emp_no":          req.EmpNo,
 		"pin_code":        req.PinCode,
+		"role":            req.Role,
 		"base_salary":     req.BaseSalary,
 		"commission_rate": req.CommissionRate,
 		"entry_date":      req.EntryDate,
 		"is_outsourced":   req.IsOutsourced,
 		"outsourced_type": req.OutsourcedType,
+		"pinyin":          pinyinStr,
+		"pinyin_initial":  pinyinInitial,
 	}
 
 	if err := config.DB.Model(&employee).Updates(updates).Error; err != nil {
@@ -139,6 +186,16 @@ func UpdateEmployee(c *gin.Context) {
 }
 
 // DeleteEmployee 删除员工
+// @Summary 删除员工
+// @Description 删除员工
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID delete_api_employees_id
+// @Router /api/employees/{id} [delete]
 func DeleteEmployee(c *gin.Context) {
 	id := c.Param("id")
 	if err := config.DB.Delete(&models.Employee{}, id).Error; err != nil {
@@ -161,7 +218,100 @@ type UpdateAttendanceRequest struct {
 	LeaveDays  int    `json:"leave_days"`
 }
 
+type VerifyPinRequest struct {
+	EmployeeID uint   `json:"employee_id" binding:"required"`
+	PinCode    string `json:"pin_code" binding:"required"`
+}
+
+type EmployeeIDRequest struct {
+	EmployeeID uint `json:"employee_id" binding:"required"`
+}
+
+func currentEmployeeScope(c *gin.Context) (*models.Employee, bool, error) {
+	username := c.GetString("username")
+	if !strings.HasPrefix(username, "emp_") {
+		return nil, false, nil
+	}
+
+	empNo := strings.TrimPrefix(username, "emp_")
+	var employee models.Employee
+	if err := config.DB.Where("emp_no = ?", empNo).First(&employee).Error; err != nil {
+		return nil, true, err
+	}
+	return &employee, true, nil
+}
+
+func enforceEmployeeScope(c *gin.Context, requestedEmployeeID uint) bool {
+	employee, isEmployeeToken, err := currentEmployeeScope(c)
+	if !isEmployeeToken {
+		return true
+	}
+	if err != nil {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "员工身份无效，请重新登录"})
+		return false
+	}
+	if employee.ID != requestedEmployeeID {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "msg": "员工账号只能操作自己的记录"})
+		return false
+	}
+	return true
+}
+
+func effectiveAttendanceEndDate(startMonth time.Time) time.Time {
+	monthEnd := time.Date(startMonth.Year(), startMonth.Month()+1, 0, 0, 0, 0, 0, time.Local)
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
+	if today.Before(startMonth) {
+		return startMonth.AddDate(0, 0, -1)
+	}
+	if today.After(monthEnd) {
+		return monthEnd
+	}
+	// 当月当天 17:00 前不提前算当天缺勤，避免员工还没到下班时间就被扣。
+	if now.Hour() < 17 {
+		return today.AddDate(0, 0, -1)
+	}
+	return today
+}
+
+func countAbsentDays(employeeID uint, startMonth time.Time) int {
+	endDate := effectiveAttendanceEndDate(startMonth)
+	if endDate.Before(startMonth) {
+		return 0
+	}
+
+	var logs []models.DailyAttendance
+	if err := config.DB.Where("employee_id = ? AND date >= ? AND date <= ?", employeeID, startMonth.Format("2006-01-02"), endDate.Format("2006-01-02")).Find(&logs).Error; err != nil {
+		return 0
+	}
+
+	checkedIn := make(map[string]bool, len(logs))
+	for _, log := range logs {
+		if log.CheckIn != nil {
+			checkedIn[log.Date] = true
+		}
+	}
+
+	absentDays := 0
+	for day := startMonth; !day.After(endDate); day = day.AddDate(0, 0, 1) {
+		if !checkedIn[day.Format("2006-01-02")] {
+			absentDays++
+		}
+	}
+	return absentDays
+}
+
 // UpdateAttendance 更新考勤
+// @Summary 更新打卡信息
+// @Description 更新打卡信息
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Param body body UpdateAttendanceRequest true "考勤参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employees_attendance
+// @Router /api/employees/attendance [post]
 func UpdateAttendance(c *gin.Context) {
 	var req UpdateAttendanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -169,6 +319,9 @@ func UpdateAttendance(c *gin.Context) {
 			"code": 400,
 			"msg":  "参数错误: " + err.Error(),
 		})
+		return
+	}
+	if !enforceEmployeeScope(c, req.EmployeeID) {
 		return
 	}
 
@@ -213,12 +366,33 @@ type CommissionReportItem struct {
 	CommissionRate  float64 `json:"commission_rate"`
 	TotalSales      float64 `json:"total_sales"`      // 实际计算提成的销售额
 	TotalCommission float64 `json:"total_commission"` // 总提成
-	LeaveDays       int     `json:"leave_days"`
+	ManualLeaveDays int     `json:"manual_leave_days"`
+	AbsentDays      int     `json:"absent_days"`
+	LeaveDays       int     `json:"leave_days"` // 兼容旧字段：人工请假 + 未打卡请假
+	FreeLeaveDays   int     `json:"free_leave_days"`
+	DeductionDays   int     `json:"deduction_days"`
+	DailySalary     float64 `json:"daily_salary"`
 	Deduction       float64 `json:"deduction"`
 	FinalSalary     float64 `json:"final_salary"`
 }
 
+// CountsTowardEmployeePerformance 判断订单是否应计入员工销售业绩。
+// 老板客户订单保留 employee_id 作为实际开单操作员，但业绩归属老板。
+func CountsTowardEmployeePerformance(referrerName string) bool {
+	return !strings.Contains(referrerName, "老板")
+}
+
 // GetCommissionReport 获取月度提成报表
+// @Summary 获取员工提成报表
+// @Description 获取员工提成报表
+// @Tags Employees
+// @Accept json
+// @Param month query string true "月份 (如 2026-06)"
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_employees_commission_report
+// @Router /api/employees/commission-report [get]
 func GetCommissionReport(c *gin.Context) {
 	var req GetCommissionReportRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -253,12 +427,12 @@ func GetCommissionReport(c *gin.Context) {
 	reportMap := make(map[uint]*CommissionReportItem)
 	for _, emp := range employees {
 		reportMap[emp.ID] = &CommissionReportItem{
-			EmployeeID:     emp.ID,
-			EmployeeName:   emp.Name,
-			EmpNo:          emp.EmpNo,
-			BaseSalary:     emp.BaseSalary,
-			CommissionRate: emp.CommissionRate,
-			TotalSales:     0,
+			EmployeeID:      emp.ID,
+			EmployeeName:    emp.Name,
+			EmpNo:           emp.EmpNo,
+			BaseSalary:      emp.BaseSalary,
+			CommissionRate:  emp.CommissionRate,
+			TotalSales:      0,
 			TotalCommission: 0,
 		}
 	}
@@ -277,8 +451,15 @@ func GetCommissionReport(c *gin.Context) {
 	}
 
 	// 4. 计算业绩与提成
+	var chamberTotalCommission float64
+
 	for _, order := range orders {
-		if order.EmployeeID == nil {
+		if order.OrderType == 2 {
+			chamberTotalCommission += order.CommissionAmount
+			continue
+		}
+
+		if order.EmployeeID == nil || !CountsTowardEmployeePerformance(order.ReferrerName) {
 			continue
 		}
 		reportItem, ok := reportMap[*order.EmployeeID]
@@ -291,9 +472,26 @@ func GetCommissionReport(c *gin.Context) {
 			// 由于赠品的 UnitPrice == 0，此处累加也是 0，符合业务逻辑
 			orderSales += item.UnitPrice * float64(item.Quantity)
 		}
-		
+
 		reportItem.TotalSales += orderSales
 		reportItem.TotalCommission += order.CommissionAmount
+	}
+
+	if chamberTotalCommission > 0 {
+		var validEmpIDs []uint
+		for _, emp := range employees {
+			if emp.Role != "admin" && emp.Name != "老板" {
+				validEmpIDs = append(validEmpIDs, emp.ID)
+			}
+		}
+		if len(validEmpIDs) > 0 {
+			splitCommission := chamberTotalCommission / float64(len(validEmpIDs))
+			for _, id := range validEmpIDs {
+				if reportItem, ok := reportMap[id]; ok {
+					reportItem.TotalCommission += splitCommission
+				}
+			}
+		}
 	}
 
 	daysInMonth := time.Date(startMonth.Year(), startMonth.Month()+1, 0, 0, 0, 0, 0, time.Local).Day()
@@ -302,11 +500,19 @@ func GetCommissionReport(c *gin.Context) {
 		reportItem := reportMap[emp.ID]
 		var attendance models.MonthlyAttendance
 		config.DB.Where("employee_id = ? AND month = ?", emp.ID, req.Month).First(&attendance)
-		
-		reportItem.LeaveDays = attendance.LeaveDays
+
+		reportItem.AbsentDays = countAbsentDays(emp.ID, startMonth)
+		reportItem.ManualLeaveDays = attendance.LeaveDays
+		if attendance.ID == 0 {
+			reportItem.ManualLeaveDays = reportItem.AbsentDays
+		}
+		reportItem.LeaveDays = reportItem.ManualLeaveDays
+		reportItem.FreeLeaveDays = 4
+		reportItem.DailySalary = reportItem.BaseSalary / float64(daysInMonth)
 		reportItem.Deduction = 0
-		if reportItem.LeaveDays > 4 {
-			reportItem.Deduction = (reportItem.BaseSalary / float64(daysInMonth)) * float64(reportItem.LeaveDays - 4)
+		if reportItem.LeaveDays > reportItem.FreeLeaveDays {
+			reportItem.DeductionDays = reportItem.LeaveDays - reportItem.FreeLeaveDays
+			reportItem.Deduction = reportItem.DailySalary * float64(reportItem.DeductionDays)
 		}
 		reportItem.FinalSalary = reportItem.BaseSalary + reportItem.TotalCommission - reportItem.Deduction
 	}
@@ -316,6 +522,12 @@ func GetCommissionReport(c *gin.Context) {
 	for _, item := range reportMap {
 		result = append(result, *item)
 	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].TotalSales == result[j].TotalSales {
+			return result[i].EmployeeID < result[j].EmployeeID
+		}
+		return result[i].TotalSales > result[j].TotalSales
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
@@ -324,12 +536,45 @@ func GetCommissionReport(c *gin.Context) {
 	})
 }
 
-// VerifyPin 员工终端 PIN 码验证
-func VerifyPin(c *gin.Context) {
-	var req struct {
-		EmployeeID uint   `json:"employee_id" binding:"required"`
-		PinCode    string `json:"pin_code" binding:"required"`
+// GetEmployeesSimple 获取员工脱敏列表 (无需认证，用于终端登录选择)
+// @Summary GetEmployeesSimple
+// @Description GetEmployeesSimple
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @ID get_api_employees_simple
+// @Router /api/employees/simple [get]
+func GetEmployeesSimple(c *gin.Context) {
+	var employees []models.Employee
+	// 我们只查询 id, name, emp_no, is_outsourced, outsourced_type 这几列，排除底薪和密码
+	if err := config.DB.Select("id, name, emp_no, is_outsourced, outsourced_type").Find(&employees).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code": 500,
+			"msg":  "获取员工列表失败: " + err.Error(),
+		})
+		return
 	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  "查询成功",
+		"data": employees,
+	})
+}
+
+// VerifyPin 员工终端 PIN 码验证
+// @Summary VerifyPin
+// @Description VerifyPin
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Param body body VerifyPinRequest true "员工 PIN 登录参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @ID post_api_employees_verify_pin
+// @Router /api/employees/verify-pin [post]
+func VerifyPin(c *gin.Context) {
+	var req VerifyPinRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
 		return
@@ -346,22 +591,50 @@ func VerifyPin(c *gin.Context) {
 		return
 	}
 
+	// 验证成功，为员工签发较长有效期的 JWT Token，避免移动收银端频繁掉登录。
+	token, err := middlewares.GenerateTokenWithDuration("emp_"+employee.EmpNo, 30*24*time.Hour)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "Token生成失败: " + err.Error()})
+		return
+	}
+
+	// 脱敏后再返回给前端
+	employee.PinCode = ""
+
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "验证成功",
-		"data": employee,
+		"data": gin.H{
+			"token":    token,
+			"employee": employee,
+		},
 	})
 }
 
 // GetEmployeeMeStats 获取当前员工的今日业绩快照
+// @Summary 获取员工个人统计
+// @Description 获取员工个人统计
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID get_api_employees_id_stats
+// @Router /api/employees/{id}/stats [get]
 func GetEmployeeMeStats(c *gin.Context) {
 	id := c.Param("id")
+	if parsedID, err := strconv.ParseUint(id, 10, 64); err == nil {
+		if !enforceEmployeeScope(c, uint(parsedID)) {
+			return
+		}
+	}
 	today := time.Now().Format("2006-01-02")
-	
+
 	var stats struct {
-		OrderCount      int64   `json:"order_count"`
-		TotalSales      float64 `json:"total_sales"`
-		EstimatedComm   float64 `json:"estimated_comm"`
+		OrderCount    int64   `json:"order_count"`
+		TotalSales    float64 `json:"total_sales"`
+		EstimatedComm float64 `json:"estimated_comm"`
 	}
 
 	// 1. 获取员工信息（为了提成比例）
@@ -394,12 +667,23 @@ func GetEmployeeMeStats(c *gin.Context) {
 }
 
 // CheckIn 员工上班打卡
+// @Summary 签到
+// @Description 签到
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Param body body EmployeeIDRequest true "员工ID"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employees_check_in
+// @Router /api/employees/check-in [post]
 func CheckIn(c *gin.Context) {
-	var req struct {
-		EmployeeID uint `json:"employee_id" binding:"required"`
-	}
+	var req EmployeeIDRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if !enforceEmployeeScope(c, req.EmployeeID) {
 		return
 	}
 
@@ -430,12 +714,23 @@ func CheckIn(c *gin.Context) {
 }
 
 // CheckOut 员工下班打卡
+// @Summary 签退
+// @Description 签退
+// @Tags Employees
+// @Accept json
+// @Produce json
+// @Param body body EmployeeIDRequest true "员工ID"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employees_check_out
+// @Router /api/employees/check-out [post]
 func CheckOut(c *gin.Context) {
-	var req struct {
-		EmployeeID uint `json:"employee_id" binding:"required"`
-	}
+	var req EmployeeIDRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if !enforceEmployeeScope(c, req.EmployeeID) {
 		return
 	}
 
@@ -462,9 +757,27 @@ func CheckOut(c *gin.Context) {
 }
 
 // GetDailyAttendance 获取员工打卡明细
+// @Summary 获取打卡记录
+// @Description 获取打卡记录
+// @Tags Employees
+// @Accept json
+// @Param employee_id query int false "员工ID (默认当前登录员工)"
+// @Param month query string false "月份 (如 2026-06)"
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_employees_attendance_logs
+// @Router /api/employees/attendance-logs [get]
 func GetDailyAttendance(c *gin.Context) {
 	employeeID := c.Query("employee_id")
 	month := c.Query("month") // YYYY-MM
+	if employeeID != "" {
+		if parsedID, err := strconv.ParseUint(employeeID, 10, 64); err == nil {
+			if !enforceEmployeeScope(c, uint(parsedID)) {
+				return
+			}
+		}
+	}
 
 	var logs []models.DailyAttendance
 	query := config.DB.Order("date desc")
@@ -482,4 +795,47 @@ func GetDailyAttendance(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": logs})
+}
+
+// ExportEmployees 导出所有员工
+// @Summary 导出员工数据
+// @Description 导出员工数据
+// @Tags Employees
+// @Produce application/octet-stream
+// @Success 200 {file} binary "Excel 文件"
+// @Security ApiKeyAuth
+// @ID get_api_employees_export
+// @Router /api/employees/export [get]
+func ExportEmployees(c *gin.Context) {
+	var employees []models.Employee
+	if err := config.DB.Find(&employees).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询员工失败"})
+		return
+	}
+
+	headers := []string{"员工ID", "工号", "姓名", "电话", "基本底薪", "提成比例", "是否外包", "入职日期"}
+	var data [][]interface{}
+	for _, e := range employees {
+		isOut := "否"
+		if e.IsOutsourced {
+			isOut = "是"
+		}
+		entry := "-"
+		if e.EntryDate != nil {
+			entry = e.EntryDate.Format("2006-01-02")
+		}
+		row := []interface{}{
+			e.ID,
+			e.EmpNo,
+			e.Name,
+			e.Phone,
+			e.BaseSalary,
+			e.CommissionRate,
+			isOut,
+			entry,
+		}
+		data = append(data, row)
+	}
+
+	utils.ExportToExcel(c, "员工清单", headers, data)
 }

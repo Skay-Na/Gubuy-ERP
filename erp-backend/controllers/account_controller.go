@@ -12,6 +12,15 @@ import (
 )
 
 // GetAccounts 查询所有账户及余额
+// @Summary 获取账户列表
+// @Description 获取账户列表
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_accounts
+// @Router /api/accounts [get]
 func GetAccounts(c *gin.Context) {
 	var accounts []models.Account
 	if err := config.DB.Order("id asc").Find(&accounts).Error; err != nil {
@@ -35,6 +44,16 @@ type CreateAccountRequest struct {
 }
 
 // CreateAccount 新增账户（如厂家余额账户）
+// @Summary 创建账户
+// @Description 创建账户
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Param body body CreateAccountRequest true "账户参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_accounts
+// @Router /api/accounts [post]
 func CreateAccount(c *gin.Context) {
 	var req CreateAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -64,6 +83,16 @@ type AccountTransferRequest struct {
 }
 
 // TransferFunds 账户间资金划拨
+// @Summary 资金划拨
+// @Description 资金划拨
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Param body body AccountTransferRequest true "资金划拨参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_accounts_transfer
+// @Router /api/accounts/transfer [post]
 func TransferFunds(c *gin.Context) {
 	var req AccountTransferRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -154,6 +183,15 @@ func TransferFunds(c *gin.Context) {
 }
 
 // GetTransferRecords 获取转账历史
+// @Summary 获取划拨记录
+// @Description 获取划拨记录
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_accounts_transfers
+// @Router /api/accounts/transfers [get]
 func GetTransferRecords(c *gin.Context) {
 	var records []models.TransferRecord
 	if err := config.DB.Preload("FromAccount").Preload("ToAccount").Order("created_at desc").Find(&records).Error; err != nil {
@@ -171,6 +209,17 @@ type CalibrateAccountRequest struct {
 
 // CalibrateAccount 余额校准：直接将账户余额设置为真实金额
 // 自动生成一条差额的"收入补录"或"余额校准支出"记录，不需要手动追踪每笔个人消费
+// @Summary 账户余额校准
+// @Description 账户余额校准
+// @Tags Accounts
+// @Accept json
+// @Produce json
+// @Param body body CalibrateAccountRequest true "余额校准参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID put_api_accounts_id_calibrate
+// @Router /api/accounts/{id}/calibrate [put]
 func CalibrateAccount(c *gin.Context) {
 	id := c.Param("id")
 

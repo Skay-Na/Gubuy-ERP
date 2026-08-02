@@ -10,13 +10,25 @@ import (
 	"gorm.io/gorm"
 )
 
+type CreateSubsidySettlementRequest struct {
+	Amount    float64 `json:"amount" binding:"required,gt=0"`
+	AccountID uint    `json:"account_id" binding:"required"`
+	Remark    string  `json:"remark"`
+}
+
 // CreateSubsidySettlement 录入国补回款记录
+// @Summary 创建国补结算单
+// @Description 创建国补结算单
+// @Tags Subsidy
+// @Accept json
+// @Produce json
+// @Param body body CreateSubsidySettlementRequest true "国补结算参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_subsidy_settle
+// @Router /api/subsidy/settle [post]
 func CreateSubsidySettlement(c *gin.Context) {
-	var input struct {
-		Amount    float64 `json:"amount" binding:"required,gt=0"`
-		AccountID uint    `json:"account_id" binding:"required"`
-		Remark    string  `json:"remark"`
-	}
+	var input CreateSubsidySettlementRequest
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
@@ -68,6 +80,15 @@ func CreateSubsidySettlement(c *gin.Context) {
 }
 
 // GetSubsidySettlements 获取国补回款历史
+// @Summary 获取国补结算列表
+// @Description 获取国补结算列表
+// @Tags Subsidy
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_subsidy_settlements
+// @Router /api/subsidy/settlements [get]
 func GetSubsidySettlements(c *gin.Context) {
 	var list []models.SubsidySettlement
 	if err := config.DB.Preload("Account").Order("created_at desc").Find(&list).Error; err != nil {
@@ -78,22 +99,35 @@ func GetSubsidySettlements(c *gin.Context) {
 }
 
 // GetSubsidySummary 获取国补概览数据
+// @Summary 获取国补数据总览
+// @Description 获取国补数据总览
+// @Tags Subsidy
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_subsidy_summary
+// @Router /api/subsidy/summary [get]
 func GetSubsidySummary(c *gin.Context) {
 	var totalGenerated float64
 	var totalReceived float64
 
-	// 累计产生：所有正常订单的国补金额之和
-	config.DB.Model(&models.Order{}).Where("order_status = 1").Select("COALESCE(SUM(subsidy_amount), 0)").Scan(&totalGenerated)
+	// 累计应回款：新版字段与历史回退必须逐单计算，避免新旧订单混合时漏算历史订单。
+	config.DB.Model(&models.Order{}).
+		Where("order_status = 1 AND subsidy_amount > 0").
+		Select("COALESCE(SUM(CASE WHEN subsidy_pending_amount > 0 THEN subsidy_pending_amount ELSE subsidy_amount END), 0)").
+		Scan(&totalGenerated)
 
 	// 累计回款：历次结算之和
 	config.DB.Model(&models.SubsidySettlement{}).Select("COALESCE(SUM(amount), 0)").Scan(&totalReceived)
+	pendingBalance := CalculatePendingSubsidy(totalGenerated, totalReceived)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
 			"total_generated": totalGenerated,
 			"total_received":  totalReceived,
-			"pending_balance": totalGenerated - totalReceived,
+			"pending_balance": pendingBalance,
 		},
 	})
 }

@@ -18,6 +18,17 @@ type TransferRequest struct {
 }
 
 // TransferProduct 处理商品调拨
+// @Summary TransferProduct
+// @Description TransferProduct
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Param body body TransferRequest true "库存调拨参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID put_api_products_id_transfer
+// @Router /api/products/{id}/transfer [put]
 func TransferProduct(c *gin.Context) {
 	id := c.Param("id")
 	var req TransferRequest
@@ -127,8 +138,24 @@ func TransferProduct(c *gin.Context) {
 
 	// 简单的获取变动前库存（基于内存对象，事务内已加锁）
 	var sourceBefore, destBefore int
-	if sourceWarehouse == 1 { sourceBefore = product.MainStock } else if sourceWarehouse == 2 { sourceBefore = product.StoreStock } else if sourceWarehouse == 3 { sourceBefore = product.CloudStock } else if sourceWarehouse == 4 { sourceBefore = product.SampleStock }
-	if destWarehouse == 1 { destBefore = product.MainStock } else if destWarehouse == 2 { destBefore = product.StoreStock } else if destWarehouse == 3 { destBefore = product.CloudStock } else if destWarehouse == 4 { destBefore = product.SampleStock }
+	if sourceWarehouse == 1 {
+		sourceBefore = product.MainStock
+	} else if sourceWarehouse == 2 {
+		sourceBefore = product.StoreStock
+	} else if sourceWarehouse == 3 {
+		sourceBefore = product.CloudStock
+	} else if sourceWarehouse == 4 {
+		sourceBefore = product.SampleStock
+	}
+	if destWarehouse == 1 {
+		destBefore = product.MainStock
+	} else if destWarehouse == 2 {
+		destBefore = product.StoreStock
+	} else if destWarehouse == 3 {
+		destBefore = product.CloudStock
+	} else if destWarehouse == 4 {
+		destBefore = product.SampleStock
+	}
 
 	// 写入出库流
 	WriteInventoryLog(tx, product.ID, sourceWarehouse, "transfer", sourceBefore, -req.Quantity, product.LatestCost, "", sourceRemark)
@@ -153,6 +180,17 @@ type StocktakeRequest struct {
 }
 
 // ProductStocktake 盘点接口
+// @Summary ProductStocktake
+// @Description ProductStocktake
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Param body body StocktakeRequest true "库存盘点参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID post_api_products_id_stocktake
+// @Router /api/products/{id}/stocktake [post]
 func ProductStocktake(c *gin.Context) {
 	id := c.Param("id")
 	var req StocktakeRequest

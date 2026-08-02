@@ -12,10 +12,6 @@ import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 // Tailwind
 import './style.css'
 
-// Axios Global Config
-import axios from 'axios'
-// axios.defaults.baseURL = `http://${window.location.hostname}:8080` // 生产环境通过相对路径访问，无需硬编码协议和端口
-
 const app = createApp(App)
 
 // Register all icons

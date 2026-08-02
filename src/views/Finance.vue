@@ -114,9 +114,14 @@
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
           </div>
-          <el-button type="primary" @click="dialogVisible = true" class="shadow-sm !rounded-xl h-10">
-            <el-icon class="mr-1"><Edit /></el-icon> 记一笔
-          </el-button>
+          <div class="flex gap-2">
+            <el-button type="success" plain @click="handleExport" class="shadow-sm !rounded-xl h-10">
+              <el-icon class="mr-1"><Download /></el-icon> 导出明细
+            </el-button>
+            <el-button type="primary" @click="dialogVisible = true" class="shadow-sm !rounded-xl h-10">
+              <el-icon class="mr-1"><Edit /></el-icon> 记一笔
+            </el-button>
+          </div>
         </div>
 
         <!-- PC Table View -->
@@ -222,7 +227,7 @@
     <el-dialog v-model="dialogVisible" title="记录日常支出" width="500px" @closed="resetForm" destroy-on-close>
       <el-form :model="form" label-width="100px" :rules="rules" ref="formRef">
         <el-form-item label="支出类型" prop="expense_type">
-          <el-select v-model="form.expense_type" placeholder="请选择支出类型" class="w-full">
+          <el-select v-model="form.expense_type" placeholder="可选择或直接打字输入新类型" class="w-full" filterable allow-create default-first-option>
             <el-option label="房租" value="房租" />
             <el-option label="水电费" value="水电费" />
             <el-option label="员工薪资" value="员工薪资" />
@@ -230,13 +235,58 @@
             <el-option label="其他" value="其他" />
           </el-select>
         </el-form-item>
+        <el-form-item label="发生时间" prop="occurred_at">
+          <input
+            v-if="isMobile"
+            v-model="mobileOccurredAt"
+            type="datetime-local"
+            inputmode="none"
+            aria-label="支出发生时间"
+            class="mobile-native-date-input"
+          />
+          <el-date-picker
+            v-else
+            v-model="form.occurred_at"
+            type="datetime"
+            placeholder="选择支出发生时间"
+            value-format="YYYY-MM-DD HH:mm:ss"
+            class="!w-full"
+            :default-value="new Date()"
+          />
+        </el-form-item>
         <el-form-item label="支出账户" prop="account_id">
-          <el-select v-model="form.account_id" placeholder="请选择付款账户" class="w-full">
-            <el-option v-for="acc in accounts" :key="acc.id" :label="acc.name" :value="acc.id" />
-          </el-select>
+          <div class="flex gap-2 w-full">
+            <el-select v-model="form.account_id" placeholder="如果不选，将使用默认账户" class="flex-1" clearable>
+              <el-option v-for="acc in accounts" :key="acc.id" :label="acc.name + (acc.is_default_expense ? ' (默认)' : '')" :value="acc.id" />
+            </el-select>
+            <el-button 
+              v-if="form.account_id && !accounts.find(a => a.id === form.account_id)?.is_default_expense"
+              @click="setDefaultAccount(form.account_id)" 
+              type="primary" 
+              plain
+              size="small"
+              class="mt-1"
+            >
+              设为默认
+            </el-button>
+          </div>
         </el-form-item>
         <el-form-item label="支出金额" prop="amount">
           <el-input-number v-model="form.amount" :precision="2" :step="100" :min="0" class="w-full" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="关联人员/单号" prop="related_no">
+          <el-autocomplete
+            v-model="form.related_no"
+            :fetch-suggestions="queryRelatedSuggestions"
+            :trigger-on-focus="false"
+            placeholder="如：张三报销、DD123456（选填）"
+            class="w-full"
+            clearable
+          >
+            <template #default="{ item }">
+              <div>{{ item.label }}</div>
+            </template>
+          </el-autocomplete>
         </el-form-item>
         <el-form-item label="备注说明" prop="remark">
           <el-input v-model="form.remark" type="textarea" rows="3" placeholder="请输入支出涉及的具体事项（选填）" />
@@ -330,7 +380,8 @@
 
 <script setup>
 import { ref, onMounted, reactive, computed } from 'vue'
-import axios from 'axios'
+import dayjs from 'dayjs'
+import request from '../utils/request'
 import { ElMessage } from 'element-plus'
 import { 
   TrendCharts, 
@@ -342,13 +393,34 @@ import {
   Management,
   Search,
   Edit,
-  Switch
+  Switch,
+  Download
 } from '@element-plus/icons-vue'
+import { downloadExcel } from '../utils/export'
 
 const summary = ref({})
 const financialLogs = ref([])
 const transfers = ref([])
 const accounts = ref([])
+
+const queryRelatedSuggestions = async (queryString, cb) => {
+  if (!queryString) {
+    cb([])
+    return
+  }
+  try {
+    const res = await request.get('/api/search/related', { params: { q: queryString } })
+    if (res.data.code === 200) {
+      cb(res.data.data)
+    } else {
+      cb([])
+    }
+  } catch (err) {
+    console.error(err)
+    cb([])
+  }
+}
+
 const loading = ref(false)
 const dialogVisible = ref(false)
 const accountDialogVisible = ref(false)
@@ -386,7 +458,13 @@ const form = reactive({
   expense_type: '',
   amount: 0,
   remark: '',
-  account_id: null
+  account_id: null,
+  occurred_at: '',
+  related_no: ''
+})
+const mobileOccurredAt = computed({
+  get: () => form.occurred_at ? dayjs(form.occurred_at).format('YYYY-MM-DDTHH:mm') : '',
+  set: value => { form.occurred_at = value ? dayjs(value).format('YYYY-MM-DD HH:mm:ss') : '' }
 })
 
 const accountFormRef = ref(null)
@@ -405,27 +483,34 @@ const transferForm = reactive({
 
 const rules = {
   expense_type: [{ required: true, message: '请选择支出类型', trigger: 'change' }],
-  amount: [{ required: true, message: '请输入有效金额', trigger: 'blur' }],
-  account_id: [{ required: true, message: '请选择付款账户', trigger: 'change' }]
+  amount: [{ required: true, message: '请输入有效金额', trigger: 'blur' }]
 }
 
 const filterAccount = ref('')
 const filterFlowType = ref('')
 const filterCategory = ref('')
 
+const handleExport = () => {
+  downloadExcel('/api/finance/logs/export', {
+    account_id: typeof filterAccount !== 'undefined' ? filterAccount.value : '',
+    flow_type: filterFlowType.value,
+    category: filterCategory.value
+  })
+}
+
 const fetchData = async () => {
   loading.value = true
   try {
     const [summaryRes, logRes, transferRes] = await Promise.all([
-      axios.get(`/api/finance/summary?period=${period.value}`),
-      axios.get('/api/finance/logs', {
+      request.get(`/api/finance/summary?period=${period.value}`),
+      request.get('/api/finance/logs', {
         params: {
           account_id: filterAccount.value,
           flow_type: filterFlowType.value,
           category: filterCategory.value
         }
       }),
-      axios.get('/api/accounts/transfers')
+      request.get('/api/accounts/transfers')
     ])
     summary.value = summaryRes.data.code === 200 ? summaryRes.data.data : summaryRes.data
     accounts.value = summary.value.accounts || []
@@ -444,7 +529,7 @@ const handleSubmit = async () => {
     if (valid) {
       submitting.value = true
       try {
-        await axios.post('/api/expenses', form)
+        await request.post('/api/expenses', form)
         ElMessage.success('支出记录已保存')
         dialogVisible.value = false
         fetchData()
@@ -463,19 +548,33 @@ const handleCreateAccount = async () => {
     if (valid) {
       submitting.value = true
       try {
-        await axios.post('/api/accounts', accountForm)
-        ElMessage.success('账户创建成功')
-        accountDialogVisible.value = false
-        accountForm.name = ''
-        accountForm.balance = 0
-        fetchData()
+        const res = await request.post('/api/accounts', accountForm)
+        if (res.data.code === 200) {
+          ElMessage.success('创建成功')
+          accountDialogVisible.value = false
+          await fetchData()
+        }
       } catch (err) {
-        ElMessage.error('创建失败')
+        ElMessage.error(err.response?.data?.msg || '创建失败')
       } finally {
         submitting.value = false
       }
     }
   })
+}
+
+const setDefaultAccount = async (id) => {
+  try {
+    const res = await request.put(`/api/accounts/${id}/set-default-expense`)
+    if (res.data.code === 200) {
+      ElMessage.success('已设置为默认支出账户')
+      await fetchData()
+    } else {
+      ElMessage.error(res.data.msg || '设置失败')
+    }
+  } catch (err) {
+    ElMessage.error(err.response?.data?.msg || '设置失败')
+  }
 }
 
 const handleTransfer = async () => {
@@ -487,7 +586,7 @@ const handleTransfer = async () => {
       }
       submitting.value = true
       try {
-        const res = await axios.post('/api/accounts/transfer', transferForm)
+        const res = await request.post('/api/accounts/transfer', transferForm)
         if (res.data.code === 200) {
           ElMessage.success('资金划拨成功')
           transferDialogVisible.value = false
@@ -511,6 +610,8 @@ const resetForm = () => {
   form.amount = 0
   form.remark = ''
   form.account_id = null
+  form.occurred_at = ''
+  form.related_no = ''
   if (formRef.value) formRef.value.resetFields()
 }
 
@@ -576,7 +677,7 @@ const handleCalibrate = async () => {
   if (calibrateDiff.value === 0) return
   submitting.value = true
   try {
-    const res = await axios.put(
+    const res = await request.put(
       `/api/accounts/${calibrateForm.accountId}/calibrate`,
       { real_balance: calibrateForm.realBalance, remark: calibrateForm.remark }
     )
@@ -608,6 +709,17 @@ onMounted(() => {
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
+}
+
+.mobile-native-date-input {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: #fff;
+  color: #334155;
+  font-size: 16px;
 }
 
 .account-premium-card:hover {

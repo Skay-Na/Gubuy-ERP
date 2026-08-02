@@ -1,3 +1,5 @@
+//go:generate go run github.com/swaggo/swag/cmd/swag init -g main.go -o docs --parseDependency --parseInternal
+
 package main
 
 import (
@@ -5,20 +7,33 @@ import (
 	"erp-backend/models"
 	"erp-backend/routers"
 	"fmt"
+
+	_ "erp-backend/docs"
 )
 
+// @title           ERP Backend API
+// @version         1.0
+// @description     This is the API server for Gubuy-ERP.
+// @BasePath        /
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
+// @description Use the value: Bearer {token}
 func main() {
 	// 1. 初始化数据库
 	config.InitDB()
+
+	// 自动初始化拼音索引
+	config.AutoInitPinyin()
 
 	// 2. 插入测试数据 (如果数据库为空)
 	seedData()
 
 	// 3. 初始化路由
 	r := routers.SetupRouter()
-	
+
 	// 设置上传文件大小限制 (100MB)
-	r.MaxMultipartMemory = 100 << 20 
+	r.MaxMultipartMemory = 100 << 20
 
 	// 4. 启动服务
 	fmt.Println("Backend service starting on http://localhost:8080")
@@ -36,27 +51,27 @@ func seedData() {
 	if count == 0 {
 		products := []models.Product{
 			{
-				Name:       "海尔冰箱 BCD-500",
-				Remark:     strPtr("HR-RF-500"),
-				LatestCost: 3200.00,
+				Name:        "海尔冰箱 BCD-500",
+				Remark:      strPtr("HR-RF-500"),
+				LatestCost:  3200.00,
 				MarginRate:  0.15,
 				MainStock:   10,
 				StoreStock:  0,
 				SampleStock: 0,
 			},
 			{
-				Name:       "美的洗衣机 MD-100",
-				Remark:     strPtr("MD-WM-100"),
-				LatestCost: 1800.00,
+				Name:        "美的洗衣机 MD-100",
+				Remark:      strPtr("MD-WM-100"),
+				LatestCost:  1800.00,
 				MarginRate:  0.12,
 				MainStock:   5,
 				StoreStock:  0,
 				SampleStock: 0,
 			},
 			{
-				Name:       "小米电视 65寸",
-				Remark:     strPtr("XM-TV-65"),
-				LatestCost: 2500.00,
+				Name:        "小米电视 65寸",
+				Remark:      strPtr("XM-TV-65"),
+				LatestCost:  2500.00,
 				MarginRate:  0.10,
 				MainStock:   8,
 				StoreStock:  0,
@@ -69,15 +84,15 @@ func seedData() {
 
 	// 初始化管理员账户 (已改为通过前端首次运行初始化)
 	/*
-	var adminCount int64
-	config.DB.Model(&models.AdminUser{}).Count(&adminCount)
-	if adminCount == 0 {
-		admin := models.AdminUser{
-			Username: "admin",
-			Password: "admin123", // 默认初始密码
+		var adminCount int64
+		config.DB.Model(&models.AdminUser{}).Count(&adminCount)
+		if adminCount == 0 {
+			admin := models.AdminUser{
+				Username: "admin",
+				Password: "admin123", // 默认初始密码
+			}
+			config.DB.Create(&admin)
+			fmt.Println("Created default admin user: admin / admin123")
 		}
-		config.DB.Create(&admin)
-		fmt.Println("Created default admin user: admin / admin123")
-	}
 	*/
 }

@@ -48,14 +48,17 @@ func InitDB() {
 		&models.Account{},
 		&models.Employee{},
 		&models.MonthlyAttendance{},
+		&models.OrderDailyCounter{},
 		&models.Product{},
 		&models.Order{},
 		&models.OrderItem{},
 		&models.Expense{},
 		&models.InboundRecord{},
+		&models.PendingInbound{},
 		&models.StocktakeRecord{},
 		&models.TransferRecord{},
 		&models.InventoryLog{},
+		&models.HistoricalCostRepair{},
 		&models.FinancialLog{},
 		&models.AdminUser{},
 		&models.DailyAttendance{},
@@ -68,17 +71,17 @@ func InitDB() {
 	fmt.Println("Database migration completed")
 	DB = db
 
-
 	// 初始化基础账户数据 (Seed)
 	seedAccounts(db)
 }
 
-// seedAccounts 初始化三个基础资金账户（幂等，重复执行不会重复插入）
+// seedAccounts 初始化基础资金账户（幂等，重复执行不会重复插入）
 func seedAccounts(db *gorm.DB) {
 	defaultAccounts := []models.Account{
 		{Name: "支付宝"},
 		{Name: "微信"},
 		{Name: "公户"},
+		{Name: "现金"},
 	}
 
 	for _, acc := range defaultAccounts {

@@ -33,6 +33,9 @@
           <el-option label="样机" :value="4" />
         </el-select>
         <el-button @click="resetFilters" class="!rounded-xl h-10">重置</el-button>
+        <el-button type="success" plain @click="handleExport" class="!rounded-xl h-10 border-green-200">
+          <el-icon class="mr-1"><Download /></el-icon>导出清单
+        </el-button>
       </div>
     </div>
 
@@ -174,8 +177,9 @@
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
-import { Search, Right } from '@element-plus/icons-vue'
-import axios from 'axios'
+import { Search, Right, Download } from '@element-plus/icons-vue'
+import request from '../utils/request'
+import { downloadExcel } from '../utils/export'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
@@ -187,10 +191,14 @@ const filters = reactive({
   product_id: ''
 })
 
+const handleExport = () => {
+  downloadExcel('/api/inventory/logs/export', filters)
+}
+
 const fetchLogs = async () => {
   loading.value = true
   try {
-    const res = await axios.get('/api/inventory/logs', {
+    const res = await request.get('/api/inventory/logs', {
       params: filters
     })
     if (res.data.code === 200) {
@@ -243,7 +251,7 @@ const handleCancelInbound = async (row) => {
     )
 
     loading.value = true
-    const res = await axios.post(`/api/inbounds/cancel-by-log/${row.id}`)
+    const res = await request.post(`/api/inbounds/cancel-by-log/${row.id}`)
     if (res.data.code === 200) {
       ElMessage.success(res.data.msg || '入库流水撤销成功！')
       fetchLogs()
@@ -281,7 +289,7 @@ const handleUpdatePrice = async (row) => {
     }
     
     loading.value = true
-    const res = await axios.post(`/api/inbounds/update-price/${row.id}`, {
+    const res = await request.post(`/api/inbounds/update-price/${row.id}`, {
       new_price: newPrice
     })
     

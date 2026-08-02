@@ -24,17 +24,22 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 
 # --- Stage 3: Final Runtime ---
 FROM alpine:latest
-WORKDIR /root/
 
-# 安装必要库、mysql 客户端及时间数据
-RUN apk --no-cache add ca-certificates mariadb-client tzdata
+# 安装必要库、mysql 客户端及时间数据，并创建非特权用户
+RUN apk --no-cache add ca-certificates mariadb-client tzdata && \
+    adduser -D -g '' appuser
+
+WORKDIR /home/appuser
 ENV TZ=Asia/Shanghai
 
 # 从前端构建阶段复制编译后的文件
-COPY --from=frontend-builder /app/dist ./dist
+COPY --from=frontend-builder --chown=appuser:appuser /app/dist ./dist
 
 # 从后端构建阶段复制可执行文件
-COPY --from=backend-builder /app/main .
+COPY --from=backend-builder --chown=appuser:appuser /app/main .
+
+# 切换为非特权用户
+USER appuser
 
 # 暴露端口 (Gin 默认 8080)
 EXPOSE 8080

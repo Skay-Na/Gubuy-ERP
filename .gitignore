@@ -81,3 +81,13 @@ scripts/archive/
 .temp/
 .cache/
 .worktrees/
+
+# Agent tooling local state (do not commit, regenerated per machine)
+.hermes/
+
+# swaggo generated docs (regenerate via `swag init`)
+erp-backend/docs/
+
+# Local build artifacts
+erp-backend/erp-backend-linux
+erp-backend/.tmp/

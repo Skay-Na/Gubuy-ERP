@@ -3,7 +3,9 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"erp-backend/utils"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -18,7 +20,7 @@ import (
 // balanceAfter: 变动后账户余额快照
 // relatedNo: 关联单号
 // remark: 备注
-func WriteFinancialLog(tx *gorm.DB, accountID uint, flowType int, category string, amount float64, balanceAfter float64, relatedNo string, remark string) error {
+func WriteFinancialLog(tx *gorm.DB, accountID uint, flowType int, category string, amount float64, balanceAfter float64, relatedNo string, remark string, createdAt ...time.Time) error {
 	log := models.FinancialLog{
 		AccountID:    accountID,
 		FlowType:     flowType,
@@ -28,16 +30,34 @@ func WriteFinancialLog(tx *gorm.DB, accountID uint, flowType int, category strin
 		RelatedNo:    relatedNo,
 		Remark:       remark,
 	}
+	if len(createdAt) > 0 && !createdAt[0].IsZero() {
+		log.CreatedAt = createdAt[0]
+	}
 	return tx.Create(&log).Error
 }
 
 // GetFinancialLogs 查询全口径财务流水
 // GET /api/finance/logs?account_id=&flow_type=&category=&page=&page_size=
+// @Summary 获取财务流水列表
+// @Description 获取财务流水列表
+// @Tags Finance
+// @Accept json
+// @Param account_id query int false "账户ID"
+// @Param flow_type query int false "流水类型 1-收入 2-支出 3-内部 4-校准"
+// @Param category query string false "分类"
+// @Param start_date query string false "开始日期"
+// @Param end_date query string false "结束日期"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_finance_logs
+// @Router /api/finance/logs [get]
 func GetFinancialLogs(c *gin.Context) {
 	accountID := c.Query("account_id")
 	flowType := c.Query("flow_type")
 	category := c.Query("category")
-	
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
+
 	query := config.DB.
 		Preload("Account").
 		Order("created_at desc")
@@ -50,6 +70,12 @@ func GetFinancialLogs(c *gin.Context) {
 	}
 	if category != "" {
 		query = query.Where("category = ?", category)
+	}
+	if startDate != "" {
+		query = query.Where("created_at >= ?", startDate)
+	}
+	if endDate != "" {
+		query = query.Where("created_at <= ?", endDate)
 	}
 
 	var total int64
@@ -94,4 +120,72 @@ func WriteReversalLog(tx *gorm.DB, depositLogID uint, accountID uint, flowType i
 		Remark:         remark,
 		ReversalPairID: &depositLogID,
 	}).Error
+}
+
+// ExportFinancialLogs 导出财务流水
+// @Summary 导出财务流水
+// @Description 导出财务流水
+// @Tags Finance
+// @Produce application/octet-stream
+// @Param account_id query int false "账户ID"
+// @Param flow_type query int false "流水类型"
+// @Param category query string false "分类"
+// @Success 200 {file} binary "Excel 文件"
+// @Security ApiKeyAuth
+// @ID get_api_finance_logs_export
+// @Router /api/finance/logs/export [get]
+func ExportFinancialLogs(c *gin.Context) {
+	accountID := c.Query("account_id")
+	flowType := c.Query("flow_type")
+	category := c.Query("category")
+
+	query := config.DB.Preload("Account").Order("created_at desc")
+
+	if accountID != "" {
+		query = query.Where("account_id = ?", accountID)
+	}
+	if flowType != "" {
+		query = query.Where("flow_type = ?", flowType)
+	}
+	if category != "" {
+		query = query.Where("category = ?", category)
+	}
+
+	var logs []models.FinancialLog
+	if err := query.Find(&logs).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询流水失败"})
+		return
+	}
+
+	headers := []string{"流水ID", "账户名称", "流向", "业务分类", "变动金额", "变动后余额", "关联单号", "备注", "记录时间"}
+	var data [][]interface{}
+	for _, l := range logs {
+		accName := "-"
+		if l.Account != nil {
+			accName = l.Account.Name
+		}
+		flow := "收入"
+		if l.FlowType == 2 {
+			flow = "支出"
+		} else if l.FlowType == 3 {
+			flow = "内部调拨"
+		} else if l.FlowType == 4 {
+			flow = "系统校准"
+		}
+
+		row := []interface{}{
+			l.ID,
+			accName,
+			flow,
+			l.Category,
+			l.Amount,
+			l.BalanceAfter,
+			l.RelatedNo,
+			l.Remark,
+			l.CreatedAt.Format("2006-01-02 15:04:05"),
+		}
+		data = append(data, row)
+	}
+
+	utils.ExportToExcel(c, "财务流水", headers, data)
 }

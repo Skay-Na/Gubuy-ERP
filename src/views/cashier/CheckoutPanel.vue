@@ -226,8 +226,8 @@
             
             <div>
               <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">收款账户</div>
-              <div class="grid grid-cols-4 gap-2">
-                <div 
+              <div class="grid grid-cols-5 gap-2">
+                <div
                   class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
                   :class="[
                     paymentMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200',
@@ -238,7 +238,7 @@
                   <el-icon size="20" class="mb-1"><Wallet /></el-icon>
                   <span class="text-xs font-bold">支付宝</span>
                 </div>
-                <div 
+                <div
                   class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
                   :class="[
                     paymentMethod === 2 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200',
@@ -249,7 +249,7 @@
                   <el-icon size="20" class="mb-1"><CreditCard /></el-icon>
                   <span class="text-xs font-bold">微信支付</span>
                 </div>
-                <div 
+                <div
                   class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
                   :class="paymentMethod === 3 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
                   @click="paymentMethod = 3"
@@ -257,13 +257,21 @@
                   <el-icon size="20" class="mb-1"><OfficeBuilding /></el-icon>
                   <span class="text-xs font-bold">对公转账</span>
                 </div>
-                <div 
+                <div
                   class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
                   :class="paymentMethod === 4 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
                   @click="paymentMethod = 4"
                 >
                   <el-icon size="20" class="mb-1"><CreditCard /></el-icon>
                   <span class="text-xs font-bold">混合支付</span>
+                </div>
+                <div
+                  class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                  :class="paymentMethod === 5 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                  @click="paymentMethod = 5"
+                >
+                  <el-icon size="20" class="mb-1"><Money /></el-icon>
+                  <span class="text-xs font-bold">现金</span>
                 </div>
               </div>
               <el-collapse-transition>
@@ -436,7 +444,7 @@
         <!-- 收款账户 -->
         <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm space-y-3">
           <div class="text-xs text-slate-400 uppercase font-bold tracking-wider">收款账户</div>
-          <div class="grid grid-cols-2 gap-2">
+          <div class="grid grid-cols-3 gap-2">
             <div class="flex flex-col items-center justify-center py-3 rounded-xl border-2 transition-all cursor-pointer"
                  :class="[paymentMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-500', isSubsidized ? 'opacity-40 grayscale' : '']"
                  @click="!isSubsidized && (paymentMethod = 1)">
@@ -460,6 +468,12 @@
                  @click="paymentMethod = 4">
               <el-icon size="20" class="mb-1"><CreditCard /></el-icon>
               <span class="text-[11px] font-bold">混合支付</span>
+            </div>
+            <div class="flex flex-col items-center justify-center py-3 rounded-xl border-2 transition-all cursor-pointer"
+                 :class="paymentMethod === 5 ? 'border-blue-500 bg-blue-50/30 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-500'"
+                 @click="paymentMethod = 5">
+              <el-icon size="20" class="mb-1"><Money /></el-icon>
+              <span class="text-[11px] font-bold">现金</span>
             </div>
           </div>
           
@@ -586,7 +600,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { Delete, Promotion, Wallet, User, Warning, Files, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Refresh, Document, Star , Close, Setting} from '@element-plus/icons-vue'
+import { Delete, Promotion, Wallet, User, Warning, Files, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Refresh, Document, Star , Close, Setting, Money } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../utils/request'
 import { buildReceiptFromCheckout } from '../../utils/receipt'

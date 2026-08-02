@@ -17,7 +17,7 @@ const routes = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('../views/dashboard/Index.vue'),
-        meta: { title: '工作台' }
+        meta: { title: '看板' }
       },
       {
         path: 'pos',
@@ -86,6 +86,15 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem('erp_token')
+  if (to.path !== '/' && to.path !== '/terminal' && !token) {
+    next('/')
+  } else {
+    next()
+  }
 })
 
 export default router

@@ -1,23 +1,40 @@
 package controllers
 
 import (
+	"bytes"
+	"context"
 	"erp-backend/config"
 	"erp-backend/models"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
+type ResetSystemRequest struct {
+	Confirm string `json:"confirm" binding:"required" enums:"RESET"`
+}
+
 // ResetSystem 恢复出厂设置 - 清空所有业务数据
+// @Summary 系统重置
+// @Description 系统重置
+// @Tags System
+// @Accept json
+// @Produce json
+// @Param body body ResetSystemRequest true "固定传 confirm=RESET"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_system_reset
+// @Router /api/system/reset [post]
 func ResetSystem(c *gin.Context) {
 	// 这里可以加一个简单的校验，或者从 Header 传一个 RESET 标记
-	var req struct {
-		Confirm string `json:"confirm" binding:"required"`
-	}
+	var req ResetSystemRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Confirm != "RESET" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "请正确输入确认码"})
 		return
@@ -62,62 +79,62 @@ func ResetSystem(c *gin.Context) {
 }
 
 // ExportBackup 导出数据库备份 (.sql)
+// @Summary 导出数据备份
+// @Description 导出数据备份
+// @Tags System
+// @Produce application/octet-stream
+// @Success 200 {file} binary "SQL 备份文件"
+// @Security ApiKeyAuth
+// @ID get_api_system_backup
+// @Router /api/system/backup [get]
 func ExportBackup(c *gin.Context) {
-	dbUser := os.Getenv("DB_USER")
-	dbPass := os.Getenv("DB_PASS")
-	dbHost := os.Getenv("DB_HOST")
-	dbName := os.Getenv("DB_NAME")
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
+	defer cancel()
 
-	// 如果环境变量没设置，尝试使用默认值 (对应本地运行环境)
-	if dbUser == "" {
-		dbUser = "root"
+	tempFile, err := os.CreateTemp("", "erpwonchon-backup-*.sql")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "创建备份临时文件失败: " + err.Error()})
+		return
 	}
-	if dbHost == "" {
-		dbHost = "127.0.0.1"
-	}
-	if dbName == "" {
-		dbName = "erp_db"
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	args := mysqlClientArgs()
+	cmd := exec.CommandContext(ctx, "mysqldump", args...)
+	var stderr bytes.Buffer
+	cmd.Stdout = tempFile
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		tempFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库备份执行失败: " + stderr.String()})
+		return
 	}
 
-	// 构造 mysqldump 命令
-	// 注意：-p 和密码之间不能有空格
-	args := []string{
-		"-h", dbHost,
-		"-u", dbUser,
-		"--ssl=FALSE",
+	if err := tempFile.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "备份文件写入失败: " + err.Error()})
+		return
 	}
-	if dbPass != "" {
-		args = append(args, "-p"+dbPass)
-	}
-	args = append(args, dbName)
 
-	cmd := exec.Command("mysqldump", args...)
-
-	// 设置响应头
 	filename := fmt.Sprintf("gubuy_erp_backup_%s.sql", time.Now().Format("20060102_150405"))
-	c.Header("Content-Type", "application/octet-stream")
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
+	c.Header("Content-Type", "application/sql")
 	c.Header("Content-Transfer-Encoding", "binary")
-
-	// 将 mysqldump 的标准输出直接导向 Gin 的 Response Writer
-	cmd.Stdout = c.Writer
-	
-	// 捕获错误输出并打印到日志 (可选)
-	cmd.Stderr = os.Stderr
-	
-	if err := cmd.Start(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "备份启动失败: " + err.Error()})
-		return
-	}
-
-	if err := cmd.Wait(); err != nil {
-		// 这里如果已经开始写入 Body，JSON 响应可能无法正常显示，但在开发调试阶段很有用
-		fmt.Printf("Mysqldump failed: %v\n", err)
-		return
-	}
+	c.Header("Cache-Control", "no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.FileAttachment(tempPath, filename)
 }
 
 // ImportBackup 导入数据库备份 (覆盖式)
+// @Summary 导入数据备份
+// @Description 导入数据备份
+// @Tags System
+// @Accept multipart/form-data
+// @Produce json
+// @Param file formData file true "SQL 备份文件"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_system_restore
+// @Router /api/system/restore [post]
 func ImportBackup(c *gin.Context) {
 	file, err := c.FormFile("file")
 	if err != nil {
@@ -125,43 +142,49 @@ func ImportBackup(c *gin.Context) {
 		return
 	}
 
-	// 将上传的文件保存到临时路径
-	tempPath := "./temp_restore.sql"
-	if err := c.SaveUploadedFile(file, tempPath); err != nil {
+	if filepath.Ext(file.Filename) != ".sql" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "仅支持导入 .sql 备份文件"})
+		return
+	}
+
+	maxUploadSize := getEnvInt64("BACKUP_UPLOAD_MAX_MB", 200) * 1024 * 1024
+	if file.Size > maxUploadSize {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": fmt.Sprintf("备份文件过大，最大允许 %dMB", maxUploadSize/1024/1024)})
+		return
+	}
+
+	tempFile, err := os.CreateTemp("", "erpwonchon-restore-*.sql")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "创建临时文件失败: " + err.Error()})
+		return
+	}
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
+
+	src, err := file.Open()
+	if err != nil {
+		tempFile.Close()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "无法打开上传的文件: " + err.Error()})
+		return
+	}
+	defer src.Close()
+
+	if _, err := io.Copy(tempFile, src); err != nil {
+		tempFile.Close()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "文件保存失败: " + err.Error()})
 		return
 	}
-	defer os.Remove(tempPath) // 函数结束时删除临时文件
+	tempFile.Close()
 
-	dbUser := os.Getenv("DB_USER")
-	dbPass := os.Getenv("DB_PASS")
-	dbHost := os.Getenv("DB_HOST")
-	dbName := os.Getenv("DB_NAME")
+	beforeCounts := collectRestoreCounts()
 
-	if dbUser == "" {
-		dbUser = "root"
-	}
-	if dbHost == "" {
-		dbHost = "127.0.0.1"
-	}
-	if dbName == "" {
-		dbName = "erp_db"
-	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
+	defer cancel()
 
-	// 构造 mysql 导入命令
-	args := []string{
-		"-h", dbHost,
-		"-u", dbUser,
-		"--ssl=FALSE",
-	}
-	if dbPass != "" {
-		args = append(args, "-p"+dbPass)
-	}
-	args = append(args, dbName)
+	args := mysqlClientArgs()
+	cmd := exec.CommandContext(ctx, "mysql", args...)
+	var stderr bytes.Buffer
 
-	cmd := exec.Command("mysql", args...)
-
-	// 打开临时文件并作为标准输入传给 mysql 命令
 	f, err := os.Open(tempPath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "无法读取备份文件"})
@@ -169,12 +192,92 @@ func ImportBackup(c *gin.Context) {
 	}
 	defer f.Close()
 	cmd.Stdin = f
-	cmd.Stderr = os.Stderr
+	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库恢复执行失败: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库恢复执行失败: " + stderr.String()})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "数据库已成功从备份文件恢复"})
+	afterCounts := collectRestoreCounts()
+	fmt.Printf("Backup restored: file=%s size=%d before=%v after=%v\n", file.Filename, file.Size, beforeCounts, afterCounts)
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  "数据库已成功从备份文件恢复",
+		"data": gin.H{
+			"file":   file.Filename,
+			"size":   file.Size,
+			"before": beforeCounts,
+			"after":  afterCounts,
+		},
+	})
+}
+
+func mysqlClientArgs() []string {
+	dbUser := getEnvString("DB_USER", "root")
+	dbPass := os.Getenv("DB_PASS")
+	dbHost := getEnvString("DB_HOST", "127.0.0.1")
+	dbPort := getEnvString("DB_PORT", "3306")
+	dbName := getEnvString("DB_NAME", "erp_db")
+
+	args := []string{
+		"--protocol=tcp",
+		"-h", dbHost,
+		"-P", dbPort,
+		"-u", dbUser,
+		"--default-character-set=utf8mb4",
+		"--ssl=FALSE",
+	}
+	if dbPass != "" {
+		args = append(args, "-p"+dbPass)
+	}
+
+	args = append(args, dbName)
+	return args
+}
+
+func getEnvString(key string, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func getEnvInt64(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	return parsed
+}
+
+func collectRestoreCounts() gin.H {
+	counts := gin.H{}
+	for _, table := range []string{
+		"accounts",
+		"admin_users",
+		"categories",
+		"employees",
+		"orders",
+		"order_items",
+		"products",
+		"inventory_logs",
+		"financial_logs",
+	} {
+		var count int64
+		if err := config.DB.Raw(fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table)).Scan(&count).Error; err != nil {
+			counts[table] = "error: " + err.Error()
+			continue
+		}
+		counts[table] = count
+	}
+	return counts
 }

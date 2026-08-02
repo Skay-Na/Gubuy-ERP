@@ -3,6 +3,7 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"erp-backend/utils"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -11,7 +12,45 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type CreateProductRequest struct {
+	Name              string  `json:"name" binding:"required"`
+	Remark            string  `json:"remark"`
+	CategoryID        uint    `json:"category_id"`
+	MarginRate        float64 `json:"margin_rate"`
+	SupportCloud      bool    `json:"support_cloud"`
+	SpecialPrice      float64 `json:"special_price"`
+	SpecialPriceStart *string `json:"special_price_start"`
+	SpecialPriceEnd   *string `json:"special_price_end"`
+}
+
+type UpdateProductRequest struct {
+	Name              string  `json:"name" binding:"required"`
+	Remark            string  `json:"remark"`
+	CategoryID        *uint   `json:"category_id"`
+	MarginRate        float64 `json:"margin_rate"`
+	SupportCloud      bool    `json:"support_cloud"`
+	SpecialPrice      float64 `json:"special_price"`
+	SpecialPriceStart *string `json:"special_price_start"`
+	SpecialPriceEnd   *string `json:"special_price_end"`
+	AvgCost           float64 `json:"avg_cost"`
+}
+
 // GetProducts 获取商品列表
+// @Summary 获取商品列表
+// @Description 获取商品列表
+// @Tags Product
+// @Accept json
+// @Produce json
+// @Param keyword query string false "搜索关键字 (名称或SKU)"
+// @Param category_id query int false "分类ID"
+// @Param all query string false "是否拉取全部(包含无库存)"
+// @Param only_special query string false "是否仅拉取特价商品(1:是)"
+// @Param page query int false "页码"
+// @Param page_size query int false "每页数量"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_products
+// @Router /api/products [get]
 func GetProducts(c *gin.Context) {
 	keyword := c.Query("keyword")
 	categoryID := c.Query("category_id")
@@ -82,17 +121,18 @@ func GetProducts(c *gin.Context) {
 }
 
 // CreateProduct 创建商品
+// @Summary 创建商品
+// @Description 创建商品
+// @Tags Product
+// @Accept json
+// @Produce json
+// @Param body body CreateProductRequest true "商品信息"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_products
+// @Router /api/products [post]
 func CreateProduct(c *gin.Context) {
-	var input struct {
-		Name         string  `json:"name" binding:"required"`
-		Remark       string  `json:"remark"`
-		CategoryID   uint    `json:"category_id"`
-		MarginRate   float64 `json:"margin_rate"`
-		SupportCloud      bool       `json:"support_cloud"`
-		SpecialPrice      float64    `json:"special_price"`
-		SpecialPriceStart *string `json:"special_price_start"`
-		SpecialPriceEnd   *string `json:"special_price_end"`
-	}
+	var input CreateProductRequest
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
@@ -144,19 +184,20 @@ func CreateProduct(c *gin.Context) {
 }
 
 // UpdateProduct 更新商品信息
+// @Summary 更新商品
+// @Description 更新商品
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Param body body UpdateProductRequest true "商品更新参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param id path int true "路径资源ID"
+// @ID put_api_products_id
+// @Router /api/products/{id} [put]
 func UpdateProduct(c *gin.Context) {
 	id := c.Param("id")
-	var input struct {
-		Name         string  `json:"name" binding:"required"`
-		Remark       string  `json:"remark"`
-		CategoryID   uint    `json:"category_id"`
-		MarginRate   float64 `json:"margin_rate"`
-		SupportCloud      bool       `json:"support_cloud"`
-		SpecialPrice      float64    `json:"special_price"`
-		SpecialPriceStart *string `json:"special_price_start"`
-		SpecialPriceEnd   *string `json:"special_price_end"`
-		AvgCost           float64 `json:"avg_cost"`
-	}
+	var input UpdateProductRequest
 
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
@@ -182,11 +223,14 @@ func UpdateProduct(c *gin.Context) {
 	updates := map[string]interface{}{
 		"name":          input.Name,
 		"sku":           remarkPtr,
-		"category_id":   input.CategoryID,
 		"margin_rate":   input.MarginRate,
 		"support_cloud": input.SupportCloud,
 		"special_price": input.SpecialPrice,
 		"avg_cost":      input.AvgCost,
+	}
+
+	if input.CategoryID != nil {
+		updates["category_id"] = *input.CategoryID
 	}
 
 	if input.SpecialPriceStart != nil && *input.SpecialPriceStart != "" {
@@ -214,6 +258,15 @@ func UpdateProduct(c *gin.Context) {
 }
 
 // RecalculateAllAvgCosts 根据历史流水重新核算所有商品的平均成本
+// @Summary 重新核算所有平均成本
+// @Description 重新核算所有平均成本
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_products_recalculate_costs
+// @Router /api/products/recalculate-costs [post]
 func RecalculateAllAvgCosts(c *gin.Context) {
 	var products []models.Product
 	if err := config.DB.Find(&products).Error; err != nil {
@@ -274,4 +327,84 @@ func parseTime(s string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("could not parse time: %s", s)
+}
+
+// ExportProducts 导出商品
+// @Summary 导出商品数据
+// @Description 导出商品数据
+// @Tags Products
+// @Produce application/octet-stream
+// @Param keyword query string false "搜索关键字"
+// @Param category_id query int false "分类ID"
+// @Param all query string false "传1返回全部商品"
+// @Param only_special query string false "传1仅返回特价商品"
+// @Success 200 {file} binary "Excel 文件"
+// @Security ApiKeyAuth
+// @ID get_api_products_export
+// @Router /api/products/export [get]
+func ExportProducts(c *gin.Context) {
+	keyword := c.Query("keyword")
+	categoryID := c.Query("category_id")
+	all := c.Query("all")
+	onlySpecial := c.Query("only_special")
+
+	var products []models.Product
+	db := config.DB.Preload("Category")
+
+	if onlySpecial == "1" {
+		now := time.Now()
+		db = db.Where("special_price > 0 AND special_price_start <= ? AND special_price_end >= ?", now, now)
+	}
+
+	if keyword != "" {
+		db = db.Where("name LIKE ? OR sku LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+	}
+
+	if categoryID != "" {
+		db = db.Where("category_id = ?", categoryID)
+	}
+
+	if all != "1" && keyword == "" && categoryID == "" {
+		db = db.Where("main_stock > 0 OR store_stock > 0 OR cloud_stock > 0 OR support_cloud = ?", true)
+	}
+
+	if err := db.Order("id desc").Find(&products).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询商品失败"})
+		return
+	}
+
+	headers := []string{"商品ID", "商品名称", "分类", "备注(SKU)", "最新进价", "平均成本", "主仓库存", "门店库存", "样机数量", "云仓库存", "支持云仓代发", "特价金额"}
+	var data [][]interface{}
+	for _, p := range products {
+		catName := "-"
+		if p.Category != nil {
+			catName = p.Category.Name
+		}
+		sku := ""
+		if p.Remark != nil {
+			sku = *p.Remark
+		}
+		supportCloud := "否"
+		if p.SupportCloud {
+			supportCloud = "是"
+		}
+
+		row := []interface{}{
+			p.ID,
+			p.Name,
+			catName,
+			sku,
+			p.LatestCost,
+			p.AvgCost,
+			p.MainStock,
+			p.StoreStock,
+			p.SampleStock,
+			p.CloudStock,
+			supportCloud,
+			p.SpecialPrice,
+		}
+		data = append(data, row)
+	}
+
+	utils.ExportToExcel(c, "商品清单", headers, data)
 }

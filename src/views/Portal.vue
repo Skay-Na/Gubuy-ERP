@@ -120,7 +120,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Management, Monitor, Right } from '@element-plus/icons-vue'
-import axios from 'axios'
+import request from '../utils/request'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -133,7 +133,7 @@ const loggingIn = ref(false)
 
 const checkAdminStatus = async () => {
   try {
-    const res = await axios.get('/api/admin/status')
+    const res = await request.get('/api/admin/status')
     if (res.data.code === 200) {
       isInitialized.value = res.data.initialized
     }
@@ -154,11 +154,14 @@ const handleAdminLogin = async () => {
   
   loggingIn.value = true
   try {
-    const res = await axios.post('/api/admin/verify', {
+    const res = await request.post('/api/admin/verify', {
       password: adminPassword.value
     })
     if (res.data.code === 200) {
       ElMessage.success('验证成功')
+      // 保存 Token 和用户名，以便路由守卫放行和拦截器注入
+      localStorage.setItem('erp_token', res.data.data.token)
+      localStorage.setItem('erp_username', res.data.data.username)
       adminDialogVisible.value = false
       router.push('/admin')
     }
@@ -177,7 +180,7 @@ const handleAdminInit = async () => {
 
   initializing.value = true
   try {
-    const res = await axios.post('/api/admin/init', {
+    const res = await request.post('/api/admin/init', {
       username: adminUsername.value,
       password: adminPassword.value
     })

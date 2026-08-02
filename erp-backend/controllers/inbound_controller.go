@@ -12,14 +12,25 @@ import (
 
 // InboundRequest 入库请求体
 type InboundRequest struct {
-	ProductID     uint    `json:"product_id" binding:"required"`
-	Quantity      int     `json:"quantity" binding:"required,gt=0"`
-	UnitCost      float64 `json:"unit_cost" binding:"required,gt=0"`
-	AccountID     uint    `json:"account_id" binding:"required"`
-	WarehouseType int     `json:"warehouse_type" binding:"required,oneof=1 2 3"`
+	ProductID      uint    `json:"product_id" binding:"required"`
+	Quantity       int     `json:"quantity" binding:"required,gt=0"`
+	UnitCost       float64 `json:"unit_cost" binding:"gte=0"`
+	AccountID      *uint   `json:"account_id"`
+	WarehouseType  int     `json:"warehouse_type" binding:"required,oneof=1 2 3"`
+	SettlementType string  `json:"settlement_type"`
 }
 
 // CreateInbound 处理商品入库，同步更新账户余额（支出）
+// @Summary 创建入库单
+// @Description 创建入库单
+// @Tags Inbounds
+// @Accept json
+// @Produce json
+// @Param body body InboundRequest true "入库参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_inbounds
+// @Router /api/inbounds [post]
 func CreateInbound(c *gin.Context) {
 	var req InboundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -27,6 +38,11 @@ func CreateInbound(c *gin.Context) {
 			"code": 400,
 			"msg":  "请求参数格式错误: " + err.Error(),
 		})
+		return
+	}
+	settlement, err := normalizeInboundSettlement(req.SettlementType, req.AccountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
 
@@ -38,35 +54,30 @@ func CreateInbound(c *gin.Context) {
 		}
 	}()
 
-	// 2. 验证账户存在并检查余额
+	// 2. 现款采购验证账户和余额；卖后结算仅增加库存，不产生现金支出。
 	var account models.Account
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&account, req.AccountID).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 404,
-			"msg":  "支付账户不存在",
-		})
-		return
-	}
-
 	totalCost := float64(req.Quantity) * req.UnitCost
-	if account.Balance < totalCost {
-		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  fmt.Sprintf("账户余额不足 (当前: ¥%.2f, 需支付: ¥%.2f)", account.Balance, totalCost),
-		})
-		return
+	if settlement.Type == SettlementTypeCashPurchase {
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&account, *settlement.AccountID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "支付账户不存在"})
+			return
+		}
+		if account.Balance < totalCost {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": fmt.Sprintf("账户余额不足 (当前: ¥%.2f, 需支付: ¥%.2f)", account.Balance, totalCost)})
+			return
+		}
 	}
 
 	// 3. 计算并创建入库明细记录
-	accountID := req.AccountID
 	inboundRecord := models.InboundRecord{
-		ProductID: req.ProductID,
-		Quantity:  req.Quantity,
-		UnitCost:  req.UnitCost,
-		TotalCost: totalCost,
-		AccountID: &accountID,
+		ProductID:      req.ProductID,
+		Quantity:       req.Quantity,
+		UnitCost:       req.UnitCost,
+		TotalCost:      totalCost,
+		SettlementType: settlement.Type,
+		AccountID:      settlement.AccountID,
 	}
 
 	if err := tx.Create(&inboundRecord).Error; err != nil {
@@ -91,7 +102,7 @@ func CreateInbound(c *gin.Context) {
 
 	// 计算移动加权平均成本
 	currentTotalStock := product.MainStock + product.StoreStock + product.CloudStock
-	
+
 	// 处理初始数据：如果 AvgCost 是 0，则假定现有库存的成本为 LatestCost
 	oldAvgCost := product.AvgCost
 	if oldAvgCost == 0 && product.LatestCost > 0 {
@@ -123,26 +134,22 @@ func CreateInbound(c *gin.Context) {
 		return
 	}
 
-	// 5. 更新账户余额（采购支出，减少余额）
-	if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance - ?", totalCost)).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "账户余额扣除失败",
-		})
-		return
-	}
+	if settlement.Type == SettlementTypeCashPurchase {
+		// 5. 更新账户余额（采购支出，减少余额）
+		if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance - ?", totalCost)).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "账户余额扣除失败"})
+			return
+		}
 
-	// 5.5 同步记录财务明细，修正仪表盘总支出不平的问题
-	var updatedAccount models.Account
-	tx.First(&updatedAccount, accountID)
-	if err := WriteFinancialLog(tx, accountID, 2, "采购货款", totalCost, updatedAccount.Balance, "", fmt.Sprintf("采购入库 商品 ID: %d, 入库数量: %d件, 成本价: ¥%.2f", req.ProductID, req.Quantity, req.UnitCost)); err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "财务流水写入失败",
-		})
-		return
+		// 5.5 同步记录财务明细，修正仪表盘总支出不平的问题
+		var updatedAccount models.Account
+		tx.First(&updatedAccount, *settlement.AccountID)
+		if err := WriteFinancialLog(tx, *settlement.AccountID, 2, "采购货款", totalCost, updatedAccount.Balance, "", fmt.Sprintf("采购入库 商品 ID: %d, 入库数量: %d件, 成本价: ¥%.2f", req.ProductID, req.Quantity, req.UnitCost)); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "财务流水写入失败"})
+			return
+		}
 	}
 
 	// 5.6 记录库存流水
@@ -182,6 +189,16 @@ func CreateInbound(c *gin.Context) {
 
 // CancelInboundByLog 撤销某笔采购入库流水（一键红冲）
 // POST /api/inbounds/cancel-by-log/:log_id
+// @Summary 撤销入库记录
+// @Description 撤销入库记录
+// @Tags Inbounds
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param log_id path int true "路径资源ID"
+// @ID post_api_inbounds_cancel_by_log_log_id
+// @Router /api/inbounds/cancel-by-log/{log_id} [post]
 func CancelInboundByLog(c *gin.Context) {
 	logID := c.Param("log_id")
 
@@ -365,7 +382,7 @@ func RecalculateSingleProductCosts(tx *gorm.DB, productID uint) error {
 	}
 
 	var logs []models.InventoryLog
-	err := tx.Where("product_id = ? AND log_type = ? AND unit_cost > 0", p.ID, "purchase").Find(&logs).Error
+	err := tx.Where("product_id = ? AND log_type IN ? AND change_qty > 0 AND unit_cost > 0", p.ID, []string{"purchase", "stocktake"}).Find(&logs).Error
 	if err != nil {
 		return err
 	}
@@ -387,7 +404,7 @@ func RecalculateSingleProductCosts(tx *gorm.DB, productID uint) error {
 
 	var latestLog models.InventoryLog
 	latestCost := 0.0
-	tx.Where("product_id = ? AND log_type = ?", p.ID, "purchase").Order("created_at desc").First(&latestLog)
+	tx.Where("product_id = ? AND log_type IN ? AND change_qty > 0 AND unit_cost > 0", p.ID, []string{"purchase", "stocktake"}).Order("created_at desc").First(&latestLog)
 	if latestLog.ID > 0 {
 		latestCost = latestLog.UnitCost
 	}
@@ -409,6 +426,17 @@ type UpdateLogPriceRequest struct {
 }
 
 // UpdateInventoryLogPrice 更改过去入库价格的临时补救功能
+// @Summary 更新入库记录单价
+// @Description 更新入库记录单价
+// @Tags Inbounds
+// @Accept json
+// @Produce json
+// @Param body body UpdateLogPriceRequest true "入库单价更新参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @Param log_id path int true "路径资源ID"
+// @ID post_api_inbounds_update_price_log_id
+// @Router /api/inbounds/update-price/{log_id} [post]
 func UpdateInventoryLogPrice(c *gin.Context) {
 	logIDStr := c.Param("log_id")
 	var logID uint
