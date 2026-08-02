@@ -1237,10 +1237,34 @@ git commit -m "test(audit): add F16 transfer + F17 calibrate coverage; exclude f
 ## Task 8: 前端 CheckoutPanel 关键计算覆盖
 
 **Files:**
+- Modify / Add: `src/views/cashier/CheckoutPanel.vue`（从主仓库工作树 port 进来）
+- Modify / Add: `src/views/cashier/ProductGrid.vue`（同上）
+- Modify: `src/views/Cashier.vue`（替换为引用 cashier/ 子组件的轻量版）
 - Create: `src/views/cashier/CheckoutPanel.test.mjs`
 
 **Interfaces:**
 - Produces: 5 个 `node --test` 用例，覆盖 `actualReceipt` / `mixedPaymentTarget` / `mixedPaymentRemaining` 计算逻辑
+
+> **前置：Task 8.0 port cashier/ 子目录重构。**
+> 主仓库工作树（未提交）里有一个把 `Cashier.vue` 拆成 `cashier/CheckoutPanel.vue` + `cashier/ProductGrid.vue` 的重构。当前 worktree 分支没有这个重构。Task 8 必须先把这两个文件 port 进来（以及一个瘦身版的 `Cashier.vue` 只引用子组件），否则测试找不到 `src/views/cashier/CheckoutPanel.vue` 文件。
+> 参考源码位置：主仓库 `/Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/cashier/CheckoutPanel.vue` 和 `ProductGrid.vue`。请把这两个文件直接 copy 进 worktree 的对应位置（不要重新发明）。同时把 `src/views/Cashier.vue` 替换成主仓库那个只引用 cashier/ 子组件的轻量版。
+
+- [ ] **Step 8.0: 从主仓库工作树 port cashier/ 子目录重构**
+
+```bash
+# Copy cashier 子目录下的两个组件文件
+cp /Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/cashier/CheckoutPanel.vue \
+   .worktrees/financial-audit-remediation/src/views/cashier/CheckoutPanel.vue
+cp /Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/cashier/ProductGrid.vue \
+   .worktrees/financial-audit-remediation/src/views/cashier/ProductGrid.vue
+# 替换 Cashier.vue 为引用子组件的轻量版
+cp /Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/Cashier.vue \
+   .worktrees/financial-audit-remediation/src/views/Cashier.vue
+```
+
+注意：必须在 worktree 内执行（不要改 main）。完成后跑 `npm run build` 验证前端能编译。
+
+如果主仓库的 `Cashier.vue` 包含 build-time 引用（pinia store、router、components 路径），确认 port 后 worktree 的 `npm run build` 仍然通过。
 
 - [ ] **Step 8.1: 写测试文件**
 
