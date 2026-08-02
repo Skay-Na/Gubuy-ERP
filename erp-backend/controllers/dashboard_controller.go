@@ -56,18 +56,20 @@ func GetFinanceSummary(c *gin.Context) {
 	}
 	db.Select("COALESCE(SUM(total_amount), 0)").Scan(&summary.TodayRevenue)
 
-	// 1b. 收入 (TotalIncome) - 基于财务流水表 (flow_type = 1)，排除被配对的冲销日志
+	// 1b. 收入 (TotalIncome) - 基于财务流水表 (flow_type = 1)，排除被配对的冲销日志与余额校准 (flow_type=4)
 	incomeDB := config.DB.Model(&models.FinancialLog{}).
 		Where("flow_type = ?", 1).
+		Where("flow_type <> ?", 4).
 		Where("reversal_pair_id IS NULL")
 	if !startTime.IsZero() {
 		incomeDB = incomeDB.Where("created_at >= ?", startTime)
 	}
 	incomeDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalIncome)
 
-	// 2. 支出 (Expense) - 基于财务流水表 (flow_type = 2)，排除被配对的冲销日志
+	// 2. 支出 (Expense) - 基于财务流水表 (flow_type = 2)，排除被配对的冲销日志与余额校准 (flow_type=4)
 	expenseDB := config.DB.Model(&models.FinancialLog{}).
 		Where("flow_type = ?", 2).
+		Where("flow_type <> ?", 4).
 		Where("reversal_pair_id IS NULL")
 	if !startTime.IsZero() {
 		expenseDB = expenseDB.Where("created_at >= ?", startTime)

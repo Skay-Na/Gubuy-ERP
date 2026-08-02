@@ -12,6 +12,7 @@ import (
 	"os"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -41,6 +42,8 @@ func setupAudit(t *testing.T) {
 		auditRouter.PUT("/api/orders/:id/cancel", CancelOrder)
 		auditRouter.PUT("/api/orders/:id/reversal-cancel", ReversalCancelOrder)
 		auditRouter.GET("/api/finance/summary", GetFinanceSummary)
+		auditRouter.POST("/api/accounts/transfer", TransferFunds)
+		auditRouter.PUT("/api/accounts/:id/calibrate", CalibrateAccount)
 	}
 }
 
@@ -1676,5 +1679,137 @@ func TestAudit_DashboardSummaryFiltersReversalPairs(t *testing.T) {
 	}
 	if math.Abs(sum.Data.TotalExpense) > 0.01 {
 		t.Fatalf("dashboard TotalExpense 应为 0（退定金被 pair 排除），实际 %.2f", sum.Data.TotalExpense)
+	}
+}
+
+// F16: TransferFunds 跨账户划拨净变化为零，不计入收入/支出，flow_type=3 不被配对
+func TestAudit_TransferFunds(t *testing.T) {
+	setupAudit(t)
+
+	fromID := accountIDByName(t, "支付宝")
+	toID := accountIDByName(t, "公户")
+	setAccountBalance(t, "支付宝", 1000)
+	setAccountBalance(t, "公户", 0)
+
+	body := gin.H{
+		"from_account_id": fromID,
+		"to_account_id":   toID,
+		"amount":          500,
+		"remark":          "审计测试划拨",
+	}
+	transferStartedAt := time.Now().Add(-time.Second)
+	w := postJSON("/api/accounts/transfer", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("划拨失败: %d %s", w.Code, w.Body.String())
+	}
+
+	var transferLogCount int64
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ?", 3).
+		Where("related_no = '' OR related_no IS NULL").
+		Where("created_at >= ?", transferStartedAt).
+		Count(&transferLogCount)
+	if transferLogCount != 2 {
+		t.Fatalf("划拨应产生 2 行 flow_type=3 流水，实际 %d", transferLogCount)
+	}
+
+	// 净变化 = 0
+	if math.Abs(accountBalance(t, "支付宝")-500) > 0.01 ||
+		math.Abs(accountBalance(t, "公户")-500) > 0.01 {
+		t.Fatalf("划拨后余额异常：支付宝 %.2f 公户 %.2f", accountBalance(t, "支付宝"), accountBalance(t, "公户"))
+	}
+
+	// 两行 flow_type=3 流水，pair_id 都为 NULL
+	var pairCount int64
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NOT NULL", 3).
+		Count(&pairCount)
+	if pairCount != 0 {
+		t.Fatalf("划拨日志不应被配对，实际 %d 条被配对", pairCount)
+	}
+
+	// 不计入 TotalIncome / TotalExpense
+	var income, expense float64
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NULL", 1).
+		Select("COALESCE(SUM(amount), 0)").Scan(&income)
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NULL", 2).
+		Select("COALESCE(SUM(amount), 0)").Scan(&expense)
+	if math.Abs(income) > 0.01 || math.Abs(expense) > 0.01 {
+		t.Fatalf("划拨不应影响 TotalIncome=%.2f / TotalExpense=%.2f", income, expense)
+	}
+
+	// 余额不足应被拒绝
+	body["amount"] = 99999
+	w2 := postJSON("/api/accounts/transfer", body)
+	if w2.Code != http.StatusBadRequest {
+		t.Fatalf("余额不足时应返回 400，实际 %d", w2.Code)
+	}
+	// 同一账户划拨应被拒绝
+	body["from_account_id"] = toID
+	body["to_account_id"] = toID
+	body["amount"] = 10
+	w3 := postJSON("/api/accounts/transfer", body)
+	if w3.Code != http.StatusBadRequest {
+		t.Fatalf("同账户划拨应被拒绝，实际 %d", w3.Code)
+	}
+}
+
+// F17: CalibrateAccount 余额校准 — 写入 flow_type=4，不计入收入/支出
+func TestAudit_CalibrateAccount(t *testing.T) {
+	setupAudit(t)
+
+	accID := accountIDByName(t, "支付宝")
+	setAccountBalance(t, "支付宝", 500)
+
+	// 校准到 800（多 300）
+	body := gin.H{"real_balance": 800, "remark": "审计校准+300"}
+	w := putJSON("/api/accounts/"+strconv.Itoa(int(accID))+"/calibrate", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("校准失败: %d %s", w.Code, w.Body.String())
+	}
+	if math.Abs(accountBalance(t, "支付宝")-800) > 0.01 {
+		t.Fatalf("校准后余额应为 800，实际 %.2f", accountBalance(t, "支付宝"))
+	}
+
+	var calibrateLog models.FinancialLog
+	if err := config.DB.Where("account_id = ? AND category = ?", accID, "系统校准").
+		Order("id DESC").First(&calibrateLog).Error; err != nil {
+		t.Fatalf("未找到校准日志: %v", err)
+	}
+	if calibrateLog.FlowType != 4 {
+		t.Fatalf("校准日志应使用 flow_type=4，实际 %d", calibrateLog.FlowType)
+	}
+	if calibrateLog.Amount != 300 {
+		t.Fatalf("校准日志金额应为 300（绝对值），实际 %.2f", calibrateLog.Amount)
+	}
+
+	// 校准到 200（少 300）
+	body2 := gin.H{"real_balance": 200, "remark": "审计校准-300"}
+	w2 := putJSON("/api/accounts/"+strconv.Itoa(int(accID))+"/calibrate", body2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("二次校准失败: %d %s", w2.Code, w2.Body.String())
+	}
+	if math.Abs(accountBalance(t, "支付宝")-200) > 0.01 {
+		t.Fatalf("二次校准后余额应为 200，实际 %.2f", accountBalance(t, "支付宝"))
+	}
+
+	summaryW := getJSON("/api/finance/summary?period=all")
+	if summaryW.Code != http.StatusOK {
+		t.Fatalf("dashboard 查询失败: %d %s", summaryW.Code, summaryW.Body.String())
+	}
+	var summary struct {
+		Code int `json:"code"`
+		Data struct {
+			TotalIncome  float64 `json:"total_income"`
+			TotalExpense float64 `json:"total_expense"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(summaryW.Body.Bytes(), &summary); err != nil {
+		t.Fatalf("dashboard 响应解析失败: %v", err)
+	}
+	if math.Abs(summary.Data.TotalIncome) > 0.01 || math.Abs(summary.Data.TotalExpense) > 0.01 {
+		t.Fatalf("校准不应影响 TotalIncome=%.2f / TotalExpense=%.2f", summary.Data.TotalIncome, summary.Data.TotalExpense)
 	}
 }

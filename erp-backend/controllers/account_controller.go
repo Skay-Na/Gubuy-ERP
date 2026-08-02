@@ -212,13 +212,12 @@ func CalibrateAccount(c *gin.Context) {
 	}
 
 	if diff != 0 {
-		flowType := 2 // 支出（真实余额少于系统余额）
-		amount := -diff
-		if diff > 0 {
-			flowType = 1 // 收入（真实余额大于系统余额）
-			amount = diff
+		flowType := 4 // 余额校准 — 不计入收入 / 支出
+		amount := diff
+		if amount < 0 {
+			amount = -amount
 		}
-		
+
 		if err := WriteFinancialLog(tx, accountID, flowType, "系统校准", amount, req.RealBalance, "", remark+fmt.Sprintf("（原余额 ¥%.2f → 校准后 ¥%.2f，差额 %.2f）", oldBalance, req.RealBalance, diff)); err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "校准记录写入失败"})
