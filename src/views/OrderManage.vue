@@ -352,7 +352,7 @@
     <!-- 结清尾款弹窗 -->
     <el-dialog v-model="balanceDialogVisible" title="结清尾款" width="500px" destroy-on-close class="!rounded-2xl">
       <template v-if="balanceTargetOrder">
-        <el-alert title="结算说明" type="info" :closable="false" show-icon class="mb-4 !rounded-xl">系统将先退还定金，再按全款金额入账。</el-alert>
+        <el-alert title="结算说明" type="info" :closable="false" show-icon class="mb-4 !rounded-xl">系统将按"退定金 → 收全款"两步完成结算：账户余额先减后增，财务上等价于一次性收取全款（订单净收款 = actual_pay_amount）。</el-alert>
         <el-descriptions :column="1" border class="mb-4">
           <el-descriptions-item label="订单号">{{ balanceTargetOrder.order_no }}</el-descriptions-item>
           <el-descriptions-item label="客户">{{ balanceTargetOrder.customer_name || '散客' }}</el-descriptions-item>

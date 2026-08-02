@@ -379,11 +379,128 @@ git commit -m "fix(audit): pair refund log with deposit log via reversal_pair_id
 ## Task 4: 新增 T-A2 / T-A3 / T-A4 / T-A5 测试 + 验证全部通过
 
 **Files:**
+- Modify: `erp-backend/controllers/order_controller.go`（扩展 `PayOrderBalance` 支持多账户定金退款，前置步骤 4.0）
 - Modify: `erp-backend/controllers/audit_financial_test.go`（追加 4 个测试）
 
 **Interfaces:**
 - Consumes: `setupAudit()`、已有 helper
-- Produces: 4 个新测试函数
+- Produces: 4 个新测试函数 + 多账户定金退款支持
+
+> **前置：Task 4.0 多账户定金退款扩展。**
+> 当前工作树的 `PayOrderBalance` 只处理单一 `*order.AccountID` 的定金退款（Task 3 implementer 适配）。但主仓库工作树里有一个未提交的多账户版本（使用 `getOrderPaymentBreakdown` helper，按 `order.payment_breakdown` JSON 拆分定金到不同账户，分别退）。Task 4 必须先把多账户逻辑 port 进来，否则 T-A3（200 支付宝 + 100 现金 定金 + 700 公户 尾款）无法通过。
+> 参考源码位置：主仓库 `erp-backend/controllers/order_controller.go:272`（`getOrderPaymentBreakdown` 定义）和 `:1035`（多账户退款循环）。请用 `git show main:erp-backend/controllers/order_controller.go` 或直接 read 主仓库文件（不在 worktree 内），把多账户退款的核心逻辑移植到 worktree 的 `PayOrderBalance` 里。
+
+- [ ] **Step 4.0: 扩展 `PayOrderBalance` 支持多账户定金退款**
+
+把当前 `PayOrderBalance` 第一步的"定金对冲退款"块（`if order.DepositAmount > 0 && order.AccountID != nil { ... }`）改为按 `order.payment_breakdown` 拆分的循环，逐 split 处理：
+
+```go
+if order.DepositAmount > 0 {
+    depositSplits, err := getOrderPaymentBreakdown(tx, order, order.DepositAmount)
+    if err != nil {
+        tx.Rollback()
+        c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询原账户失败"})
+        return
+    }
+    for _, split := range depositSplits {
+        var refundAccount models.Account
+        if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&refundAccount, split.AccountID).Error; err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "code": 500,
+                "msg":  fmt.Sprintf("定金账户(ID %d)查询失败，无法完成结算", split.AccountID),
+            })
+            return
+        }
+        if refundAccount.Balance < split.Amount {
+            tx.Rollback()
+            c.JSON(http.StatusBadRequest, gin.H{
+                "code": 400,
+                "msg":  fmt.Sprintf("账户「%s」余额 ¥%.2f 不足以退还定金 ¥%.2f，无法完成结算，请先补充账户余额或调整收款账户", refundAccount.Name, refundAccount.Balance, split.Amount),
+            })
+            return
+        }
+
+        var depositLog models.FinancialLog
+        if err := tx.Where("related_no = ? AND account_id = ? AND category = ? AND reversal_pair_id IS NULL",
+            order.OrderNo, split.AccountID, "预付定金").
+            Order("id DESC").
+            First(&depositLog).Error; err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "code": 500,
+                "msg":  fmt.Sprintf("未找到订单 %s 账户 %d 的原定金流水，无法完成冲销对账", order.OrderNo, split.AccountID),
+            })
+            return
+        }
+
+        if err := tx.Model(&models.Account{}).Where("id = ?", split.AccountID).
+            UpdateColumn("balance", gorm.Expr("balance - ?", split.Amount)).Error; err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "原账户定金退还失败"})
+            return
+        }
+
+        var updatedAccount models.Account
+        tx.First(&updatedAccount, split.AccountID)
+
+        if err := WriteReversalLog(tx,
+            depositLog.ID,
+            split.AccountID,
+            2, // flow_type=支出
+            "退还定金",
+            split.Amount,
+            updatedAccount.Balance,
+            order.OrderNo,
+            fmt.Sprintf("订单 %s 结算前退还定金 ¥%.2f", order.OrderNo, split.Amount),
+        ); err != nil {
+            tx.Rollback()
+            c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "定金退还记录写入失败"})
+            return
+        }
+    }
+}
+```
+
+并把 `getOrderPaymentBreakdown` 和 `PaymentBreakdownItem` 类型定义从主仓库 port 到本文件末尾（参见 `erp-backend/controllers/order_controller.go:272-300` 区域）：
+
+```go
+type PaymentBreakdownItem struct {
+    PaymentMethod int     `json:"payment_method"`
+    AccountID     uint    `json:"account_id"`
+    Amount        float64 `json:"amount"`
+}
+
+func encodePaymentBreakdown(items []PaymentBreakdownItem) string { ... } // 已有
+func decodePaymentBreakdown(s string) ([]PaymentBreakdownItem, error) { ... } // 已有
+
+func getOrderPaymentBreakdown(tx *gorm.DB, order models.Order, fallbackAmount float64) ([]PaymentBreakdownItem, error) {
+    if order.PaymentBreakdown != "" {
+        items, err := decodePaymentBreakdown(order.PaymentBreakdown)
+        if err == nil && len(items) > 0 {
+            return items, nil
+        }
+    }
+    if order.AccountID != nil {
+        return []PaymentBreakdownItem{{
+            PaymentMethod: 1,
+            AccountID:     *order.AccountID,
+            Amount:        fallbackAmount,
+        }}, nil
+    }
+    return nil, fmt.Errorf("订单 %s 既无 payment_breakdown 也无 account_id", order.OrderNo)
+}
+```
+
+**注意**：`getOrderPaymentBreakdown` / `PaymentBreakdownItem` / `encodePaymentBreakdown` / `decodePaymentBreakdown` 可能已经在 worktree 中存在（取决于上次 port 是否带过来）。如果存在就直接复用，不要重复声明。
+
+验证：
+```bash
+cd erp-backend
+go build ./controllers/... ./models/...
+DB_NAME=erp_audit_test go test ./controllers -run 'TestAudit_SameAccount|TestAudit_DepositThenSettle|TestAudit_DuplicateSettle|TestAudit_SettleRefund' -v -count=1
+```
+预期：所有 settle 相关测试仍通过（含 Task 1 / Task 3 写入的 T-A1）。
 
 - [ ] **Step 4.1: 追加 `TestAudit_CrossAccountDepositThenSettle`**
 
@@ -1041,19 +1158,54 @@ func TestAudit_CalibrateAccount(t *testing.T) {
 }
 ```
 
-- [ ] **Step 7.4: 修正 dashboard / stats 聚合：排除 flow_type=4（系统校准）**
+- [ ] **Step 7.4: 修正 CalibrateAccount 使用 `flow_type=4` + dashboard / stats 排除 flow_type=4**
 
-修改 `dashboard_controller.go` 的 income/expense 查询，加 `Where("flow_type IN (?, ?)", 1, 2)`：
+`CalibrateAccount` 当前实现把校准日志写成 `flow_type=1`（diff>0）或 `flow_type=2`（diff<0），导致它被计入收入 / 支出。`FinancialLog.FlowType` 的文档约定 `flow_type=4` = 余额校准，但代码从未使用。修正步骤：
+
+**a) 修改 `erp-backend/controllers/account_controller.go` 的 `CalibrateAccount`：**
+
+定位写入日志的代码块（约 line 263-275），把：
+```go
+flowType := 2
+amount := -diff
+if diff > 0 {
+    flowType = 1
+    amount = diff
+}
+```
+改为：
+```go
+flowType := 4 // 余额校准 — 不计入收入 / 支出
+amount := diff
+if amount < 0 {
+    amount = -amount
+}
+```
+即统一使用 `flow_type=4`，金额为绝对值。
+
+**b) 修改 `dashboard_controller.go` 的 income / expense 查询：**
 
 ```go
 incomeDB := config.DB.Model(&models.FinancialLog{}).
     Where("flow_type = ?", 1).
-    Where("flow_type <> ?", 4). // 排除校准
+    Where("flow_type <> ?", 4).
     Where("reversal_pair_id IS NULL")
-// ... expense 同样排除 flow_type=4
+// ... expense 同样
+expenseDB := config.DB.Model(&models.FinancialLog{}).
+    Where("flow_type = ?", 2).
+    Where("flow_type <> ?", 4).
+    Where("reversal_pair_id IS NULL")
 ```
 
-注意：`flow_type=4` 当前在 `CalibrateAccount` 的实现里只在 `diff>0` 时设 `flowType=1`、`diff<0` 时设 `flowType=2`。所以"校准计入收入/支出"是历史 BUG（应排除）。本任务顺带修复。
+**c) 修改 `stats_controller.go` 的 expense 查询：**
+
+```go
+config.DB.Model(&models.FinancialLog{}).
+    Where("flow_type = ? AND flow_type <> ? AND reversal_pair_id IS NULL", 2, 4).
+    Where("created_at >= ? AND created_at <= ?", startTime, endTime).
+    Select("COALESCE(SUM(amount), 0)").
+    Scan(&stats.Expense)
+```
 
 - [ ] **Step 7.5: 跑测试验证**
 
@@ -1085,10 +1237,34 @@ git commit -m "test(audit): add F16 transfer + F17 calibrate coverage; exclude f
 ## Task 8: 前端 CheckoutPanel 关键计算覆盖
 
 **Files:**
+- Modify / Add: `src/views/cashier/CheckoutPanel.vue`（从主仓库工作树 port 进来）
+- Modify / Add: `src/views/cashier/ProductGrid.vue`（同上）
+- Modify: `src/views/Cashier.vue`（替换为引用 cashier/ 子组件的轻量版）
 - Create: `src/views/cashier/CheckoutPanel.test.mjs`
 
 **Interfaces:**
 - Produces: 5 个 `node --test` 用例，覆盖 `actualReceipt` / `mixedPaymentTarget` / `mixedPaymentRemaining` 计算逻辑
+
+> **前置：Task 8.0 port cashier/ 子目录重构。**
+> 主仓库工作树（未提交）里有一个把 `Cashier.vue` 拆成 `cashier/CheckoutPanel.vue` + `cashier/ProductGrid.vue` 的重构。当前 worktree 分支没有这个重构。Task 8 必须先把这两个文件 port 进来（以及一个瘦身版的 `Cashier.vue` 只引用子组件），否则测试找不到 `src/views/cashier/CheckoutPanel.vue` 文件。
+> 参考源码位置：主仓库 `/Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/cashier/CheckoutPanel.vue` 和 `ProductGrid.vue`。请把这两个文件直接 copy 进 worktree 的对应位置（不要重新发明）。同时把 `src/views/Cashier.vue` 替换成主仓库那个只引用 cashier/ 子组件的轻量版。
+
+- [ ] **Step 8.0: 从主仓库工作树 port cashier/ 子目录重构**
+
+```bash
+# Copy cashier 子目录下的两个组件文件
+cp /Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/cashier/CheckoutPanel.vue \
+   .worktrees/financial-audit-remediation/src/views/cashier/CheckoutPanel.vue
+cp /Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/cashier/ProductGrid.vue \
+   .worktrees/financial-audit-remediation/src/views/cashier/ProductGrid.vue
+# 替换 Cashier.vue 为引用子组件的轻量版
+cp /Users/nanjiakai/Documents/Development/coder/erpwonchon/src/views/Cashier.vue \
+   .worktrees/financial-audit-remediation/src/views/Cashier.vue
+```
+
+注意：必须在 worktree 内执行（不要改 main）。完成后跑 `npm run build` 验证前端能编译。
+
+如果主仓库的 `Cashier.vue` 包含 build-time 引用（pinia store、router、components 路径），确认 port 后 worktree 的 `npm run build` 仍然通过。
 
 - [ ] **Step 8.1: 写测试文件**
 

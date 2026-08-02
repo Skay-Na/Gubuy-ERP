@@ -36,6 +36,7 @@ func SetupRouter() *gin.Engine {
 		api.PUT("/orders/:id/subsidy", controllers.UpdateSubsidyStatus)
 		api.PUT("/orders/:id/balance", controllers.PayOrderBalance)
 		api.PUT("/orders/:id/cancel", controllers.CancelOrder)
+		api.PUT("/orders/:id/reversal-cancel", controllers.ReversalCancelOrder)
 		api.PUT("/orders/:id/install", controllers.UpdateInstallStatus)
 		api.PUT("/orders/:id/deliver", controllers.UpdateDeliveryStatus)
 		api.PUT("/order-items/:item_id/deliver", controllers.UpdateItemDeliveryStatus)
