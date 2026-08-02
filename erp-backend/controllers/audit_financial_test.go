@@ -39,6 +39,7 @@ func setupAudit(t *testing.T) {
 		auditRouter.POST("/api/orders", CreateOrder)
 		auditRouter.PUT("/api/orders/:id/balance", PayOrderBalance)
 		auditRouter.PUT("/api/orders/:id/cancel", CancelOrder)
+		auditRouter.GET("/api/finance/summary", GetFinanceSummary)
 	}
 }
 
@@ -162,6 +163,13 @@ func putJSON(path string, body interface{}) *httptest.ResponseRecorder {
 	jsonValue, _ := json.Marshal(body)
 	req, _ := http.NewRequest("PUT", path, bytes.NewBuffer(jsonValue))
 	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	auditRouter.ServeHTTP(w, req)
+	return w
+}
+
+func getJSON(path string) *httptest.ResponseRecorder {
+	req, _ := http.NewRequest("GET", path, nil)
 	w := httptest.NewRecorder()
 	auditRouter.ServeHTTP(w, req)
 	return w
@@ -1565,5 +1573,53 @@ func TestAudit_DuplicateSettleIsIdempotent(t *testing.T) {
 		Select("COALESCE(SUM(amount), 0)").Scan(&income2)
 	if math.Abs(income2-firstIncome) > 0.01 {
 		t.Fatalf("TotalIncome 因重复结清而变化：原 %.2f → 现 %.2f", firstIncome, income2)
+	}
+}
+
+func TestAudit_DashboardSummaryFiltersReversalPairs(t *testing.T) {
+	setupAudit(t)
+	productID := ensureProduct(t, "审计商品-dashboard过滤", 1000.00, 600, 100)
+
+	body := gin.H{
+		"items": []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300,
+		"customer_name":    "dashboard过滤客户",
+		"customer_phone":   "13800000006",
+		"customer_address": "测试地址-dashboard",
+	}
+	w := postJSON("/api/orders", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("下单失败: %d %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		OrderNo string `json:"order_no"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	order := readOrder(t, resp.OrderNo)
+	settleW := putJSON("/api/orders/"+strconv.Itoa(int(order.ID))+"/balance",
+		gin.H{"final_payment_method": 1})
+	if settleW.Code != http.StatusOK {
+		t.Fatalf("结清失败: %d %s", settleW.Code, settleW.Body.String())
+	}
+
+	summaryW := getJSON("/api/finance/summary?period=all")
+	if summaryW.Code != http.StatusOK {
+		t.Fatalf("dashboard 查询失败: %d %s", summaryW.Code, summaryW.Body.String())
+	}
+	var sum struct {
+		Code int `json:"code"`
+		Data struct {
+			TotalIncome  float64 `json:"total_income"`
+			TotalExpense float64 `json:"total_expense"`
+		} `json:"data"`
+	}
+	json.Unmarshal(summaryW.Body.Bytes(), &sum)
+	if math.Abs(sum.Data.TotalIncome-1000) > 0.01 {
+		t.Fatalf("dashboard TotalIncome 应为 1000，实际 %.2f — dashboard 仍按老规则汇总", sum.Data.TotalIncome)
+	}
+	if math.Abs(sum.Data.TotalExpense) > 0.01 {
+		t.Fatalf("dashboard TotalExpense 应为 0（退定金被 pair 排除），实际 %.2f", sum.Data.TotalExpense)
 	}
 }
