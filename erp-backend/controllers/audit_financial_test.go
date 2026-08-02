@@ -39,6 +39,7 @@ func setupAudit(t *testing.T) {
 		auditRouter.POST("/api/orders", CreateOrder)
 		auditRouter.PUT("/api/orders/:id/balance", PayOrderBalance)
 		auditRouter.PUT("/api/orders/:id/cancel", CancelOrder)
+		auditRouter.PUT("/api/orders/:id/reversal-cancel", ReversalCancelOrder)
 		auditRouter.GET("/api/finance/summary", GetFinanceSummary)
 	}
 }
@@ -1573,6 +1574,60 @@ func TestAudit_DuplicateSettleIsIdempotent(t *testing.T) {
 		Select("COALESCE(SUM(amount), 0)").Scan(&income2)
 	if math.Abs(income2-firstIncome) > 0.01 {
 		t.Fatalf("TotalIncome 因重复结清而变化：原 %.2f → 现 %.2f", firstIncome, income2)
+	}
+}
+
+func TestAudit_ReversalCancelOrder(t *testing.T) {
+	setupAudit(t)
+	productID := ensureProduct(t, "审计商品-红冲", 1000.00, 600, 100)
+
+	body := gin.H{
+		"items":            []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "红冲客户",
+		"customer_phone":   "13800000007",
+		"customer_address": "测试地址-红冲",
+	}
+	w := postJSON("/api/orders", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("下单失败: %d %s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		OrderNo string `json:"order_no"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &resp)
+	order := readOrder(t, resp.OrderNo)
+
+	// 标记已交付（满足 allowFulfilled 路径）
+	config.DB.Model(&order).Update("is_delivered", true)
+
+	cancelW := putJSON("/api/orders/"+strconv.Itoa(int(order.ID))+"/reversal-cancel", gin.H{})
+	if cancelW.Code != http.StatusOK {
+		t.Fatalf("红冲失败: %d %s", cancelW.Code, cancelW.Body.String())
+	}
+
+	if math.Abs(accountBalance(t, "支付宝")) > 0.01 {
+		t.Fatalf("红冲后支付宝余额应为 0，实际 %.2f", accountBalance(t, "支付宝"))
+	}
+	finalOrder := readOrder(t, resp.OrderNo)
+	if finalOrder.OrderStatus != 2 {
+		t.Fatalf("红冲后订单 OrderStatus 应为 2，实际 %d", finalOrder.OrderStatus)
+	}
+	var income, expense float64
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NULL", 1).
+		Select("COALESCE(SUM(amount), 0)").Scan(&income)
+	config.DB.Model(&models.FinancialLog{}).
+		Where("flow_type = ? AND reversal_pair_id IS NULL", 2).
+		Select("COALESCE(SUM(amount), 0)").Scan(&expense)
+	if math.Abs(income) > 0.01 || math.Abs(expense) > 0.01 {
+		t.Fatalf("红冲后 TotalIncome=%.2f / TotalExpense=%.2f 应均归 0", income, expense)
+	}
+	var p models.Product
+	config.DB.First(&p, productID)
+	if p.MainStock != 100 {
+		t.Fatalf("红冲后 main_stock 应为 100，实际 %d", p.MainStock)
 	}
 }
 
