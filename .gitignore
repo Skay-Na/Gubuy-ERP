@@ -6,6 +6,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
+build_log.txt
 
 # Frontend
 node_modules
@@ -14,13 +15,17 @@ node_modules
 /coverage
 *.local
 .vite
+.eslintcache
+.stylelintcache
 
 # Go Backend
 # Binaries and overlib
 erp-backend/main
 erp-backend/erp-backend
+erp-backend/erp-backend-bin
 erp-backend/debug
 erp-backend/debug.test
+vendor/
 bin/
 *.exe
 *.exe~
@@ -50,20 +55,29 @@ profile.out
 *.iml
 *.ipr
 .DS_Store
+.AppleDouble
+.LSOverride
+._*
 Thumbs.db
 *.sw?
 *.bak
 
 # Docker
 .docker-compose.override.yml
+docker-compose.override.yml
+docker-compose.override.yaml
 
 # Project Specific
 *.tar
 *.zip
 *.gz
 /erp-app.tar
+*.sql
+chunk_*.txt
+scripts/archive/
 
 # Misc
 .agents/
 .temp/
 .cache/
+.worktrees/
