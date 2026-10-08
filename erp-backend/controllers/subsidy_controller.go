@@ -109,25 +109,18 @@ func GetSubsidySettlements(c *gin.Context) {
 // @ID get_api_subsidy_summary
 // @Router /api/subsidy/summary [get]
 func GetSubsidySummary(c *gin.Context) {
-	var totalGenerated float64
-	var totalReceived float64
-
-	// 累计应回款：新版字段与历史回退必须逐单计算，避免新旧订单混合时漏算历史订单。
-	config.DB.Model(&models.Order{}).
-		Where("order_status = 1 AND subsidy_amount > 0").
-		Select("COALESCE(SUM(CASE WHEN subsidy_pending_amount > 0 THEN subsidy_pending_amount ELSE subsidy_amount END), 0)").
-		Scan(&totalGenerated)
-
-	// 累计回款：历次结算之和
-	config.DB.Model(&models.SubsidySettlement{}).Select("COALESCE(SUM(amount), 0)").Scan(&totalReceived)
-	pendingBalance := CalculatePendingSubsidy(totalGenerated, totalReceived)
+	overview, err := readSubsidyOverview(c.Request.Context())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "获取国补概览失败"})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"data": gin.H{
-			"total_generated": totalGenerated,
-			"total_received":  totalReceived,
-			"pending_balance": pendingBalance,
+			"total_generated": overview.TotalGenerated,
+			"total_received":  overview.TotalReceived,
+			"pending_balance": overview.PendingBalance,
 		},
 	})
 }

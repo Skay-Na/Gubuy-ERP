@@ -11,8 +11,14 @@ const routes = [
   {
     path: '/admin',
     component: Layout,
-    redirect: '/admin/dashboard',
+    redirect: '/admin/ai-manager',
     children: [
+      {
+        path: 'ai-manager',
+        name: 'AIManager',
+        component: () => import('../views/AIManager.vue'),
+        meta: { title: 'AI 店长' }
+      },
       {
         path: 'dashboard',
         name: 'Dashboard',
@@ -26,22 +32,37 @@ const routes = [
         meta: { title: '收银工作台' }
       },
       {
-        path: 'purchase',
-        name: 'Purchase',
-        component: () => import('../views/Inbound.vue'),
-        meta: { title: '采购入库' }
+        path: 'products',
+        component: () => import('../views/ProductWorkspace.vue'),
+        meta: { title: '商品管理' },
+        children: [
+          {
+            path: '',
+            name: 'ProductManage',
+            component: () => import('../views/ProductManage.vue'),
+            meta: { title: '商品库管理' }
+          },
+          {
+            path: 'inbound',
+            name: 'Purchase',
+            component: () => import('../views/Inbound.vue'),
+            meta: { title: '采购入库' }
+          },
+          {
+            path: 'inventory-logs',
+            name: 'InventoryLog',
+            component: () => import('../views/InventoryLog.vue'),
+            meta: { title: '库存流水审计' }
+          }
+        ]
       },
       {
-        path: 'products',
-        name: 'ProductManage',
-        component: () => import('../views/ProductManage.vue'),
-        meta: { title: '商品库管理' }
+        path: 'purchase',
+        redirect: '/admin/products/inbound'
       },
       {
         path: 'inventory-logs',
-        name: 'InventoryLog',
-        component: () => import('../views/InventoryLog.vue'),
-        meta: { title: '库存流水审计' }
+        redirect: '/admin/products/inventory-logs'
       },
       {
         path: 'employees',
@@ -59,7 +80,19 @@ const routes = [
         path: 'finance',
         name: 'Finance',
         component: () => import('../views/Finance.vue'),
-        meta: { title: '财务总览' }
+        meta: { title: '资金工作台' }
+      },
+      {
+        path: 'bookkeeping',
+        name: 'Bookkeeping',
+        component: () => import('../views/Bookkeeping.vue'),
+        meta: { title: '专业记账' }
+      },
+      {
+        path: 'ai-import',
+        name: 'AIImport',
+        component: () => import('../views/AIImport.vue'),
+        meta: { title: 'AI 图片导入' }
       },
       {
         path: 'subsidy',

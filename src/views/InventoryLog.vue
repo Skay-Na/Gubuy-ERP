@@ -49,53 +49,41 @@
         border
         stripe
         highlight-current-row
-        class="desktop-only hidden md:block"
+        class="desktop-only hidden xl:block"
       >
-        <el-table-column label="变动时间" width="180">
-          <template #default="{ row }">
-            <span class="text-slate-500 font-mono text-xs">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="相关商品" min-width="200">
+        <el-table-column label="商品 / 时间" min-width="245">
           <template #default="{ row }">
             <div class="flex flex-col">
-              <span class="font-bold text-slate-800 text-sm">{{ row.product?.name || '未知商品' }}</span>
-              <el-tag size="small" effect="plain" class="!rounded-lg !px-1.5 self-start text-[10px]">{{ row.product?.remark || '-' }}</el-tag>
+              <span class="font-bold text-slate-800 text-sm truncate" :title="row.product?.name">{{ row.product?.name || '未知商品' }}</span>
+              <span v-if="row.product?.remark" class="text-xs text-slate-500 truncate" :title="row.product.remark">{{ row.product.remark }}</span>
+              <span class="text-slate-400 font-mono text-[11px]">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="仓库" width="100" align="center">
+        <el-table-column label="变动" width="135">
           <template #default="{ row }">
-            <el-tag size="small" type="info" effect="plain">{{ getWarehouseName(row.warehouse_type) }}</el-tag>
+            <div class="flex flex-col items-start gap-1">
+              <el-tag size="small" :type="getLogTypeTag(row.log_type).type" effect="plain">{{ getLogTypeTag(row.log_type).label }}</el-tag>
+              <span class="text-xs text-slate-500">{{ getWarehouseName(row.warehouse_type) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="变动类型" width="100" align="center">
+        <el-table-column label="数量 / 库存" width="140" align="right">
           <template #default="{ row }">
-            <el-tag size="small" :type="getLogTypeTag(row.log_type).type" effect="dark">
-              {{ getLogTypeTag(row.log_type).label }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="变动数量" width="100" align="center">
-          <template #default="{ row }">
-            <span class="font-bold text-base" :class="row.change_qty > 0 ? 'text-blue-600' : 'text-red-500'">
+            <div class="flex flex-col items-end gap-0.5"><span class="font-bold text-base" :class="row.change_qty > 0 ? 'text-blue-600' : 'text-red-500'">
               {{ row.change_qty > 0 ? '+' : '' }}{{ row.change_qty }}
-            </span>
+            </span><span class="text-xs text-slate-400">{{ row.before_qty }} → <strong class="text-slate-700">{{ row.after_qty }}</strong></span></div>
           </template>
         </el-table-column>
-        <el-table-column label="变动单价" width="100" align="right">
+        <el-table-column label="备注 / 单价" min-width="190">
           <template #default="{ row }">
-            <span v-if="row.unit_cost" class="font-mono text-xs text-slate-600">¥{{ row.unit_cost.toFixed(2) }}</span>
-            <span v-else class="text-slate-300">-</span>
+            <div class="flex flex-col gap-1 min-w-0">
+              <span class="text-xs text-slate-600 truncate" :title="row.remark || ''">{{ row.remark || '无备注' }}</span>
+              <span v-if="row.unit_cost" class="font-mono text-[11px] text-slate-400">单价 ¥{{ row.unit_cost.toFixed(2) }}</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="库存快照" width="120" align="center">
-          <template #default="{ row }">
-             <span class="text-xs text-slate-400">{{ row.before_qty }} &rarr; <span class="font-bold text-slate-700">{{ row.after_qty }}</span></span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="remark" label="操作备注" min-width="200" show-overflow-tooltip />
-        <el-table-column label="操作" width="110" align="center">
+        <el-table-column label="操作" width="100" align="center">
           <template #default="{ row }">
             <div class="flex flex-col gap-1 items-center justify-center">
               <el-button 
@@ -125,7 +113,7 @@
       </el-table>
 
       <!-- Mobile View -->
-      <div class="mobile-only md:hidden p-4 space-y-4" v-loading="loading">
+      <div class="mobile-only xl:hidden p-4 grid grid-cols-1 md:grid-cols-2 gap-3" v-loading="loading">
         <div v-for="row in logList" :key="row.id" class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm">
           <div class="flex justify-between items-start mb-3">
             <div class="flex-1 min-w-0 pr-2">
@@ -144,7 +132,7 @@
           </div>
           <div class="bg-slate-50 p-3 rounded-xl">
              <div class="text-[11px] text-slate-500 line-clamp-2">{{ row.remark || '无备注' }}</div>
-             <div class="mt-2 text-[10px] text-slate-400 font-mono">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}</div>
+             <div class="mt-2 text-[10px] text-slate-400 font-mono">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}<span v-if="row.unit_cost"> · 单价 ¥{{ row.unit_cost.toFixed(2) }}</span></div>
           </div>
           <!-- Mobile action -->
           <div v-if="row.log_type === 'purchase' || row.log_type === 'purchase_void'" class="mt-3 pt-3 border-t border-slate-100 flex justify-end gap-2">
@@ -169,7 +157,7 @@
             </el-button>
           </div>
         </div>
-        <el-empty v-if="!loading && logList.length === 0" description="暂无变动记录" />
+        <el-empty v-if="!loading && logList.length === 0" description="暂无变动记录" class="md:col-span-2" />
       </div>
     </el-card>
   </div>

@@ -200,10 +200,10 @@ func TestAudit_OrderTotalsMatchItemPrices(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 3, "unit_price": 1999.99},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"customer_name":   "张三",
-		"customer_phone":  "13800000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "张三",
+		"customer_phone":   "13800000000",
 		"customer_address": "审计测试地址",
 	}
 
@@ -213,9 +213,9 @@ func TestAudit_OrderTotalsMatchItemPrices(t *testing.T) {
 	}
 
 	var resp struct {
-		Code     int    `json:"code"`
-		OrderNo  string `json:"order_no"`
-		Data     gin.H  `json:"data"`
+		Code    int    `json:"code"`
+		OrderNo string `json:"order_no"`
+		Data    gin.H  `json:"data"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &resp)
 	if resp.OrderNo == "" {
@@ -240,11 +240,11 @@ func TestAudit_DiscountExceedsTotalClampedToZero(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 100.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"discount_amount": 200.00,
-		"customer_name":   "李四",
-		"customer_phone":  "13900000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"discount_amount":  200.00,
+		"customer_name":    "李四",
+		"customer_phone":   "13900000000",
 		"customer_address": "审计地址2",
 	}
 
@@ -272,11 +272,11 @@ func TestAudit_SubsidyCappedAt1500(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 12000.00},
 		},
-		"payment_method":  3,
-		"delivery_method": 2,
-		"is_subsidy":      true,
-		"customer_name":   "国补客户",
-		"customer_phone":  "13700000000",
+		"payment_method":   3,
+		"delivery_method":  2,
+		"is_subsidy":       true,
+		"customer_name":    "国补客户",
+		"customer_phone":   "13700000000",
 		"customer_address": "国补地址",
 	}
 
@@ -310,7 +310,7 @@ func TestAudit_MixedPaymentMatchesReceivable(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method": 4,
+		"payment_method":  4,
 		"delivery_method": 2,
 		"payment_splits": []gin.H{
 			{"payment_method": 1, "amount": 600.00},
@@ -361,7 +361,7 @@ func TestAudit_MixedPaymentSplitMismatchRejected(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method": 4,
+		"payment_method":  4,
 		"delivery_method": 2,
 		"payment_splits": []gin.H{
 			{"payment_method": 1, "amount": 500.00},
@@ -394,11 +394,11 @@ func TestAudit_DepositThenSettleRefundTopaytBalanceRefundRoute(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"deposit_amount":  300.00,
-		"customer_name":   "定金客户",
-		"customer_phone":  "13400000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300.00,
+		"customer_name":    "定金客户",
+		"customer_phone":   "13400000000",
 		"customer_address": "定金地址",
 	}
 
@@ -457,10 +457,10 @@ func TestAudit_CancelFullPaymentOrderRefundsActualPayAmount(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"customer_name":   "全款取消客户",
-		"customer_phone":  "13300000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "全款取消客户",
+		"customer_phone":   "13300000000",
 		"customer_address": "全款取消地址",
 	}
 
@@ -501,7 +501,7 @@ func TestAudit_CancelMixedPaymentRefundRefundsAllSplits(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method": 4,
+		"payment_method":  4,
 		"delivery_method": 2,
 		"payment_splits": []gin.H{
 			{"payment_method": 1, "amount": 600.00},
@@ -552,9 +552,9 @@ func TestAudit_CancelDepositMixedPaymentRefundsDepositSplits(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method": 4,
+		"payment_method":  4,
 		"delivery_method": 2,
-		"deposit_amount": 300.00,
+		"deposit_amount":  300.00,
 		"payment_splits": []gin.H{
 			{"payment_method": 1, "amount": 200.00},
 			{"payment_method": 5, "amount": 100.00},
@@ -604,8 +604,8 @@ func TestAudit_CashPaymentBooksFullAmount(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 100.00},
 		},
-		"payment_method": 5,
-		"delivery_method": 2,
+		"payment_method":   5,
+		"delivery_method":  2,
 		"customer_name":    "现金客户",
 		"customer_phone":   "13000000000",
 		"customer_address": "现金地址",
@@ -648,10 +648,10 @@ func TestAudit_DuplicateCancelDoesNotDoubleRefund(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"customer_name":   "重复取消客户",
-		"customer_phone":  "12900000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "重复取消客户",
+		"customer_phone":   "12900000000",
 		"customer_address": "重复取消地址",
 	}
 
@@ -692,11 +692,11 @@ func TestAudit_DuplicateSettleDoesNotDoubleCharge(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"deposit_amount":  300.00,
-		"customer_name":   "重复结清客户",
-		"customer_phone":  "12800000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300.00,
+		"customer_name":    "重复结清客户",
+		"customer_phone":   "12800000000",
 		"customer_address": "重复结清地址",
 	}
 
@@ -746,11 +746,11 @@ func TestAudit_SettleRefundChecksAccountBalance(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"deposit_amount":  300.00,
-		"customer_name":   "余额不足客户",
-		"customer_phone":  "12700000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300.00,
+		"customer_name":    "余额不足客户",
+		"customer_phone":   "12700000000",
 		"customer_address": "余额不足地址",
 	}
 
@@ -799,11 +799,11 @@ func TestAudit_SettleRefundDoesNotCauseNegativeBalance(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"deposit_amount":  300.00,
-		"customer_name":   "超额退还客户",
-		"customer_phone":  "12600000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300.00,
+		"customer_name":    "超额退还客户",
+		"customer_phone":   "12600000000",
 		"customer_address": "超额退还地址",
 	}
 
@@ -849,17 +849,16 @@ func TestAudit_SubsidyMixedPaymentBreakdownCorrect(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 10000.00},
 		},
-		"payment_method": 4,
+		"payment_method":  4,
 		"delivery_method": 2,
 		"is_subsidy":      true,
 		// 国补基数 = 公户金额 = 3000
 		// 国补 = 3000 * 0.15 = 450 (因为使用公户金额作为基数)
-		// 实际应付 = 10000 - 450 = 9550
-		// 但是混合支付 splits 总额 = 9550
-		// 这里测试的是 payment_method=4 且有国补的情况
+		// 实际应付 = 10000 - 450 = 9550。
+		// 公户填 POS 原始金额，拆分总额 = 实收 + 国补 = 10000；公户净到账会扣除 450。
 		"payment_splits": []gin.H{
 			{"payment_method": 3, "amount": 3000.00},
-			{"payment_method": 1, "amount": 6550.00},
+			{"payment_method": 1, "amount": 7000.00},
 		},
 		"customer_name":    "国补混合支付客户",
 		"customer_phone":   "12500000000",
@@ -884,12 +883,47 @@ func TestAudit_SubsidyMixedPaymentBreakdownCorrect(t *testing.T) {
 	if math.Abs(order.ActualPayAmount-9550) > 0.01 {
 		t.Fatalf("应付金额 %.2f 应为 9550", order.ActualPayAmount)
 	}
-	// 公户 +3000, 支付宝 +6550
-	if math.Abs(accountBalance(t, "公户")-3000) > 0.01 {
-		t.Fatalf("公户余额 %.2f 应为 3000", accountBalance(t, "公户"))
+	// 公户原始 3000 扣国补 450 后净到账 2550，支付宝到账 7000。
+	if math.Abs(accountBalance(t, "公户")-2550) > 0.01 {
+		t.Fatalf("公户余额 %.2f 应为 2550", accountBalance(t, "公户"))
 	}
-	if math.Abs(accountBalance(t, "支付宝")-6550) > 0.01 {
-		t.Fatalf("支付宝余额 %.2f 应为 6550", accountBalance(t, "支付宝"))
+	if math.Abs(accountBalance(t, "支付宝")-7000) > 0.01 {
+		t.Fatalf("支付宝余额 %.2f 应为 7000", accountBalance(t, "支付宝"))
+	}
+}
+
+// 国补 POS 公户金额是刷卡原始金额；国补部分不会实际到账公户。
+func TestAudit_SubsidyMixedPaymentCreditsNetPublicReceipt(t *testing.T) {
+	setupAudit(t)
+	productID := ensureProduct(t, "审计商品-国补POS净到账", 25500.00, 20000, 100)
+
+	body := gin.H{
+		"items": []gin.H{
+			{"product_id": productID, "quantity": 1, "unit_price": 25500.00},
+		},
+		"payment_method":  4,
+		"delivery_method": 2,
+		"is_subsidy":      true,
+		// POS 公户原始刷卡 18000，国补封顶 1500；现金补 7500。
+		"payment_splits": []gin.H{
+			{"payment_method": 3, "amount": 18000.00},
+			{"payment_method": 5, "amount": 7500.00},
+		},
+		"customer_name":    "国补POS净到账客户",
+		"customer_phone":   "12600000000",
+		"customer_address": "国补POS净到账地址",
+	}
+
+	w := postJSON("/api/orders", body)
+	if w.Code != http.StatusOK {
+		t.Fatalf("国补 POS 混合支付应被接受，实际: %d %s", w.Code, w.Body.String())
+	}
+
+	if math.Abs(accountBalance(t, "公户")-16500) > 0.01 {
+		t.Fatalf("公户净到账 %.2f 应为 16500", accountBalance(t, "公户"))
+	}
+	if math.Abs(accountBalance(t, "现金")-7500) > 0.01 {
+		t.Fatalf("现金到账 %.2f 应为 7500", accountBalance(t, "现金"))
 	}
 }
 
@@ -902,11 +936,11 @@ func TestAudit_DepositExceedsActualPayRejected(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 1000.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"deposit_amount":  1500.00, // 大于 total
-		"customer_name":   "超额定金客户",
-		"customer_phone":  "12400000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   1500.00, // 大于 total
+		"customer_name":    "超额定金客户",
+		"customer_phone":   "12400000000",
 		"customer_address": "超额定金地址",
 	}
 
@@ -931,21 +965,18 @@ func TestAudit_MixedPaymentWithTradeInSubsidyConsistency(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 10000.00},
 		},
-		"payment_method": 4,
-		"delivery_method": 2,
-		"is_subsidy":      true,
-		"trade_in_amount": 1000.00,
+		"payment_method":      4,
+		"delivery_method":     2,
+		"is_subsidy":          true,
+		"trade_in_amount":     1000.00,
+		"trade_in_account_id": accountIDByName(t, "支付宝"),
 		// 国补基数 = 公户金额 = 3000
 		// 国补 = 3000 * 0.15 = 450
 		// 实际应付 = 10000 - 450 - 1000 = 8550
-		// 前端 mixedPaymentTarget = totalPayable + subsidyAmount = (10000 - 450 - 1000) + 450 = 9000
-		// 后端 receiptAmount = actualPayAmount = 8550
-		// 前端 mixedPaymentTarget 与后端不一致：差额 450（即国补金额）
-		// 这是因为前端加了 subsidyAmount 但后端没加
-		// 注意：前端显示 trade-in 抵扣了 1000，但实际 trade-in 应该在 actualPayAmount 中扣除
+		// 拆分总额 = 实收 + 国补 = 9000；公户净到账会扣除 450。
 		"payment_splits": []gin.H{
 			{"payment_method": 3, "amount": 3000.00},
-			{"payment_method": 1, "amount": 5550.00},
+			{"payment_method": 1, "amount": 6000.00},
 		},
 		"customer_name":    "国补+trade-in+混合支付",
 		"customer_phone":   "12100000000",
@@ -974,13 +1005,13 @@ func TestAudit_MixedPaymentWithTradeInSubsidyConsistency(t *testing.T) {
 	if math.Abs(order.TradeInAmount-1000) > 0.01 {
 		t.Fatalf("trade_in_amount %.2f 应为 1000", order.TradeInAmount)
 	}
-	// payment_splits 总和 = 8550（不含国补，因为是 POS 直接收款）
-	if math.Abs(accountBalance(t, "公户")-3000) > 0.01 {
-		t.Fatalf("公户余额 %.2f 应为 3000", accountBalance(t, "公户"))
+	// 公户原始 3000 扣国补 450 后净到账 2550。
+	if math.Abs(accountBalance(t, "公户")-2550) > 0.01 {
+		t.Fatalf("公户余额 %.2f 应为 2550", accountBalance(t, "公户"))
 	}
-	// 支付宝 +5550 (收款) -1000 (trade-in 支出) = +4550
-	if math.Abs(accountBalance(t, "支付宝")-4550) > 0.01 {
-		t.Fatalf("支付宝余额 %.2f 应为 4550 (5550 收款 - 1000 trade-in 支出)", accountBalance(t, "支付宝"))
+	// 支付宝 +6000 (收款) -1000 (trade-in 支出) = +5000。
+	if math.Abs(accountBalance(t, "支付宝")-5000) > 0.01 {
+		t.Fatalf("支付宝余额 %.2f 应为 5000 (6000 收款 - 1000 trade-in 支出)", accountBalance(t, "支付宝"))
 	}
 }
 
@@ -990,19 +1021,19 @@ func TestAudit_MixedPaymentTargetMismatchWithTradeIn(t *testing.T) {
 	setupAudit(t)
 	productID := ensureProduct(t, "审计商品T", 10000.00, 8000, 100)
 
-	// 修复后：actualPayAmount = 10000 - 450 - 1000 = 8550
-	// 所以 payment_splits 总和应为 8550
+	// actualPayAmount = 10000 - 450 - 1000 = 8550；POS 拆分总额应含国补，为 9000。
 	body := gin.H{
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 10000.00},
 		},
-		"payment_method": 4,
-		"delivery_method": 2,
-		"is_subsidy":      true,
-		"trade_in_amount": 1000.00,
+		"payment_method":      4,
+		"delivery_method":     2,
+		"is_subsidy":          true,
+		"trade_in_amount":     1000.00,
+		"trade_in_account_id": accountIDByName(t, "支付宝"),
 		"payment_splits": []gin.H{
 			{"payment_method": 3, "amount": 3000.00},
-			{"payment_method": 1, "amount": 5550.00}, // 总和 8550，与后端一致
+			{"payment_method": 1, "amount": 6000.00}, // 总和 9000，公户扣国补后净到账 8550
 		},
 		"customer_name":    "前后端一致性客户",
 		"customer_phone":   "12000000000",
@@ -1036,10 +1067,10 @@ func TestAudit_OrderListTotalConsistency(t *testing.T) {
 			"items": []gin.H{
 				{"product_id": productID, "quantity": 1, "unit_price": 100.00},
 			},
-			"payment_method":  1,
-			"delivery_method": 2,
-			"customer_name":   fmt.Sprintf("汇总客户%d", i),
-			"customer_phone":  fmt.Sprintf("138%08d", i),
+			"payment_method":   1,
+			"delivery_method":  2,
+			"customer_name":    fmt.Sprintf("汇总客户%d", i),
+			"customer_phone":   fmt.Sprintf("138%08d", i),
 			"customer_address": fmt.Sprintf("汇总地址%d", i),
 		}
 		w := postJSON("/api/orders", body)
@@ -1063,10 +1094,10 @@ func TestAudit_DifferentOrdersGetDifferentOrderNo(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 100.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"customer_name":   "订单号客户",
-		"customer_phone":  "13899999999",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "订单号客户",
+		"customer_phone":   "13899999999",
 		"customer_address": "订单号地址",
 	}
 
@@ -1102,7 +1133,7 @@ func TestAudit_DepositMixedPaymentSubsidy(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 10000.00},
 		},
-		"payment_method": 4,
+		"payment_method":  4,
 		"delivery_method": 2,
 		"is_subsidy":      true,
 		"deposit_amount":  2000.00,
@@ -1149,8 +1180,7 @@ func TestAudit_DepositMixedPaymentSubsidy(t *testing.T) {
 	}
 }
 
-// 验证：国补+trade-in 的混合支付应使用 backend receiptAmount (actualPayAmount)
-// 修复后：actualPayAmount = 10000 - 450 - 1000 = 8550
+// 验证：国补+trade-in 的混合支付按公户原始 POS 金额校验，再按净到账入账。
 func TestAudit_MixedPaymentWithSubsidyAndTradeInCorrect(t *testing.T) {
 	setupAudit(t)
 	productID := ensureProduct(t, "审计商品U", 10000.00, 8000, 100)
@@ -1159,13 +1189,14 @@ func TestAudit_MixedPaymentWithSubsidyAndTradeInCorrect(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 10000.00},
 		},
-		"payment_method": 4,
-		"delivery_method": 2,
-		"is_subsidy":      true,
-		"trade_in_amount": 1000.00,
+		"payment_method":      4,
+		"delivery_method":     2,
+		"is_subsidy":          true,
+		"trade_in_amount":     1000.00,
+		"trade_in_account_id": accountIDByName(t, "支付宝"),
 		"payment_splits": []gin.H{
 			{"payment_method": 3, "amount": 3000.00},
-			{"payment_method": 1, "amount": 5550.00},
+			{"payment_method": 1, "amount": 6000.00}, // 拆分总额 9000，公户扣国补后净到账 8550
 		},
 		"customer_name":    "国补+trade-in 后端正确",
 		"customer_phone":   "11900000000",
@@ -1197,10 +1228,10 @@ func TestAudit_ConcurrentOrderCreationOnlyOneSucceeds(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 1, "unit_price": 100.00},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"customer_name":   "幂等测试客户",
-		"customer_phone":  "12300000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "幂等测试客户",
+		"customer_phone":   "12300000000",
 		"customer_address": "幂等测试地址",
 	}
 
@@ -1235,10 +1266,10 @@ func TestAudit_PrecisionRoundToTwoDecimals(t *testing.T) {
 		"items": []gin.H{
 			{"product_id": productID, "quantity": 3, "unit_price": 33.33},
 		},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"customer_name":   "精度测试",
-		"customer_phone":  "12200000000",
+		"payment_method":   1,
+		"delivery_method":  2,
+		"customer_name":    "精度测试",
+		"customer_phone":   "12200000000",
 		"customer_address": "精度地址",
 	}
 
@@ -1269,12 +1300,12 @@ func TestAudit_SameAccountDepositThenSettle(t *testing.T) {
 	productID := ensureProduct(t, "审计商品-同账户", 1000.00, 600, 100)
 
 	body := gin.H{
-		"items":           []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
-		"payment_method":  1,
-		"delivery_method": 2,
-		"deposit_amount":  300,
-		"customer_name":   "同账户定金客户",
-		"customer_phone":  "13800000001",
+		"items":            []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
+		"payment_method":   1,
+		"delivery_method":  2,
+		"deposit_amount":   300,
+		"customer_name":    "同账户定金客户",
+		"customer_phone":   "13800000001",
 		"customer_address": "测试地址",
 	}
 	w := postJSON("/api/orders", body)
@@ -1473,21 +1504,24 @@ func TestAudit_MixedDepositThenSettle(t *testing.T) {
 func TestAudit_DepositWithSubsidyAndTradeIn(t *testing.T) {
 	setupAudit(t)
 	productID := ensureProduct(t, "审计商品-国补tradein", 10000.00, 7000, 100)
+	// 以旧换新从公户实际付款。先保留 1000 的期初资金，确保定金退款/重收过程有足额资金。
+	setAccountBalance(t, "公户", 1000)
 
 	// 商品 10000，国补 1500（封顶），trade-in 1000 → actual_pay = 7500
 	// 定金 2000 公户，尾款 5500 公户
 	body := gin.H{
-		"items":            []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 10000.00}},
-		"payment_method":   3,
-		"delivery_method":  2,
-		"deposit_amount":   2000,
-		"is_subsidy":       true,
-		"subsidy_amount":   1500,
-		"trade_in_amount":  1000,
-		"trade_in_type":    "旧电视",
-		"customer_name":    "国补tradein客户",
-		"customer_phone":   "13800000004",
-		"customer_address": "测试地址-国补",
+		"items":               []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 10000.00}},
+		"payment_method":      3,
+		"delivery_method":     2,
+		"deposit_amount":      2000,
+		"is_subsidy":          true,
+		"subsidy_amount":      1500,
+		"trade_in_amount":     1000,
+		"trade_in_account_id": accountIDByName(t, "公户"),
+		"trade_in_type":       "旧电视",
+		"customer_name":       "国补tradein客户",
+		"customer_phone":      "13800000004",
+		"customer_address":    "测试地址-国补",
 	}
 	w := postJSON("/api/orders", body)
 	if w.Code != http.StatusOK {
@@ -1509,7 +1543,7 @@ func TestAudit_DepositWithSubsidyAndTradeIn(t *testing.T) {
 		t.Fatalf("结清失败: %d %s", settleW.Code, settleW.Body.String())
 	}
 
-	// 支付宝保持 0；公户 2000-2000+7500=7500
+	// 支付宝保持 0；公户期初 1000、收款 7500、以旧换新支出 1000，期末余额为 7500。
 	if math.Abs(accountBalance(t, "支付宝")) > 0.01 ||
 		math.Abs(accountBalance(t, "公户")-7500) > 0.01 {
 		t.Fatalf("余额异常：支付宝 %.2f 公户 %.2f",
@@ -1521,6 +1555,30 @@ func TestAudit_DepositWithSubsidyAndTradeIn(t *testing.T) {
 		Select("COALESCE(SUM(amount), 0)").Scan(&income)
 	if math.Abs(income-7500) > 0.01 {
 		t.Fatalf("TotalIncome 应为 7500，实际 %.2f", income)
+	}
+}
+
+func TestAudit_TradeInRequiresExplicitExpenseAccount(t *testing.T) {
+	setupAudit(t)
+	productID := ensureProduct(t, "审计商品-以旧换新账户校验", 1000.00, 600, 100)
+
+	w := postJSON("/api/orders", gin.H{
+		"items":            []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
+		"payment_method":   1,
+		"delivery_method":  2,
+		"trade_in_amount":  100,
+		"customer_name":    "以旧换新账户客户",
+		"customer_phone":   "13800000040",
+		"customer_address": "测试地址-以旧换新账户",
+	})
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("未指定以旧换新付款账户应被拒绝: %d %s", w.Code, w.Body.String())
+	}
+
+	var orderCount int64
+	config.DB.Model(&models.Order{}).Count(&orderCount)
+	if orderCount != 0 {
+		t.Fatalf("校验失败的订单不应落库，实际订单数 %d", orderCount)
 	}
 }
 
@@ -1639,7 +1697,7 @@ func TestAudit_DashboardSummaryFiltersReversalPairs(t *testing.T) {
 	productID := ensureProduct(t, "审计商品-dashboard过滤", 1000.00, 600, 100)
 
 	body := gin.H{
-		"items": []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
+		"items":            []gin.H{{"product_id": productID, "quantity": 1, "unit_price": 1000.00}},
 		"payment_method":   1,
 		"delivery_method":  2,
 		"deposit_amount":   300,
@@ -1858,7 +1916,7 @@ func TestAudit_DepositOnlyCancelPairs(t *testing.T) {
 
 	// 核心断言：退款日志必须被配对到原"预付定金"流水 (reversal_pair_id NOT NULL)
 	var refundLog models.FinancialLog
-	if err := config.DB.Where("related_no = ? AND category = ?", order.OrderNo, "订单退款").
+	if err := config.DB.Where("related_no = ? AND category = ?", order.OrderNo, "订单取消退款").
 		Order("id DESC").First(&refundLog).Error; err != nil {
 		t.Fatalf("未找到退款日志: %v", err)
 	}

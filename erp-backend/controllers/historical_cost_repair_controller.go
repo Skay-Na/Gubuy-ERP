@@ -28,6 +28,14 @@ func isHistoricalZeroCostInbound(log models.InventoryLog) bool {
 }
 
 // ListHistoricalCostRepairCandidates returns only historic positive stock records that are missing a cost.
+// @Summary 列出历史成本修复候选
+// @Tags System
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID list_historical_cost_repair_candidates
+// @Router /api/system/historical-cost-repair/candidates [get]
 func ListHistoricalCostRepairCandidates(c *gin.Context) {
 	var logs []models.InventoryLog
 	if err := config.DB.Preload("Product").
@@ -49,6 +57,14 @@ func ListHistoricalCostRepairCandidates(c *gin.Context) {
 }
 
 // RepairHistoricalCost repairs one selected historic inbound record without changing stock quantities or account balances.
+// @Summary 修复历史成本
+// @Tags System
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID repair_historical_cost
+// @Router /api/system/historical-cost-repair [post]
 func RepairHistoricalCost(c *gin.Context) {
 	var req HistoricalCostRepairRequest
 	if err := c.ShouldBindJSON(&req); err != nil {

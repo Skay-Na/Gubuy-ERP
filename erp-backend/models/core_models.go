@@ -60,6 +60,7 @@ type Product struct {
 	SampleStock       int            `gorm:"type:int;not null;default:0;comment:门店样机数量" json:"sample_stock"`
 	CloudStock        int            `gorm:"type:int;not null;default:0;comment:云仓自有库存" json:"cloud_stock"`
 	SupportCloud      bool           `gorm:"not null;default:false;comment:是否支持云仓代发" json:"support_cloud"`
+	NoCommission      bool           `gorm:"not null;default:false;comment:销售该商品是否不计提成" json:"no_commission"`
 	SpecialPrice      float64        `gorm:"type:decimal(10,2);default:0;comment:特价金额" json:"special_price"`
 	SpecialPriceStart *time.Time     `gorm:"comment:特价开始时间" json:"special_price_start"`
 	SpecialPriceEnd   *time.Time     `gorm:"comment:特价结束时间" json:"special_price_end"`
@@ -190,6 +191,7 @@ type OrderItem struct {
 	Quantity          int      `gorm:"type:int;not null;default:1;comment:购买数量" json:"quantity"`
 	CloudDeductionQty int      `gorm:"type:int;not null;default:0;comment:从云仓自有库存扣除的数量" json:"cloud_deduction_qty"`
 	IsGift            bool     `gorm:"type:tinyint(1);not null;default:0;comment:是否为赠品" json:"is_gift"`
+	NoCommission      bool     `gorm:"not null;default:false;comment:下单时商品是否不计提成快照" json:"no_commission"`
 	Product           *Product `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 
 	// 新增：单品级配送追踪
@@ -235,6 +237,8 @@ type FinancialLog struct {
 	BalanceAfter   float64   `gorm:"type:decimal(10,2);not null;comment:变动后该账户余额快照" json:"balance_after"`
 	RelatedNo      string    `gorm:"type:varchar(100);comment:关联单号(订单号等)" json:"related_no"`
 	Remark         string    `gorm:"type:varchar(255);comment:备注说明" json:"remark"`
+	Counterparty   string    `gorm:"type:varchar(100);comment:往来对象" json:"counterparty"`
+	SourceType     string    `gorm:"type:varchar(30);not null;default:'system';index;comment:来源类型 system/manual" json:"source_type"`
 	ReversalPairID *uint     `gorm:"index;comment:冲销配对ID；配对日志(定金+退定金 / 销售+退款)汇总时排除" json:"reversal_pair_id,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 }

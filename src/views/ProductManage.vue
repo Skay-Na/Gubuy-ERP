@@ -125,27 +125,18 @@
         border
         stripe
         highlight-current-row
-        class="desktop-only hidden md:block"
+        class="desktop-only hidden xl:block"
       >
-        <el-table-column prop="id" label="ID" width="80" align="center" />
-        <el-table-column prop="name" label="商品名称" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="remark" label="商品备注" width="150" align="center">
+        <el-table-column label="商品档案" min-width="250">
           <template #default="{ row }">
-            <el-tag size="small" effect="plain" class="!rounded-lg">{{ row.remark || '-' }}</el-tag>
+            <div class="compact-cell">
+              <strong class="compact-primary" :title="row.name">{{ row.name }}</strong>
+              <span class="compact-meta">#{{ row.id }} · {{ row.category?.name || '未分类' }} · 毛利 {{ (row.margin_rate * 100).toFixed(0) }}%</span>
+              <span v-if="row.remark || row.no_commission" class="compact-meta" :title="row.remark || ''">{{ row.remark || '' }}<span v-if="row.no_commission" class="text-amber-600">{{ row.remark ? ' · ' : '' }}无提成</span></span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="分类" width="120" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.category" size="small" type="info">{{ row.category.name }}</el-tag>
-            <span v-else class="text-xs text-slate-300">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="margin_rate" label="利润率" width="100" align="center">
-          <template #default="{ row }">
-            <span class="font-bold text-slate-700">{{ (row.margin_rate * 100).toFixed(0) }}%</span>
-          </template>
-        </el-table-column>
-        <el-table-column prop="latest_cost" label="成本/价格" width="150" align="right">
+        <el-table-column prop="latest_cost" label="成本 / 售价" width="170" align="right">
           <template #default="{ row }">
             <div class="flex flex-col items-end gap-0.5">
               <div class="flex items-center gap-1">
@@ -165,7 +156,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="库存详情" min-width="220">
+        <el-table-column label="库存分布" min-width="190">
           <template #default="{ row }">
             <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
               <div class="flex justify-between border-b border-slate-50 pb-0.5">
@@ -187,7 +178,7 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="160" align="center" fixed="right">
+        <el-table-column label="操作" width="125" align="center">
           <template #default="{ row }">
             <div class="flex items-center justify-center gap-1">
               <el-button link type="primary" @click="handleEdit(row)">编辑</el-button>
@@ -210,7 +201,7 @@
       </el-table>
 
       <!-- Mobile View -->
-      <div class="md:hidden p-2 space-y-3" v-loading="loading">
+      <div class="xl:hidden p-2 grid grid-cols-1 md:grid-cols-2 gap-3" v-loading="loading">
         <div 
           v-for="row in paginatedProductList" 
           :key="row.id" 
@@ -226,6 +217,7 @@
               <div class="flex items-center gap-1.5 flex-wrap">
                 <span v-if="row.remark" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-mono">{{ row.remark }}</span>
                 <span class="text-[10px] text-slate-400">毛利:{{ (row.margin_rate * 100).toFixed(0) }}%</span>
+                <span v-if="row.no_commission" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-bold">无提成</span>
               </div>
             </div>
             <div class="text-right flex-shrink-0 mt-0.5">
@@ -256,18 +248,18 @@
         
         <el-empty v-if="!loading && productList.length === 0" description="暂无商品" />
         
-        <div v-if="productList.length > 0 && productList.length < totalProducts" class="text-center pt-2 pb-6">
+        <div v-if="productList.length > 0 && productList.length < totalProducts" class="text-center pt-2 pb-6 md:col-span-2">
           <el-button round size="small" plain @click="loadMore" :loading="loading" class="!text-slate-500">
             加载更多 ({{ productList.length }}/{{ totalProducts }})
           </el-button>
         </div>
-        <div v-else-if="productList.length > 0" class="text-center pt-2 pb-6 text-xs text-slate-400">
+        <div v-else-if="productList.length > 0" class="text-center pt-2 pb-6 text-xs text-slate-400 md:col-span-2">
           已加载全部
         </div>
       </div>
 
       <!-- Enhanced Pagination (Desktop Only) -->
-      <div class="hidden md:flex justify-end p-4 border-t border-slate-100 bg-slate-50/30">
+      <div class="hidden xl:flex justify-end p-4 border-t border-slate-100 bg-slate-50/30">
         <el-pagination
           v-model:current-page="currentPage"
           v-model:page-size="pageSize"
@@ -353,6 +345,10 @@
         <el-form-item label="云仓代发" prop="support_cloud">
           <el-switch v-model="productForm.support_cloud" active-text="支持" inactive-text="不支持" />
         </el-form-item>
+        <el-form-item label="销售提成" prop="no_commission">
+          <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
+          <div class="input-tip">开启后，新订单中该商品的成交金额不参与员工及商会订单提成。</div>
+        </el-form-item>
 
         <div v-if="isEdit" class="mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
           <div class="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
@@ -419,6 +415,10 @@
           </el-form-item>
           <el-form-item label="云仓代发" prop="support_cloud">
             <el-switch v-model="productForm.support_cloud" active-text="支持" inactive-text="不支持" />
+          </el-form-item>
+          <el-form-item label="销售提成" prop="no_commission">
+            <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
+            <div class="input-tip">开启后，新订单中该商品的成交金额不参与提成。</div>
           </el-form-item>
 
           <div v-if="isEdit" class="mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
@@ -831,6 +831,7 @@ const productForm = reactive({
   category_id: null,
   margin_rate: 0.15,
   support_cloud: false,
+  no_commission: false,
   special_price: 0,
   special_range: [],
   avg_cost: 0
@@ -1001,6 +1002,7 @@ const openAddDialog = () => {
   productForm.category_id = null
   productForm.margin_rate = 0.15
   productForm.support_cloud = false
+  productForm.no_commission = false
   productForm.special_price = 0
   productForm.special_range = []
   productForm.avg_cost = 0
@@ -1016,6 +1018,7 @@ const handleEdit = (row) => {
   productForm.margin_rate = row.margin_rate
   productForm.avg_cost = row.avg_cost || row.latest_cost || 0
   productForm.support_cloud = row.support_cloud || false
+  productForm.no_commission = row.no_commission || false
   productForm.special_price = row.special_price || 0
   if (row.special_price_start && row.special_price_end) {
     productForm.special_range = [row.special_price_start, row.special_price_end]
@@ -1215,6 +1218,9 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.compact-cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.compact-primary { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #1e293b; font-size: 13px; }
+.compact-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #94a3b8; font-size: 11px; }
 .product-manage-container {
   padding: 24px;
   background-color: #f8fafc;

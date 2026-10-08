@@ -1,6 +1,7 @@
 package middlewares
 
 import (
+	"errors"
 	"net/http"
 	"os"
 	"strings"
@@ -10,14 +11,26 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
-var JwtKey = []byte(getJwtSecret())
+const adminTokenDuration = 7 * 24 * time.Hour
 
-func getJwtSecret() string {
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		return "erp_wonchon_default_secret_key_2026_please_change"
+var JwtKey []byte
+
+var errJWTSecretMissing = errors.New("JWT_SECRET must be configured with at least 32 bytes")
+
+// ConfigureJWTSecret installs the signing key from explicit configuration.
+// It intentionally has no built-in fallback so production cannot silently
+// issue tokens with a publicly known secret.
+func ConfigureJWTSecret(secret string) error {
+	if len([]byte(secret)) < 32 {
+		JwtKey = nil
+		return errJWTSecretMissing
 	}
-	return secret
+	JwtKey = []byte(secret)
+	return nil
+}
+
+func LoadJWTSecretFromEnvironment() error {
+	return ConfigureJWTSecret(os.Getenv("JWT_SECRET"))
 }
 
 type Claims struct {
@@ -25,13 +38,16 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// GenerateToken 签发 JWT
+// GenerateToken 签发管理员 JWT，登录后七天内无需再次输入密码。
 func GenerateToken(username string) (string, error) {
-	return GenerateTokenWithDuration(username, 24*time.Hour)
+	return GenerateTokenWithDuration(username, adminTokenDuration)
 }
 
 // GenerateTokenWithDuration 按指定有效期签发 JWT
 func GenerateTokenWithDuration(username string, duration time.Duration) (string, error) {
+	if len(JwtKey) < 32 {
+		return "", errJWTSecretMissing
+	}
 	expirationTime := time.Now().Add(duration)
 	claims := &Claims{
 		Username: username,
@@ -61,6 +77,9 @@ func authenticate(c *gin.Context) bool {
 
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(parts[1], claims, func(token *jwt.Token) (interface{}, error) {
+		if len(JwtKey) < 32 {
+			return nil, errJWTSecretMissing
+		}
 		return JwtKey, nil
 	})
 	if err != nil || !token.Valid {

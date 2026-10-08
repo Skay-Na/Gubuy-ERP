@@ -15,8 +15,6 @@ import (
 // @Produce json
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
-// @ID post_api_system_init_pinyin
-// @Router /api/system/init-pinyin [post]
 func InitPinyinData(c *gin.Context) {
 	// 1. 处理员工
 	var employees []models.Employee

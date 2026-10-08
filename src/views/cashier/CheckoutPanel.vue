@@ -174,6 +174,12 @@
                 </div>
               </div>
               <div>
+                <span class="text-[10px] text-slate-400 font-medium pl-1">实际付款账户</span>
+                <el-select v-model="tradeInAccountId" placeholder="请选择付款账户" class="w-full" clearable>
+                  <el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（账面 ¥${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" />
+                </el-select>
+              </div>
+              <div>
                 <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
                 <el-input 
                   v-model="tradeInRemark" 
@@ -533,6 +539,12 @@
                 </div>
               </div>
               <div>
+                <span class="text-[10px] text-slate-400 font-medium pl-1">实际付款账户</span>
+                <el-select v-model="tradeInAccountId" placeholder="请选择付款账户" class="w-full" clearable>
+                  <el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（账面 ¥${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" />
+                </el-select>
+              </div>
+              <div>
                 <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
                 <el-input v-model="tradeInRemark" placeholder="品牌/成色/是否通电等" class="pos-customer-input" />
               </div>
@@ -634,6 +646,7 @@ const openMobileDrawer = (type) => {
 const isSubsidized = ref(false)
 const isTradeIn = ref(false)
 const tradeInAmount = ref(0)
+const tradeInAccountId = ref(null)
 const tradeInType = ref('')
 const tradeInRemark = ref('')
 const isDepositMode = ref(false)
@@ -681,10 +694,8 @@ const mixedPaymentTotal = computed(() => {
 })
 
 const mixedPaymentTarget = computed(() => {
-  // 混合支付拆分的目标金额即为客户在 POS 上实际需要支付的金额（actualReceipt）。
-  // 注意：国补金额由政府后续回款，不属于客户当场支付范围，不应加到拆分目标里。
-  // 此前实现额外叠加了 subsidyAmount，导致国补场景下混合支付金额与后端校验不一致。
-  return actualReceipt.value
+  // 国补混付中的公户填写 POS 原始刷卡额（含国补）；后端会从公户净到账中扣除国补。
+  return actualReceipt.value + (isSubsidized.value && !isDepositMode.value ? subsidyAmount.value : 0)
 })
 
 const mixedPaymentRemaining = computed(() => {
@@ -822,6 +833,7 @@ const handleCheckout = async () => {
   if (!customerName.value) return ElMessage.warning('请输入客户姓名')
   if (!customerPhone.value) return ElMessage.warning('请输入客户手机号')
   if (!customerAddress.value) return ElMessage.warning('请输入客户收货地址')
+  if (isTradeIn.value && tradeInAmount.value > 0 && !tradeInAccountId.value) return ElMessage.warning('请选择以旧换新付款账户')
 
   if (hasPriceViolation.value) {
     await ElMessageBox.confirm(
@@ -889,6 +901,7 @@ const handleCheckout = async () => {
       delivery_method: deliveryMethod.value,
       bypass_price_check: hasPriceViolation.value,
       trade_in_amount: isTradeIn.value ? tradeInAmount.value : 0,
+      trade_in_account_id: isTradeIn.value ? tradeInAccountId.value : undefined,
       trade_in_type: isTradeIn.value ? tradeInType.value : '',
       trade_in_remark: isTradeIn.value ? tradeInRemark.value : '',
       discount_amount: wipeZeroAmount.value,
@@ -904,6 +917,7 @@ const handleCheckout = async () => {
       isSubsidized.value = false
       isTradeIn.value = false
       tradeInAmount.value = 0
+      tradeInAccountId.value = null
       tradeInType.value = ''
       tradeInRemark.value = ''
       isDepositMode.value = false

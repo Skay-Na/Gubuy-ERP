@@ -18,6 +18,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 # 复制后端源代码
 COPY erp-backend/ .
+# Swagger 源码由注释生成，docs/ 在 Git 中忽略。
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go generate .
 # 使用 cache mount 缓存编译产物，提升二次构建速度
 RUN --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -o main .

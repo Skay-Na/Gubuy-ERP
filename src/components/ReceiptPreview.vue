@@ -1,69 +1,152 @@
 <template>
   <el-dialog
     v-model="visible"
-    title="A4 竖向购物小票预览"
-    width="760px"
+    title="发货单预览"
+    width="900px"
     class="receipt-dialog"
     append-to-body
     destroy-on-close
     :fullscreen="isMobilePreview"
   >
-    <div v-if="receipt && visible" class="receipt-a4-page" id="receipt-print-area">
-      <section v-for="copy in receiptCopies" :key="copy.key" class="receipt-copy">
-        <div class="receipt-copy-watermark">{{ copy.label }}</div>
-        <div class="receipt-copy-content">
-          <div class="receipt-header">
-            <div>
-              <div class="receipt-store">{{ receipt.storeName }}</div>
-              <div class="receipt-title">{{ receipt.title }} · {{ copy.label }}</div>
+    <div v-if="receipt && visible" class="delivery-order-page" id="receipt-print-area">
+      <section
+        v-for="copy in receiptCopies"
+        :key="copy.key"
+        class="delivery-copy"
+        :class="`copy-${copy.tone}`"
+      >
+        <aside class="copy-side">
+          <span
+            v-for="line in copy.sideLines"
+            :key="line"
+            class="copy-side-line"
+          >{{ line }}</span>
+        </aside>
+
+        <div class="delivery-content">
+          <header class="delivery-header">
+            <h1 class="delivery-title">{{ receipt.storeName }}发货单</h1>
+          </header>
+
+          <div class="delivery-meta-row">
+            <div class="meta-date">
+              <span class="meta-label">日期：</span>
+              <span class="meta-value">{{ receipt.createdAt }}</span>
             </div>
-            <div class="receipt-order-no">{{ receipt.orderNo }}</div>
-          </div>
-
-          <div class="receipt-meta-grid">
-            <div><span>时间</span><b>{{ receipt.createdAtText }}</b></div>
-            <div><span>客户</span><b>{{ receipt.customer.name }}</b></div>
-            <div><span>电话</span><b>{{ receipt.customer.phone }}</b></div>
-            <div><span>开单人</span><b>{{ receipt.employeeName }}</b></div>
-            <div class="meta-wide"><span>地址</span><b>{{ receipt.customer.address }}</b></div>
-          </div>
-
-          <div class="receipt-body-grid">
-            <div class="receipt-items">
-              <div class="items-head">
-                <span>商品</span><span>类型</span><span>数量</span><span>单价</span><span>小计</span>
-              </div>
-              <div v-for="item in receipt.items" :key="`${copy.key}-${item.key}`" class="items-row">
-                <div class="item-name">
-                  <b>{{ item.name }}</b>
-                  <small v-if="item.specText">{{ item.specText }}</small>
-                  <em v-if="item.isGift">赠品</em>
-                </div>
-                <span class="item-category" style="font-size: 0.9em; align-self: center; color: #64748b;">{{ item.categoryName }}</span>
-                <span>x{{ item.quantity }}</span>
-                <span>{{ item.unitPriceText }}</span>
-                <strong>{{ item.lineTotalText }}</strong>
-              </div>
-            </div>
-
-            <div class="receipt-summary">
-              <div><span>订单金额</span><b>{{ receipt.summary.totalAmountText }}</b></div>
-              <div v-if="receipt.summary.subsidyAmount > 0"><span>国补优惠</span><b>-{{ receipt.summary.subsidyAmountText }}</b></div>
-              <div v-if="receipt.summary.tradeInAmount > 0"><span>以旧换新支出</span><b>{{ receipt.summary.tradeInAmountText }}</b></div>
-              <div v-if="receipt.summary.discountAmount > 0"><span>抹零优惠</span><b>-{{ receipt.summary.discountAmountText }}</b></div>
-              <div class="summary-payable"><span>客户应付</span><b>{{ receipt.summary.actualPayAmountText }}</b></div>
-              <div v-if="receipt.summary.depositAmount > 0" class="summary-deposit"><span>本次定金</span><b>{{ receipt.summary.depositAmountText }}</b></div>
-              <div class="summary-received"><span>本次实收</span><b>{{ receipt.summary.receiptAmountText }}</b></div>
-              <div><span>支付方式</span><b>{{ receipt.paymentMethodLabel }}</b></div>
-              <div v-if="receipt.paymentBreakdown" class="summary-note">{{ receipt.paymentBreakdown }}</div>
-              <div><span>交付方式</span><b>{{ receipt.deliveryMethodLabel }}</b></div>
+            <div class="meta-order-no">
+              <span class="meta-label">No.</span>
+              <span class="order-no-num">{{ receipt.orderNo }}</span>
             </div>
           </div>
 
-          <div class="receipt-footer">
-            <span>{{ receipt.footer }}</span>
-            <span class="signature">客户签字：________________　店员签字：________________</span>
+          <div class="delivery-info-row">
+            <div class="info-cell">
+              <span class="info-label">顾客姓名</span>
+              <span class="info-value">{{ receipt.customer.name }}</span>
+            </div>
+            <div class="info-cell">
+              <span class="info-label">联系电话</span>
+              <span class="info-value">{{ receipt.customer.phone }}</span>
+            </div>
           </div>
+
+          <div class="delivery-info-row single">
+            <div class="info-cell wide">
+              <span class="info-label">送货地址</span>
+              <span class="info-value">{{ receipt.customer.address }}</span>
+            </div>
+          </div>
+
+          <table class="items-table">
+            <colgroup>
+              <col class="col-name" />
+              <col class="col-qty" />
+              <col class="col-unit" />
+              <col class="col-price" />
+              <col class="col-digit" span="6" />
+              <col class="col-note" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th rowspan="2" class="cell-name">品名型号</th>
+                <th rowspan="2" class="cell-qty">数量</th>
+                <th rowspan="2" class="cell-unit">单位</th>
+                <th rowspan="2" class="cell-price">单价</th>
+                <th colspan="6" class="cell-amount">金额</th>
+                <th rowspan="2" class="cell-note">备注</th>
+              </tr>
+              <tr>
+                <th class="cell-digit">十</th>
+                <th class="cell-digit">万</th>
+                <th class="cell-digit">千</th>
+                <th class="cell-digit">百</th>
+                <th class="cell-digit">十</th>
+                <th class="cell-digit">元</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="item in receipt.items"
+                :key="`${copy.key}-${item.key}`"
+                class="item-row"
+              >
+                <td class="cell-name">
+                  <div class="item-name">{{ item.name }}</div>
+                  <div v-if="item.specText" class="item-spec">{{ item.specText }}</div>
+                </td>
+                <td class="cell-qty">{{ item.quantity }}</td>
+                <td class="cell-unit">{{ item.unit }}</td>
+                <td class="cell-price">{{ item.unitPriceText }}</td>
+                <td
+                  v-for="(digit, idx) in item.lineTotalDigits"
+                  :key="`${item.key}-${idx}`"
+                  class="cell-digit"
+                >{{ digit }}</td>
+                <td class="cell-note">{{ item.note }}</td>
+              </tr>
+              <tr
+                v-for="i in emptyRowCount"
+                :key="`empty-${copy.key}-${i}`"
+                class="item-row empty-row"
+              >
+                <td class="cell-name">&nbsp;</td>
+                <td class="cell-qty">&nbsp;</td>
+                <td class="cell-unit">&nbsp;</td>
+                <td class="cell-price">&nbsp;</td>
+                <td class="cell-digit">&nbsp;</td>
+                <td class="cell-digit">&nbsp;</td>
+                <td class="cell-digit">&nbsp;</td>
+                <td class="cell-digit">&nbsp;</td>
+                <td class="cell-digit">&nbsp;</td>
+                <td class="cell-digit">&nbsp;</td>
+                <td class="cell-note">&nbsp;</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="delivery-total-row">
+            <div class="total-amount">
+              <span class="total-label">合计（大写）：</span>
+              <span class="total-words">{{ receipt.summary.amountInWords }}</span>
+              <span class="total-digits">
+                <span class="digit-slot">拾</span>
+                <span class="digit-slot">万</span>
+                <span class="digit-slot">仟</span>
+                <span class="digit-slot">佰</span>
+                <span class="digit-slot">拾</span>
+                <span class="digit-slot">元</span>
+              </span>
+            </div>
+            <div class="total-operator">
+              <span class="total-label">经手人：</span>
+              <span class="total-value">{{ receipt.employeeName }}</span>
+            </div>
+          </div>
+
+          <footer class="delivery-footer">
+            <span>地址：{{ receipt.storeAddress }}</span>
+            <span class="footer-divider">电话：{{ receipt.storePhone }}</span>
+          </footer>
         </div>
       </section>
     </div>
@@ -73,7 +156,7 @@
         <span class="footer-tip text-xs text-slate-500">打印版式：A4 竖向，一页上下两联（客户联 / 店铺留存联）</span>
         <div class="flex gap-2">
           <el-button @click="visible = false">关闭</el-button>
-          <el-button type="primary" @click="printReceipt">打印 A4 小票</el-button>
+          <el-button type="primary" @click="printReceipt">打印发货单</el-button>
         </div>
       </div>
     </template>
@@ -95,10 +178,15 @@ const visible = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
+// 两联：客户联（红） / 店铺留存联（白）
 const receiptCopies = [
-  { key: 'customer', label: '客户联' },
-  { key: 'store', label: '店铺留存联' }
+  { key: 'store',  tone: 'white', sideLines: ['第二联', '存根', '（白）'] },
+  { key: 'customer', tone: 'red',  sideLines: ['第一联', '客户', '（红）'] }
 ]
+
+const receiptItemCount = computed(() => props.receipt?.items?.length || 0)
+const minItemRows = 6
+const emptyRowCount = computed(() => Math.max(0, minItemRows - receiptItemCount.value))
 
 const printReceipt = () => {
   window.print()
@@ -115,225 +203,303 @@ onUnmounted(() => window.removeEventListener('resize', handleResize))
 </script>
 
 <style scoped>
-.receipt-a4-page {
-  width: 680px;
+.delivery-order-page {
+  width: 820px;
   margin: 0 auto;
-  padding: 18px;
-  background: #f8fafc;
+  padding: 12px;
+  background: #f1f5f9;
   color: #0f172a;
-  font-family: Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Songti SC", "SimSun", "Microsoft YaHei", Arial, sans-serif;
 }
 
-.receipt-copy {
+.delivery-copy {
   position: relative;
-  min-height: 310px;
-  margin-bottom: 16px;
-  padding: 18px 20px;
+  display: flex;
+  margin-bottom: 14px;
   background: #fff;
-  border: 1px dashed #94a3b8;
-  border-radius: 10px;
+  border: 1px solid #94a3b8;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
 }
 
-.receipt-copy:last-child {
+.delivery-copy:last-child {
   margin-bottom: 0;
 }
 
-.receipt-copy-watermark {
-  position: absolute;
-  right: 24px;
-  top: 12px;
-  color: rgba(37, 99, 235, 0.08);
-  font-size: 64px;
+.copy-side {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px;
+  width: 32px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  border-right: 1px solid #94a3b8;
+  background: #f8fafc;
+  color: #0f172a;
+}
+
+.copy-side-line {
+  display: block;
+  line-height: 1.3;
+}
+
+.copy-red .copy-side {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.copy-white .copy-side {
+  background: #f8fafc;
+  color: #334155;
+}
+
+.delivery-content {
+  flex: 1;
+  padding: 10px 14px 8px;
+}
+
+.delivery-header {
+  text-align: center;
+  margin-bottom: 4px;
+}
+
+.delivery-title {
+  font-size: 26px;
   font-weight: 900;
-  letter-spacing: 8px;
-  pointer-events: none;
+  letter-spacing: 6px;
+  margin: 0;
+  color: #0f172a;
 }
 
-.receipt-copy-content {
-  position: relative;
-  z-index: 1;
-}
-
-.receipt-header,
-.receipt-footer {
+.delivery-meta-row {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
-  gap: 16px;
+  align-items: center;
+  padding: 2px 4px 6px;
   border-bottom: 1px solid #cbd5e1;
-  padding-bottom: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
+  font-size: 13px;
 }
 
-.receipt-store {
-  font-size: 22px;
+.meta-date,
+.meta-order-no {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.meta-label {
+  color: #475569;
+}
+
+.meta-value {
+  font-weight: 700;
+}
+
+.order-no-num {
+  color: #dc2626;
   font-weight: 900;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 16px;
+  letter-spacing: 1px;
+}
+
+.delivery-info-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid #cbd5e1;
+  border-bottom: 0;
+}
+
+.delivery-info-row.single {
+  grid-template-columns: 1fr;
+}
+
+.info-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #cbd5e1;
+  border-right: 1px solid #cbd5e1;
+  min-height: 32px;
+}
+
+.info-cell:last-child {
+  border-right: 0;
+}
+
+.info-cell.wide {
+  border-right: 0;
+}
+
+.info-label {
+  flex-shrink: 0;
+  color: #475569;
+  font-weight: 700;
+}
+
+.info-value {
+  font-weight: 700;
+  color: #0f172a;
+  word-break: break-word;
+}
+
+.items-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+}
+
+.items-table th,
+.items-table td {
+  border: 1px solid #cbd5e1;
+  padding: 4px 4px;
+  text-align: center;
+  vertical-align: middle;
+  word-break: break-word;
+}
+
+.items-table thead th {
+  background: #f1f5f9;
+  color: #0f172a;
+  font-weight: 800;
+  font-size: 12px;
+  height: 26px;
+}
+
+.col-name  { width: 22%; }
+.col-qty   { width: 6%; }
+.col-unit  { width: 6%; }
+.col-price { width: 8%; }
+.col-digit { width: 4.5%; }
+.col-note  { width: 13%; }
+
+.cell-name {
+  text-align: left;
+  padding-left: 6px;
+}
+
+.cell-qty,
+.cell-unit,
+.cell-price {
+  text-align: right;
+  padding-right: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-digit {
+  height: 22px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+.cell-amount {
   letter-spacing: 2px;
 }
 
-.receipt-title {
-  margin-top: 2px;
-  font-size: 12px;
-  color: #64748b;
-  font-weight: 700;
-}
-
-.receipt-order-no {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 18px;
-  font-weight: 900;
-}
-
-.receipt-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 6px 14px;
-  font-size: 12px;
-  margin-bottom: 10px;
-}
-
-.receipt-meta-grid div {
-  display: flex;
-  justify-content: flex-start;
-  gap: 8px;
-}
-
-.receipt-summary div {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.receipt-meta-grid span,
-.receipt-summary span {
-  color: #64748b;
-  white-space: nowrap;
-}
-
-.receipt-meta-grid b {
+.item-row .cell-name {
   text-align: left;
-  word-break: break-word;
-}
-
-.receipt-summary b {
-  text-align: right;
-  word-break: break-word;
-}
-
-.meta-wide {
-  grid-column: span 3;
-}
-
-.receipt-body-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 10px;
-  align-items: start;
-}
-
-.receipt-items {
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  overflow: hidden;
-}
-
-.items-head,
-.items-row {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr 48px 72px 82px;
-  gap: 8px;
-  align-items: start;
-  padding: 6px 8px;
-  font-size: 12px;
-}
-
-.items-head {
-  background: #f1f5f9;
-  color: #475569;
-  font-weight: 900;
-}
-
-.items-row {
-  border-top: 1px solid #e2e8f0;
-}
-
-.items-head span:not(:first-child),
-.items-row > span,
-.items-row > strong {
-  text-align: right;
 }
 
 .item-name {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.2;
 }
 
-.item-name small {
+.item-spec {
+  font-size: 11px;
   color: #64748b;
+  line-height: 1.2;
+  margin-top: 1px;
 }
 
-.item-name em {
-  width: fit-content;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: #fee2e2;
-  color: #dc2626;
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 900;
+.item-row.empty-row td {
+  height: 22px;
+  color: transparent;
 }
 
-.receipt-summary {
-  padding: 10px 12px;
+.delivery-total-row {
+  display: grid;
+  grid-template-columns: 1fr 180px;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.7;
+  border-top: 0;
+  font-size: 13px;
 }
 
-.summary-payable {
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed #cbd5e1;
-  font-size: 14px;
-  font-weight: 900;
-}
-
-.summary-deposit {
-  color: #ea580c;
-  font-weight: 900;
-}
-
-.summary-received {
-  color: #1d4ed8;
-  font-size: 16px;
-  font-weight: 900;
-}
-
-.summary-note {
-  display: block !important;
-  color: #64748b;
-  font-size: 11px;
-  word-break: break-word;
-}
-
-.receipt-footer {
+.total-amount,
+.total-operator {
+  display: flex;
   align-items: center;
-  margin: 10px 0 0;
-  padding: 8px 0 0;
-  border-top: 1px solid #cbd5e1;
-  border-bottom: none;
-  font-size: 11px;
+  gap: 6px;
+  padding: 6px 8px;
+  border-right: 1px solid #cbd5e1;
+  min-height: 32px;
+}
+
+.total-operator {
+  border-right: 0;
+}
+
+.total-label {
+  color: #475569;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.total-words {
+  flex: 1;
+  font-weight: 900;
+  color: #0f172a;
+  letter-spacing: 1px;
+}
+
+.total-digits {
+  display: inline-flex;
+  gap: 2px;
+  font-weight: 700;
   color: #475569;
 }
 
-.signature {
-  color: #0f172a;
+.digit-slot {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 2px;
+  border: 1px solid #cbd5e1;
+  background: #f8fafc;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.total-value {
+  flex: 1;
   font-weight: 700;
+  color: #0f172a;
+}
+
+.delivery-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 6px 4px 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.footer-divider {
+  margin-left: 6px;
 }
 
 @media (max-width: 767px) {
@@ -348,8 +514,8 @@ onUnmounted(() => window.removeEventListener('resize', handleResize))
   :global(.receipt-dialog .el-dialog__body) {
     flex: 1;
     overflow-y: auto;
-    padding: 10px 10px 84px !important;
-    background: #f8fafc;
+    padding: 10px 8px 84px !important;
+    background: #f1f5f9;
   }
 
   :global(.receipt-dialog .el-dialog__footer) {
@@ -379,58 +545,73 @@ onUnmounted(() => window.removeEventListener('resize', handleResize))
     gap: 8px;
   }
 
-  .receipt-a4-page {
+  .delivery-order-page {
     width: 100%;
     padding: 0;
     background: transparent;
   }
 
-  .receipt-copy {
-    min-height: auto;
-    margin-bottom: 12px;
-    padding: 12px;
-    border-radius: 14px;
+  .delivery-copy {
+    border-radius: 0;
+    box-shadow: none;
+    margin-bottom: 10px;
   }
 
-  .receipt-copy-watermark {
-    font-size: 34px;
-    letter-spacing: 2px;
-  }
-
-  .receipt-header,
-  .receipt-footer {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .receipt-store { font-size: 18px; }
-  .receipt-order-no { font-size: 12px; }
-
-  .receipt-meta-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px 10px;
-  }
-
-  .meta-wide {
-    grid-column: span 2;
-  }
-
-  .items-head,
-  .items-row {
-    grid-template-columns: 1.2fr 1fr 32px 48px 56px;
-    gap: 4px;
-    padding: 6px;
+  .copy-side {
+    width: 24px;
     font-size: 10px;
+    letter-spacing: 1px;
   }
 
-  .receipt-summary {
+  .delivery-content {
+    padding: 8px;
+  }
+
+  .delivery-title {
+    font-size: 20px;
+    letter-spacing: 3px;
+  }
+
+  .delivery-meta-row {
     font-size: 11px;
   }
 
-  .signature {
-    width: 100%;
+  .order-no-num {
+    font-size: 13px;
   }
+
+  .delivery-info-row {
+    grid-template-columns: 1fr;
+  }
+
+  .info-cell {
+    border-right: 0;
+  }
+
+  .delivery-total-row {
+    grid-template-columns: 1fr;
+  }
+
+  .total-amount {
+    border-right: 0;
+    border-bottom: 1px solid #cbd5e1;
+  }
+
+  .items-table {
+    font-size: 10px;
+  }
+
+  .items-table th,
+  .items-table td {
+    padding: 3px 2px;
+  }
+
+  .col-name  { width: 24%; }
+  .col-qty   { width: 7%; }
+  .col-unit  { width: 7%; }
+  .col-price { width: 9%; }
+  .col-digit { width: 4.5%; }
+  .col-note  { width: 12%; }
 }
 
 @media print {
@@ -454,44 +635,91 @@ onUnmounted(() => window.removeEventListener('resize', handleResize))
     width: 210mm !important;
     height: 297mm !important;
     margin: 0 !important;
-    padding: 10mm 12mm !important;
+    padding: 8mm 8mm !important;
     background: #fff !important;
     box-shadow: none !important;
     overflow: hidden !important;
   }
 
-  .receipt-a4-page {
+  .delivery-order-page {
     width: 210mm;
     height: 297mm;
-    padding: 10mm 12mm;
+    padding: 0;
     background: #fff;
   }
 
-  .receipt-copy {
-    height: 130mm;
-    min-height: 130mm;
-    margin: 0 0 10mm 0;
-    padding: 6mm;
-    border: 0.35mm dashed #334155;
-    border-radius: 0;
+  .delivery-copy {
+    height: 138mm;
+    margin: 0 0 6mm 0;
+    border: 0.4mm solid #0f172a;
     box-shadow: none;
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  .receipt-copy:last-child {
+  .delivery-copy:last-child {
     margin-bottom: 0;
   }
 
-  .receipt-copy-watermark {
-    color: rgba(15, 23, 42, 0.06);
+  .copy-side {
+    width: 8mm;
+    font-size: 10pt;
+    padding: 6mm 0;
+    background: #fff;
+    color: #0f172a;
   }
 
-  .receipt-store { font-size: 18pt; }
-  .receipt-title, .receipt-meta-grid, .receipt-summary, .items-head, .items-row { font-size: 9pt; }
-  .receipt-order-no { font-size: 15pt; }
-  .summary-received { font-size: 13pt; }
-  .receipt-footer { font-size: 8pt; }
+  .copy-red .copy-side {
+    background: #fff;
+    color: #b91c1c;
+  }
+
+  .delivery-content {
+    padding: 4mm 5mm;
+  }
+
+  .delivery-title {
+    font-size: 18pt;
+    letter-spacing: 4pt;
+  }
+
+  .delivery-meta-row,
+  .delivery-info-row,
+  .delivery-total-row,
+  .delivery-footer {
+    font-size: 9pt;
+  }
+
+  .order-no-num {
+    font-size: 12pt;
+  }
+
+  .items-table {
+    font-size: 8.5pt;
+  }
+
+  .items-table th,
+  .items-table td {
+    padding: 1.5mm 1.5mm;
+  }
+
+  .items-table thead th {
+    height: 6mm;
+    font-size: 9pt;
+  }
+
+  .item-row td {
+    height: 6mm;
+  }
+
+  .digit-slot {
+    min-width: 5mm;
+    padding: 0.5mm 1mm;
+  }
+
+  .delivery-footer {
+    font-size: 10pt;
+  }
 }
 
 @page {

@@ -42,7 +42,7 @@ export function buildDashboardTodos({ summary = {}, pendingOrders = [], pendingI
       count: pendingInbounds.length,
       amount: 0,
       level: 'high',
-      route: '/admin/purchase',
+      route: '/admin/products/inbound',
       action: '去审核'
     },
     {

@@ -21,7 +21,7 @@ test('buildDashboardTodos summarizes pending operational actions', () => {
   assert.equal(todos.pendingBalance.count, 3)
   assert.equal(todos.pendingBalance.amount, 8200)
   assert.equal(todos.pendingInbound.count, 2)
-  assert.equal(todos.pendingInbound.route, '/admin/purchase')
+  assert.equal(todos.pendingInbound.route, '/admin/products/inbound')
   assert.equal(todos.pendingInbound.level, 'high')
   assert.equal(todos.pendingDelivery.count, 1)
   assert.equal(todos.pendingInstall.count, 1)

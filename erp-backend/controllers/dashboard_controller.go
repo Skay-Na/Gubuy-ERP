@@ -51,6 +51,8 @@ type FinanceSummaryResponse struct {
 	Accounts            []models.Account   `json:"accounts"`              // 各账户余额
 	TopProducts         []ProductSaleStat  `json:"top_products"`          // 热销排行
 	GrossProfit         float64            `json:"gross_profit"`          // 销售毛利
+	OperatingExpense    float64            `json:"operating_expense"`     // 日常经营费用，不含货款与以旧换新
+	NetProfit           float64            `json:"net_profit"`            // 经营净利润
 	EmployeeRankings    []EmployeeRankStat `json:"employee_rankings"`
 	CategorySales       []CategorySaleStat `json:"category_sales"`
 	SalesTrend          []DailySaleTrend   `json:"sales_trend"`
@@ -63,6 +65,26 @@ func CalculatePendingSubsidy(totalGenerated, totalReceived float64) float64 {
 		return 0
 	}
 	return pending
+}
+
+// CalculateGrossProfit calculates the profit directly attributable to completed sales.
+// Supplier payments are intentionally excluded because the sold-goods cost is already
+// recognized through the order-item cost snapshot.
+func CalculateGrossProfit(
+	revenue float64,
+	productCost float64,
+	deliveryFee float64,
+	installationFee float64,
+	referralFee float64,
+	commissionAmount float64,
+	tradeInAmount float64,
+) float64 {
+	return revenue - productCost - deliveryFee - installationFee - referralFee - commissionAmount - tradeInAmount
+}
+
+// CalculateNetProfit subtracts period operating expenses after direct sales costs.
+func CalculateNetProfit(grossProfit, operatingExpense float64) float64 {
+	return grossProfit - operatingExpense
 }
 
 // GetFinanceSummary 聚合查询财务统计数据
@@ -127,7 +149,7 @@ func GetFinanceSummary(c *gin.Context) {
 	if !endTime.IsZero() {
 		db = db.Where("created_at <= ?", endTime)
 	}
-	db.Select("COALESCE(SUM(total_amount), 0)").Scan(&summary.TodayRevenue)
+	db.Select("COALESCE(SUM(total_amount - discount_amount), 0)").Scan(&summary.TodayRevenue)
 
 	// 2. 期间现金流入/流出 - 基于财务流水表，排除成对冲销记录。
 	incomeDB := config.DB.Model(&models.FinancialLog{}).
@@ -216,6 +238,7 @@ func GetFinanceSummary(c *gin.Context) {
 		InstallationFee  float64
 		ReferralFee      float64
 		CommissionAmount float64
+		TradeInAmount    float64
 	}
 	feeDB := config.DB.Model(&models.Order{}).Where("order_status = 1")
 	if !startTime.IsZero() {
@@ -224,7 +247,7 @@ func GetFinanceSummary(c *gin.Context) {
 	if !endTime.IsZero() {
 		feeDB = feeDB.Where("created_at <= ?", endTime)
 	}
-	feeDB.Select("COALESCE(SUM(delivery_fee), 0) as delivery_fee, COALESCE(SUM(installation_fee), 0) as installation_fee, COALESCE(SUM(referral_fee), 0) as referral_fee, COALESCE(SUM(commission_amount), 0) as commission_amount").Scan(&totalFees)
+	feeDB.Select("COALESCE(SUM(delivery_fee), 0) as delivery_fee, COALESCE(SUM(installation_fee), 0) as installation_fee, COALESCE(SUM(referral_fee), 0) as referral_fee, COALESCE(SUM(commission_amount), 0) as commission_amount, COALESCE(SUM(trade_in_amount), 0) as trade_in_amount").Scan(&totalFees)
 
 	var totalCost float64
 	costDB := config.DB.Table("order_items").
@@ -238,7 +261,26 @@ func GetFinanceSummary(c *gin.Context) {
 	}
 	costDB.Select("COALESCE(SUM(order_items.unit_cost * order_items.quantity), 0)").Scan(&totalCost)
 
-	summary.GrossProfit = summary.TodayRevenue - totalCost - totalFees.DeliveryFee - totalFees.InstallationFee - totalFees.ReferralFee - totalFees.CommissionAmount
+	summary.GrossProfit = CalculateGrossProfit(
+		summary.TodayRevenue,
+		totalCost,
+		totalFees.DeliveryFee,
+		totalFees.InstallationFee,
+		totalFees.ReferralFee,
+		totalFees.CommissionAmount,
+		totalFees.TradeInAmount,
+	)
+
+	operatingExpenseDB := config.DB.Model(&models.Expense{}).
+		Where("expense_type NOT IN ?", []string{"采购货款", "以旧换新"})
+	if !startTime.IsZero() {
+		operatingExpenseDB = operatingExpenseDB.Where("created_at >= ?", startTime)
+	}
+	if !endTime.IsZero() {
+		operatingExpenseDB = operatingExpenseDB.Where("created_at <= ?", endTime)
+	}
+	operatingExpenseDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.OperatingExpense)
+	summary.NetProfit = CalculateNetProfit(summary.GrossProfit, summary.OperatingExpense)
 
 	// 9. 员工排行 (EmployeeRankings)
 	// 管理员端开单没有 employee_id，按老板客户归属；显式标记“老板客户”的订单也归入老板客户。

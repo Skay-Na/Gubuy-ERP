@@ -1,0 +1,28 @@
+{
+  "dataset_version": "agent-core-v1",
+  "reference_date": "2026-10-01",
+  "timezone": "Asia/Shanghai",
+  "fixture": [
+    {
+      "dataset": "orders",
+      "order_month": "2026-08",
+      "order_status": 1,
+      "total_amount": 1000,
+      "discount_amount": 100,
+      "items": [{"unit_price": 500, "unit_cost": 100, "quantity": 2}]
+    },
+    {
+      "dataset": "orders",
+      "order_month": "2026-09",
+      "order_status": 1,
+      "total_amount": 2000,
+      "discount_amount": 100,
+      "items": [{"unit_price": 500, "unit_cost": 100, "quantity": 3}]
+    }
+  ],
+  "expected": {
+    "2026-08": {"sales_revenue": 900, "order_count": 1, "units": 2, "average_order": 900},
+    "2026-09": {"sales_revenue": 1900, "order_count": 1, "units": 3, "average_order": 1900}
+  },
+  "seed_helper": "erp-backend/controllers/ai_agent_engine_test.go:seedAgentSalesComparison"
+}

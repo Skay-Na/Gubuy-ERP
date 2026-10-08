@@ -1,0 +1,38 @@
+[
+  {
+    "name": "固定参考日的上月销售",
+    "dataset_version": "agent-core-v1",
+    "as_of": "2026-10-01",
+    "question": "上个月销售情况怎么样",
+    "not_contains": ["查询参数：", "\"dataset\""],
+    "assertions": {
+      "topic": "sales",
+      "metrics": ["sales_revenue", "order_count", "units", "average_order"],
+      "periods": [{"start": "2026-09-01", "end": "2026-09-30"}],
+      "values": [
+        {"metric": "sales_revenue", "start": "2026-09-01", "end": "2026-09-30", "value": 1900, "tolerance": 0.01},
+        {"metric": "order_count", "start": "2026-09-01", "end": "2026-09-30", "value": 1, "tolerance": 0}
+      ]
+    }
+  },
+  {
+    "name": "国补未回款意图",
+    "dataset_version": "agent-core-v1",
+    "as_of": "2026-10-01",
+    "question": "国补还有多少没有回款",
+    "not_contains": ["查询参数：", "\"dataset\""],
+    "assertions": {"topic": "subsidy", "metrics": ["subsidy_pending"]}
+  },
+  {
+    "name": "短追问延续提成主题",
+    "dataset_version": "agent-core-v1",
+    "as_of": "2026-10-01",
+    "turns": ["查询2026年8月所有员工提成", "9月呢"],
+    "not_contains": ["查询参数：", "\"dataset\""],
+    "assertions": {
+      "topic": "payroll",
+      "metrics": ["commission_payable"],
+      "periods": [{"start": "2026-09-01", "end": "2026-09-30"}]
+    }
+  }
+]

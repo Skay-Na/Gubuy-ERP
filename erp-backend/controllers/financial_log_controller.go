@@ -5,6 +5,8 @@ import (
 	"erp-backend/models"
 	"erp-backend/utils"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -37,7 +39,7 @@ func WriteFinancialLog(tx *gorm.DB, accountID uint, flowType int, category strin
 }
 
 // GetFinancialLogs 查询全口径财务流水
-// GET /api/finance/logs?account_id=&flow_type=&category=&page=&page_size=
+// GET /api/finance/logs?account_id=&flow_type=&category=&keyword=&page=&page_size=
 // @Summary 获取财务流水列表
 // @Description 获取财务流水列表
 // @Tags Finance
@@ -45,6 +47,7 @@ func WriteFinancialLog(tx *gorm.DB, accountID uint, flowType int, category strin
 // @Param account_id query int false "账户ID"
 // @Param flow_type query int false "流水类型 1-收入 2-支出 3-内部 4-校准"
 // @Param category query string false "分类"
+// @Param keyword query string false "分类、关联单号或备注关键字"
 // @Param start_date query string false "开始日期"
 // @Param end_date query string false "结束日期"
 // @Success 200 {object} APIResponse "成功响应"
@@ -55,6 +58,8 @@ func GetFinancialLogs(c *gin.Context) {
 	accountID := c.Query("account_id")
 	flowType := c.Query("flow_type")
 	category := c.Query("category")
+	sourceType := c.Query("source_type")
+	keyword := strings.TrimSpace(c.Query("keyword"))
 	startDate := c.Query("start_date")
 	endDate := c.Query("end_date")
 
@@ -71,23 +76,46 @@ func GetFinancialLogs(c *gin.Context) {
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
+	if sourceType != "" {
+		query = query.Where("source_type = ?", sourceType)
+	}
+	if keyword != "" {
+		likeKeyword := "%" + keyword + "%"
+		query = query.Where(
+			"category LIKE ? OR counterparty LIKE ? OR related_no LIKE ? OR remark LIKE ?",
+			likeKeyword,
+			likeKeyword,
+			likeKeyword,
+			likeKeyword,
+		)
+	}
 	if startDate != "" {
 		query = query.Where("created_at >= ?", startDate)
 	}
 	if endDate != "" {
-		query = query.Where("created_at <= ?", endDate)
+		endTime, err := time.ParseInLocation("2006-01-02", endDate, time.Local)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "结束日期格式无效"})
+			return
+		}
+		query = query.Where("created_at < ?", endTime.AddDate(0, 0, 1))
 	}
 
 	var total int64
 	query.Model(&models.FinancialLog{}).Count(&total)
 
-	var offset int
-	var limit int
-	offset = 0
-	limit = 200 // 返回最近的 200 条流水
+	page := 1
+	if pageValue, err := strconv.Atoi(c.DefaultQuery("page", "1")); err == nil && pageValue > 0 {
+		page = pageValue
+	}
+	pageSize := 20
+	if sizeValue, err := strconv.Atoi(c.DefaultQuery("page_size", "20")); err == nil && sizeValue > 0 {
+		pageSize = min(sizeValue, 100)
+	}
+	offset := (page - 1) * pageSize
 
 	var logs []models.FinancialLog
-	if err := query.Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
+	if err := query.Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询财务流水失败"})
 		return
 	}
@@ -130,6 +158,9 @@ func WriteReversalLog(tx *gorm.DB, depositLogID uint, accountID uint, flowType i
 // @Param account_id query int false "账户ID"
 // @Param flow_type query int false "流水类型"
 // @Param category query string false "分类"
+// @Param keyword query string false "分类、关联单号或备注关键字"
+// @Param start_date query string false "开始日期"
+// @Param end_date query string false "结束日期"
 // @Success 200 {file} binary "Excel 文件"
 // @Security ApiKeyAuth
 // @ID get_api_finance_logs_export
@@ -138,6 +169,10 @@ func ExportFinancialLogs(c *gin.Context) {
 	accountID := c.Query("account_id")
 	flowType := c.Query("flow_type")
 	category := c.Query("category")
+	sourceType := c.Query("source_type")
+	keyword := strings.TrimSpace(c.Query("keyword"))
+	startDate := c.Query("start_date")
+	endDate := c.Query("end_date")
 
 	query := config.DB.Preload("Account").Order("created_at desc")
 
@@ -150,6 +185,30 @@ func ExportFinancialLogs(c *gin.Context) {
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
+	if sourceType != "" {
+		query = query.Where("source_type = ?", sourceType)
+	}
+	if keyword != "" {
+		likeKeyword := "%" + keyword + "%"
+		query = query.Where(
+			"category LIKE ? OR counterparty LIKE ? OR related_no LIKE ? OR remark LIKE ?",
+			likeKeyword,
+			likeKeyword,
+			likeKeyword,
+			likeKeyword,
+		)
+	}
+	if startDate != "" {
+		query = query.Where("created_at >= ?", startDate)
+	}
+	if endDate != "" {
+		endTime, err := time.ParseInLocation("2006-01-02", endDate, time.Local)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "结束日期格式无效"})
+			return
+		}
+		query = query.Where("created_at < ?", endTime.AddDate(0, 0, 1))
+	}
 
 	var logs []models.FinancialLog
 	if err := query.Find(&logs).Error; err != nil {
@@ -157,7 +216,7 @@ func ExportFinancialLogs(c *gin.Context) {
 		return
 	}
 
-	headers := []string{"流水ID", "账户名称", "流向", "业务分类", "变动金额", "变动后余额", "关联单号", "备注", "记录时间"}
+	headers := []string{"流水ID", "账户名称", "流向", "业务分类", "变动金额", "变动后余额", "往来对象", "关联单号", "备注", "来源", "记录时间"}
 	var data [][]interface{}
 	for _, l := range logs {
 		accName := "-"
@@ -180,8 +239,10 @@ func ExportFinancialLogs(c *gin.Context) {
 			l.Category,
 			l.Amount,
 			l.BalanceAfter,
+			l.Counterparty,
 			l.RelatedNo,
 			l.Remark,
+			l.SourceType,
 			l.CreatedAt.Format("2006-01-02 15:04:05"),
 		}
 		data = append(data, row)

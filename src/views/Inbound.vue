@@ -354,9 +354,9 @@ const syncViewport = () => {
 
 const fetchProducts = async () => {
   try {
-    // 调用现有接口获取所有商品（不限库存）
     const response = await request.get('/api/products', {
-      params: { keyword: searchKeyword.value }
+      // 入库页必须能查到零库存商品，与员工增库时的商品范围保持一致。
+      params: { keyword: searchKeyword.value, all: 1 }
     })
     if (response.data.code === 200) {
       allProducts.value = response.data.data

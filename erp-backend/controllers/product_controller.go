@@ -18,6 +18,7 @@ type CreateProductRequest struct {
 	CategoryID        uint    `json:"category_id"`
 	MarginRate        float64 `json:"margin_rate"`
 	SupportCloud      bool    `json:"support_cloud"`
+	NoCommission      bool    `json:"no_commission"`
 	SpecialPrice      float64 `json:"special_price"`
 	SpecialPriceStart *string `json:"special_price_start"`
 	SpecialPriceEnd   *string `json:"special_price_end"`
@@ -29,6 +30,7 @@ type UpdateProductRequest struct {
 	CategoryID        *uint   `json:"category_id"`
 	MarginRate        float64 `json:"margin_rate"`
 	SupportCloud      bool    `json:"support_cloud"`
+	NoCommission      bool    `json:"no_commission"`
 	SpecialPrice      float64 `json:"special_price"`
 	SpecialPriceStart *string `json:"special_price_start"`
 	SpecialPriceEnd   *string `json:"special_price_end"`
@@ -155,6 +157,7 @@ func CreateProduct(c *gin.Context) {
 		CategoryID:   input.CategoryID,
 		MarginRate:   input.MarginRate,
 		SupportCloud: input.SupportCloud,
+		NoCommission: input.NoCommission,
 		SpecialPrice: input.SpecialPrice,
 	}
 
@@ -225,6 +228,7 @@ func UpdateProduct(c *gin.Context) {
 		"sku":           remarkPtr,
 		"margin_rate":   input.MarginRate,
 		"support_cloud": input.SupportCloud,
+		"no_commission": input.NoCommission,
 		"special_price": input.SpecialPrice,
 		"avg_cost":      input.AvgCost,
 	}
@@ -373,7 +377,7 @@ func ExportProducts(c *gin.Context) {
 		return
 	}
 
-	headers := []string{"商品ID", "商品名称", "分类", "备注(SKU)", "最新进价", "平均成本", "主仓库存", "门店库存", "样机数量", "云仓库存", "支持云仓代发", "特价金额"}
+	headers := []string{"商品ID", "商品名称", "分类", "备注(SKU)", "最新进价", "平均成本", "主仓库存", "门店库存", "样机数量", "云仓库存", "支持云仓代发", "提成规则", "特价金额"}
 	var data [][]interface{}
 	for _, p := range products {
 		catName := "-"
@@ -388,6 +392,10 @@ func ExportProducts(c *gin.Context) {
 		if p.SupportCloud {
 			supportCloud = "是"
 		}
+		commissionRule := "正常提成"
+		if p.NoCommission {
+			commissionRule = "无提成"
+		}
 
 		row := []interface{}{
 			p.ID,
@@ -401,6 +409,7 @@ func ExportProducts(c *gin.Context) {
 			p.SampleStock,
 			p.CloudStock,
 			supportCloud,
+			commissionRule,
 			p.SpecialPrice,
 		}
 		data = append(data, row)

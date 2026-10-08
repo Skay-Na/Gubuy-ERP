@@ -5,6 +5,7 @@ import (
 	"erp-backend/middlewares"
 	"erp-backend/models"
 	"erp-backend/utils"
+	"math"
 	"net/http"
 	"sort"
 	"strconv"
@@ -359,27 +360,184 @@ type GetCommissionReportRequest struct {
 
 // CommissionReportItem 提成报表明细
 type CommissionReportItem struct {
-	EmployeeID      uint    `json:"employee_id"`
-	EmployeeName    string  `json:"employee_name"`
-	EmpNo           string  `json:"emp_no"`
-	BaseSalary      float64 `json:"base_salary"`
-	CommissionRate  float64 `json:"commission_rate"`
-	TotalSales      float64 `json:"total_sales"`      // 实际计算提成的销售额
-	TotalCommission float64 `json:"total_commission"` // 总提成
-	ManualLeaveDays int     `json:"manual_leave_days"`
-	AbsentDays      int     `json:"absent_days"`
-	LeaveDays       int     `json:"leave_days"` // 兼容旧字段：人工请假 + 未打卡请假
-	FreeLeaveDays   int     `json:"free_leave_days"`
-	DeductionDays   int     `json:"deduction_days"`
-	DailySalary     float64 `json:"daily_salary"`
-	Deduction       float64 `json:"deduction"`
-	FinalSalary     float64 `json:"final_salary"`
+	EmployeeID         uint               `json:"employee_id"`
+	EmployeeName       string             `json:"employee_name"`
+	EmpNo              string             `json:"emp_no"`
+	BaseSalary         float64            `json:"base_salary"`
+	CommissionRate     float64            `json:"commission_rate"`
+	TotalSales         float64            `json:"total_sales"`      // 个人订单商品销售额
+	TotalCommission    float64            `json:"total_commission"` // 总提成
+	PersonalCommission float64            `json:"personal_commission"`
+	ChamberCommission  float64            `json:"chamber_commission"`
+	CommissionDetails  []CommissionDetail `json:"commission_details"`
+	ManualLeaveDays    int                `json:"manual_leave_days"`
+	AbsentDays         int                `json:"absent_days"`
+	LeaveDays          int                `json:"leave_days"` // 兼容旧字段：人工请假 + 未打卡请假
+	FreeLeaveDays      int                `json:"free_leave_days"`
+	DeductionDays      int                `json:"deduction_days"`
+	DailySalary        float64            `json:"daily_salary"`
+	Deduction          float64            `json:"deduction"`
+	FinalSalary        float64            `json:"final_salary"`
+}
+
+type CommissionDetail struct {
+	OrderID          uint      `json:"order_id"`
+	OrderNo          string    `json:"order_no"`
+	OrderDate        time.Time `json:"order_date"`
+	CustomerName     string    `json:"customer_name"`
+	ProductModels    []string  `json:"product_models"`
+	OrderType        int       `json:"order_type"`
+	OrderAmount      float64   `json:"order_amount"`
+	CommissionPool   float64   `json:"commission_pool"`
+	ParticipantCount int       `json:"participant_count"`
+	CommissionAmount float64   `json:"commission_amount"`
+}
+
+func commissionProductModels(order models.Order) []string {
+	productModels := make([]string, 0, len(order.OrderItems))
+	seen := make(map[string]struct{}, len(order.OrderItems))
+	for _, item := range order.OrderItems {
+		name := ""
+		if item.Product != nil {
+			name = strings.TrimSpace(item.Product.Name)
+		}
+		if name == "" {
+			continue
+		}
+		if _, exists := seen[name]; exists {
+			continue
+		}
+		seen[name] = struct{}{}
+		productModels = append(productModels, name)
+	}
+	return productModels
 }
 
 // CountsTowardEmployeePerformance 判断订单是否应计入员工销售业绩。
 // 老板客户订单保留 employee_id 作为实际开单操作员，但业绩归属老板。
 func CountsTowardEmployeePerformance(referrerName string) bool {
 	return !strings.Contains(referrerName, "老板")
+}
+
+func moneyCents(amount float64) int64 {
+	return int64(math.Round(amount * 100))
+}
+
+func chamberCommissionCents(orderAmount float64) int64 {
+	return moneyCents(orderAmount * 0.01)
+}
+
+func chamberCommissionPoolCents(order models.Order) int64 {
+	poolCents := moneyCents(order.CommissionAmount)
+	if poolCents > 0 {
+		return poolCents
+	}
+
+	// Orders created before commission snapshots were introduced stored a zero
+	// pool. A no-commission item marks a new order whose zero value is intentional.
+	for _, item := range order.OrderItems {
+		if item.NoCommission {
+			return 0
+		}
+	}
+	return chamberCommissionCents(order.TotalAmount)
+}
+
+func splitChamberCommission(poolCents int64, employeeIDs []uint) map[uint]int64 {
+	shares := make(map[uint]int64, len(employeeIDs))
+	if len(employeeIDs) == 0 || poolCents <= 0 {
+		return shares
+	}
+	ids := append([]uint(nil), employeeIDs...)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	base := poolCents / int64(len(ids))
+	remainder := poolCents % int64(len(ids))
+	for index, id := range ids {
+		shares[id] = base
+		if int64(index) < remainder {
+			shares[id]++
+		}
+	}
+	return shares
+}
+
+func chamberEligibleEmployeeIDs(employees []models.Employee, orderDate time.Time) []uint {
+	ids := make([]uint, 0, len(employees))
+	for _, employee := range employees {
+		if employee.IsOutsourced || employee.Role == "admin" || employee.Name == "老板" {
+			continue
+		}
+		start := employee.CreatedAt
+		if employee.EntryDate != nil {
+			start = *employee.EntryDate
+		}
+		if start.After(orderDate) ||
+			(employee.DeletedAt.Valid && !employee.DeletedAt.Time.After(orderDate)) {
+			continue
+		}
+		ids = append(ids, employee.ID)
+	}
+	return ids
+}
+
+func employeeWorkedDuringMonth(employee models.Employee, startMonth, endMonth time.Time) bool {
+	start := employee.CreatedAt
+	if employee.EntryDate != nil {
+		start = *employee.EntryDate
+	}
+	return start.Before(endMonth) && (!employee.DeletedAt.Valid || employee.DeletedAt.Time.After(startMonth))
+}
+
+func addOrderToCommissionReport(order models.Order, reportMap map[uint]*CommissionReportItem) {
+	if order.OrderType == 2 || order.EmployeeID == nil || !CountsTowardEmployeePerformance(order.ReferrerName) {
+		return
+	}
+	reportItem, ok := reportMap[*order.EmployeeID]
+	if !ok {
+		return
+	}
+
+	for _, item := range order.OrderItems {
+		reportItem.TotalSales += item.UnitPrice * float64(item.Quantity)
+	}
+	commission := float64(moneyCents(order.CommissionAmount)) / 100
+	reportItem.PersonalCommission = float64(moneyCents(reportItem.PersonalCommission)+moneyCents(commission)) / 100
+	reportItem.TotalCommission = float64(moneyCents(reportItem.TotalCommission)+moneyCents(commission)) / 100
+	if commission <= 0 {
+		return
+	}
+	reportItem.CommissionDetails = append(reportItem.CommissionDetails, CommissionDetail{
+		OrderID: order.ID, OrderNo: order.OrderNo, OrderDate: order.CreatedAt,
+		CustomerName: order.CustomerName, ProductModels: commissionProductModels(order),
+		OrderType: order.OrderType, OrderAmount: order.TotalAmount,
+		CommissionPool: commission, ParticipantCount: 1, CommissionAmount: commission,
+	})
+}
+
+func addChamberOrderToCommissionReport(order models.Order, employees []models.Employee, reportMap map[uint]*CommissionReportItem) {
+	poolCents := chamberCommissionPoolCents(order)
+	if poolCents <= 0 {
+		return
+	}
+	eligibleIDs := chamberEligibleEmployeeIDs(employees, order.CreatedAt)
+	shares := splitChamberCommission(poolCents, eligibleIDs)
+	for _, employeeID := range eligibleIDs {
+		reportItem, ok := reportMap[employeeID]
+		if !ok {
+			continue
+		}
+		shareCents := shares[employeeID]
+		share := float64(shareCents) / 100
+		reportItem.ChamberCommission = float64(moneyCents(reportItem.ChamberCommission)+shareCents) / 100
+		reportItem.TotalCommission = float64(moneyCents(reportItem.TotalCommission)+shareCents) / 100
+		reportItem.CommissionDetails = append(reportItem.CommissionDetails, CommissionDetail{
+			OrderID: order.ID, OrderNo: order.OrderNo, OrderDate: order.CreatedAt,
+			CustomerName: order.CustomerName, ProductModels: commissionProductModels(order),
+			OrderType: order.OrderType, OrderAmount: order.TotalAmount,
+			CommissionPool:   float64(poolCents) / 100,
+			ParticipantCount: len(eligibleIDs), CommissionAmount: share,
+		})
+	}
 }
 
 // GetCommissionReport 获取月度提成报表
@@ -404,7 +562,7 @@ func GetCommissionReport(c *gin.Context) {
 	}
 
 	// 1. 解析时间
-	startMonth, err := time.Parse("2006-01", req.Month)
+	startMonth, err := time.ParseInLocation("2006-01", req.Month, time.Local)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 400,
@@ -412,122 +570,11 @@ func GetCommissionReport(c *gin.Context) {
 		})
 		return
 	}
-	endMonth := startMonth.AddDate(0, 1, 0)
-
-	// 2. 查询员工信息 (包含已删除的员工，避免历史记录丢失，并且只统计正式员工)
-	var employees []models.Employee
-	if err := config.DB.Unscoped().Where("is_outsourced = ?", false).Find(&employees).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "查询员工失败",
-		})
+	result, err := monthlyEmployeePayrollReport(startMonth)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询月度提成报表失败"})
 		return
 	}
-
-	reportMap := make(map[uint]*CommissionReportItem)
-	for _, emp := range employees {
-		reportMap[emp.ID] = &CommissionReportItem{
-			EmployeeID:      emp.ID,
-			EmployeeName:    emp.Name,
-			EmpNo:           emp.EmpNo,
-			BaseSalary:      emp.BaseSalary,
-			CommissionRate:  emp.CommissionRate,
-			TotalSales:      0,
-			TotalCommission: 0,
-		}
-	}
-
-	// 3. 查询在此期间开单的订单及明细
-	//    只统计有 employee_id 的订单并且 payment_status=2 (已结全款)，或者不考虑状态计算当月开单业绩？根据常规按开新单时间或者结款时间，这里简单按下单时间计算。
-	var orders []models.Order
-	if err := config.DB.Preload("OrderItems").
-		Where("created_at >= ? AND created_at < ? AND employee_id IS NOT NULL AND order_status = 1", startMonth, endMonth).
-		Find(&orders).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "查询订单失败: " + err.Error(),
-		})
-		return
-	}
-
-	// 4. 计算业绩与提成
-	var chamberTotalCommission float64
-
-	for _, order := range orders {
-		if order.OrderType == 2 {
-			chamberTotalCommission += order.CommissionAmount
-			continue
-		}
-
-		if order.EmployeeID == nil || !CountsTowardEmployeePerformance(order.ReferrerName) {
-			continue
-		}
-		reportItem, ok := reportMap[*order.EmployeeID]
-		if !ok {
-			continue // 员工可能已被删除或者异常
-		}
-
-		var orderSales float64
-		for _, item := range order.OrderItems {
-			// 由于赠品的 UnitPrice == 0，此处累加也是 0，符合业务逻辑
-			orderSales += item.UnitPrice * float64(item.Quantity)
-		}
-
-		reportItem.TotalSales += orderSales
-		reportItem.TotalCommission += order.CommissionAmount
-	}
-
-	if chamberTotalCommission > 0 {
-		var validEmpIDs []uint
-		for _, emp := range employees {
-			if emp.Role != "admin" && emp.Name != "老板" {
-				validEmpIDs = append(validEmpIDs, emp.ID)
-			}
-		}
-		if len(validEmpIDs) > 0 {
-			splitCommission := chamberTotalCommission / float64(len(validEmpIDs))
-			for _, id := range validEmpIDs {
-				if reportItem, ok := reportMap[id]; ok {
-					reportItem.TotalCommission += splitCommission
-				}
-			}
-		}
-	}
-
-	daysInMonth := time.Date(startMonth.Year(), startMonth.Month()+1, 0, 0, 0, 0, 0, time.Local).Day()
-
-	for _, emp := range employees {
-		reportItem := reportMap[emp.ID]
-		var attendance models.MonthlyAttendance
-		config.DB.Where("employee_id = ? AND month = ?", emp.ID, req.Month).First(&attendance)
-
-		reportItem.AbsentDays = countAbsentDays(emp.ID, startMonth)
-		reportItem.ManualLeaveDays = attendance.LeaveDays
-		if attendance.ID == 0 {
-			reportItem.ManualLeaveDays = reportItem.AbsentDays
-		}
-		reportItem.LeaveDays = reportItem.ManualLeaveDays
-		reportItem.FreeLeaveDays = 4
-		reportItem.DailySalary = reportItem.BaseSalary / float64(daysInMonth)
-		reportItem.Deduction = 0
-		if reportItem.LeaveDays > reportItem.FreeLeaveDays {
-			reportItem.DeductionDays = reportItem.LeaveDays - reportItem.FreeLeaveDays
-			reportItem.Deduction = reportItem.DailySalary * float64(reportItem.DeductionDays)
-		}
-		reportItem.FinalSalary = reportItem.BaseSalary + reportItem.TotalCommission - reportItem.Deduction
-	}
-
-	// 5. 整理返回数组
-	result := make([]CommissionReportItem, 0, len(reportMap))
-	for _, item := range reportMap {
-		result = append(result, *item)
-	}
-	sort.Slice(result, func(i, j int) bool {
-		if result[i].TotalSales == result[j].TotalSales {
-			return result[i].EmployeeID < result[j].EmployeeID
-		}
-		return result[i].TotalSales > result[j].TotalSales
-	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
@@ -657,7 +704,28 @@ func GetEmployeeMeStats(c *gin.Context) {
 			orderAmt += item.UnitPrice * float64(item.Quantity)
 		}
 		stats.TotalSales += orderAmt
-		stats.EstimatedComm += order.CommissionAmount
+		if order.OrderType != 2 && CountsTowardEmployeePerformance(order.ReferrerName) {
+			stats.EstimatedComm += order.CommissionAmount
+		}
+	}
+
+	var chamberOrders []models.Order
+	if err := config.DB.Preload("OrderItems").Where("order_type = 2 AND order_status = 1 AND DATE(created_at) = ?", today).
+		Find(&chamberOrders).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询商会订单失败"})
+		return
+	}
+	if len(chamberOrders) > 0 {
+		var team []models.Employee
+		if err := config.DB.Unscoped().Where("is_outsourced = ?", false).Find(&team).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询员工失败"})
+			return
+		}
+		for _, order := range chamberOrders {
+			eligibleIDs := chamberEligibleEmployeeIDs(team, order.CreatedAt)
+			shares := splitChamberCommission(chamberCommissionPoolCents(order), eligibleIDs)
+			stats.EstimatedComm += float64(shares[employee.ID]) / 100
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

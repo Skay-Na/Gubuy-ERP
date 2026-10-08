@@ -11,8 +11,15 @@ services:
       - DB_HOST=${DB_HOST:-db}
       - DB_PORT=${DB_PORT:-3306}
       - DB_NAME=${DB_NAME:-erp_db}
-      - JWT_SECRET=${JWT_SECRET:-please_change_this_secret}
+      - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to a private value of at least 32 bytes}
       - BACKUP_UPLOAD_MAX_MB=${BACKUP_UPLOAD_MAX_MB:-200}
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_MODEL=${AI_MODEL:-}
+      - AI_API_URL=${AI_API_URL:-https://api.openai.com/v1/chat/completions}
+      - AI_CONFIG_SECRET=${AI_CONFIG_SECRET:-}
+      - AGENT_MONITOR_ENABLED=${AGENT_MONITOR_ENABLED:-0}
+      - AGENT_RUNTIME_ENABLED=${AGENT_RUNTIME_ENABLED:-0}
+      - ERP_SEED_DEMO_DATA=${ERP_SEED_DEMO_DATA:-0}
       - TZ=${TZ:-Asia/Shanghai}
     depends_on:
       db:

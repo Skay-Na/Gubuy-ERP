@@ -36,6 +36,26 @@ func orderCostSnapshot(product models.Product) float64 {
 	return product.LatestCost
 }
 
+// commissionableOrderAmount applies order-level reductions proportionally to
+// commissionable products. Subsidized orders retain the original sales amount
+// as their commission basis, matching the existing commission rule.
+func commissionableOrderAmount(
+	totalAmount float64,
+	actualPayAmount float64,
+	commissionableSales float64,
+	isSubsidy bool,
+) float64 {
+	if totalAmount <= 0 || commissionableSales <= 0 {
+		return 0
+	}
+
+	commissionBase := actualPayAmount
+	if isSubsidy {
+		commissionBase = totalAmount
+	}
+	return commissionBase * math.Min(commissionableSales, totalAmount) / totalAmount
+}
+
 func nextDailyOrderSequence(tx *gorm.DB, now time.Time) (int, error) {
 	businessDate := now.Format("2006-01-02")
 
@@ -102,6 +122,8 @@ type PaymentBreakdownItem struct {
 
 // CreateOrderRequest 提交开单请求体
 type CreateOrderRequest struct {
+	AIImportID      uint               `json:"ai_import_id"`
+	AgentActionID   uint               `json:"agent_action_id"`
 	Items           []OrderItemRequest `json:"items" binding:"required,dive"`
 	IsSubsidy       bool               `json:"is_subsidy"`
 	DepositAmount   float64            `json:"deposit_amount"`
@@ -122,10 +144,11 @@ type CreateOrderRequest struct {
 	DeliveryMethod   int  `json:"delivery_method" binding:"required,oneof=1 2 3"`
 	BypassPriceCheck bool `json:"bypass_price_check"`
 	// 新增：以旧换新相关字段
-	TradeInAmount  float64 `json:"trade_in_amount"`
-	TradeInType    string  `json:"trade_in_type"`
-	TradeInRemark  string  `json:"trade_in_remark"`
-	DiscountAmount float64 `json:"discount_amount"` // 新增：手动抹零优惠
+	TradeInAmount    float64 `json:"trade_in_amount"`
+	TradeInAccountID *uint   `json:"trade_in_account_id"`
+	TradeInType      string  `json:"trade_in_type"`
+	TradeInRemark    string  `json:"trade_in_remark"`
+	DiscountAmount   float64 `json:"discount_amount"` // 新增：手动抹零优惠
 	// 新增：订单类型 (1-普通订单, 2-商会订单)
 	OrderType int `json:"order_type"`
 }
@@ -173,7 +196,7 @@ func resolvePaymentAccount(tx *gorm.DB, paymentMethod int, accountID *uint) (mod
 	return account, err
 }
 
-func normalizePaymentSplits(tx *gorm.DB, req CreateOrderRequest, receiptAmount float64) ([]PaymentBreakdownItem, error) {
+func normalizePaymentSplits(tx *gorm.DB, req CreateOrderRequest, receiptAmount, subsidyAmount float64) ([]PaymentBreakdownItem, error) {
 	if len(req.PaymentSplits) == 0 {
 		if req.PaymentMethod == 4 {
 			return nil, fmt.Errorf("请选择至少一个混合支付账户并填写金额")
@@ -196,35 +219,41 @@ func normalizePaymentSplits(tx *gorm.DB, req CreateOrderRequest, receiptAmount f
 		if err != nil {
 			return nil, err
 		}
-		total += split.Amount
+
+		// 国补混付时，公户填写的是 POS 原始刷卡金额（含国补）。
+		// 国补部分不会实际到账公户，订单收款、账户余额和财务流水必须记录净到账。
+		netAmount := split.Amount
+		if req.IsSubsidy && req.PaymentMethod == 4 && req.DepositAmount == 0 && split.PaymentMethod == 3 {
+			netAmount -= subsidyAmount
+		}
+		if netAmount < 0 {
+			return nil, fmt.Errorf("公户原始金额不足以扣除国补 ¥%.2f", subsidyAmount)
+		}
+
+		total += netAmount
 		splits = append(splits, PaymentBreakdownItem{
 			PaymentMethod: split.PaymentMethod,
 			AccountID:     account.ID,
-			Amount:        split.Amount,
+			Amount:        netAmount,
 		})
 	}
 	if math.Abs(total-receiptAmount) > 0.01 {
-		return nil, fmt.Errorf("混合支付金额合计 ¥%.2f 与本次应收 ¥%.2f 不一致", total, receiptAmount)
+		return nil, fmt.Errorf("混合支付净到账金额合计 ¥%.2f 与本次应收 ¥%.2f 不一致", total, receiptAmount)
 	}
 	return splits, nil
-}
-
-func resolveDefaultExpenseAccount(tx *gorm.DB) (models.Account, error) {
-	var account models.Account
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("is_default_expense = ?", true).First(&account).Error; err == nil {
-		return account, nil
-	}
-	return account, tx.Set("gorm:query_option", "FOR UPDATE").First(&account).Error
 }
 
 func createTradeInExpense(tx *gorm.DB, orderNo string, req CreateOrderRequest, occurredAt time.Time) error {
 	if req.TradeInAmount <= 0 {
 		return nil
 	}
+	if req.TradeInAccountID == nil || *req.TradeInAccountID == 0 {
+		return fmt.Errorf("以旧换新必须选择实际付款账户")
+	}
 
-	account, err := resolveDefaultExpenseAccount(tx)
-	if err != nil {
-		return fmt.Errorf("系统暂无可用支出账户，请先在财务账户中设置默认支出账户")
+	var account models.Account
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&account, *req.TradeInAccountID).Error; err != nil {
+		return fmt.Errorf("查询以旧换新付款账户: %w", err)
 	}
 
 	if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance - ?", req.TradeInAmount)).Error; err != nil {
@@ -317,6 +346,13 @@ func CreateOrder(c *gin.Context) {
 		})
 		return
 	}
+	if req.TradeInAmount > 0 && (req.TradeInAccountID == nil || *req.TradeInAccountID == 0) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "以旧换新必须选择实际付款账户",
+		})
+		return
+	}
 	if employee, isEmployeeToken, err := currentEmployeeScope(c); isEmployeeToken {
 		if err != nil {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "员工身份无效，请重新登录"})
@@ -333,6 +369,16 @@ func CreateOrder(c *gin.Context) {
 			tx.Rollback()
 		}
 	}()
+	if err := lockAIImport(tx, req.AIImportID, "order", c.GetString("username")); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": err.Error()})
+		return
+	}
+	if err := lockAgentAction(tx, req.AgentActionID, c.GetString("username"), "order"); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": err.Error()})
+		return
+	}
 
 	// 1.5 提前生成订单号（用于关联流水）
 	orderTime := time.Now()
@@ -355,6 +401,7 @@ func CreateOrder(c *gin.Context) {
 	orderNo := GenerateOrderNo(orderTime, dailySeq)
 
 	var totalAmount float64
+	var commissionableSales float64
 	orderItems := make([]models.OrderItem, 0)
 
 	// 3. 校验库存并计算总价
@@ -461,6 +508,9 @@ func CreateOrder(c *gin.Context) {
 		}
 
 		totalAmount += unitPrice * float64(item.Quantity)
+		if !product.NoCommission {
+			commissionableSales += unitPrice * float64(item.Quantity)
+		}
 		orderItems = append(orderItems, models.OrderItem{
 			ProductID:         item.ProductID,
 			UnitPrice:         unitPrice,
@@ -468,6 +518,7 @@ func CreateOrder(c *gin.Context) {
 			Quantity:          item.Quantity,
 			CloudDeductionQty: cloudDeductionQty,
 			IsGift:            item.IsGift,
+			NoCommission:      product.NoCommission,
 		})
 	}
 
@@ -527,7 +578,7 @@ func CreateOrder(c *gin.Context) {
 	if paymentStatus == 2 {
 		receiptAmount = actualPayAmount
 	}
-	paymentSplits, err := normalizePaymentSplits(tx, req, receiptAmount)
+	paymentSplits, err := normalizePaymentSplits(tx, req, receiptAmount, subsidyAmount)
 	if err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -544,14 +595,18 @@ func CreateOrder(c *gin.Context) {
 
 	// 5.5 计算默认业务提成金额
 	var commissionAmount float64
-	if req.EmployeeID != nil && !req.NoCommission {
+	if req.OrderType == 2 {
+		commissionAmount = float64(chamberCommissionCents(commissionableSales)) / 100
+	} else if req.EmployeeID != nil && !req.NoCommission {
 		var employee models.Employee
 		if err := tx.First(&employee, *req.EmployeeID).Error; err == nil {
-			commissionBase := actualPayAmount
-			if req.IsSubsidy {
-				commissionBase = baseAmount
-			}
-			commissionAmount = commissionBase * employee.CommissionRate
+			commissionBase := commissionableOrderAmount(
+				totalAmount,
+				actualPayAmount,
+				commissionableSales,
+				req.IsSubsidy,
+			)
+			commissionAmount = float64(moneyCents(commissionBase*employee.CommissionRate)) / 100
 		}
 	}
 	if req.NoCommission && req.ReferrerName == "" {
@@ -677,6 +732,16 @@ func CreateOrder(c *gin.Context) {
 		return
 	}
 
+	if err := completeAIImport(tx, req.AIImportID, order.ID); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": err.Error()})
+		return
+	}
+	if err := completeAgentAction(tx, req.AgentActionID, order.ID); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": err.Error()})
+		return
+	}
 	// 10. 提交事务
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "事务提交失败"})
@@ -1710,6 +1775,10 @@ func UpdateOrderCommission(c *gin.Context) {
 	var order models.Order
 	if err := config.DB.First(&order, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "订单不存在"})
+		return
+	}
+	if order.OrderType == 2 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "商会订单提成固定为订单金额的 1%，并自动平分，不能手动调整"})
 		return
 	}
 

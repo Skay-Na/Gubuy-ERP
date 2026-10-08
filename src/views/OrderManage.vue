@@ -1,11 +1,12 @@
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
+  <div class="order-workspace min-w-0 w-full pb-24">
     <!-- Header Section -->
     <div class="mb-8">
       <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4 mb-6">
         <div>
           <h1 class="text-2xl md:text-3xl font-black text-slate-900 tracking-tight mb-1 whitespace-nowrap">订单管理与历史</h1>
           <p class="text-sm text-slate-400">查看和管理所有的销售订单及款项流转</p>
+          <el-button class="mt-3" type="primary" plain @click="$router.push('/admin/ai-import?kind=order')">拍照导入订单</el-button>
         </div>
         <div class="hidden md:block w-full md:max-w-3xl">
           <div class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm space-y-3">
@@ -24,11 +25,12 @@
             </div>
             <div class="grid grid-cols-12 gap-3">
               <el-date-picker
-                v-model="dateRange"
-                type="daterange"
-                range-separator="至"
-                start-placeholder="开始日期"
-                end-placeholder="结束日期"
+                v-model="selectedMonth"
+                type="month"
+                format="YYYY-MM"
+                value-format="YYYY-MM"
+                placeholder="订单月份"
+                clearable
                 class="!w-full shadow-sm col-span-6"
                 @change="fetchOrders"
               />
@@ -117,19 +119,25 @@
 
     <!-- Data Table Card -->
     <el-card shadow="never" class="!rounded-2xl border-slate-100 shadow-sm overflow-hidden" body-class="!p-0">
+      <div class="hidden md:flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-white">
+        <span class="text-sm font-bold text-slate-700">{{ activeMobileTabLabel }} <span class="font-normal text-slate-400">· {{ orders.length }} 单</span></span>
+        <span class="text-xs text-slate-400">点击详情展开商品、账务与履约操作</span>
+      </div>
       <!-- PC View -->
       <el-table 
+        ref="ordersTable"
         :data="orders" 
+        row-key="id"
         v-loading="loading" 
         style="width: 100%" 
-        class="desktop-only hidden md:block"
+        class="orders-desktop-table desktop-only hidden md:block"
         :header-cell-style="{ background: '#f8fafc', color: '#475569', fontWeight: '600', height: '54px' }"
         :row-style="{ height: '64px' }"
         :row-class-name="({row}) => row.order_status === 2 ? 'opacity-50 grayscale' : ''"
       >
-        <el-table-column type="expand">
+        <el-table-column type="expand" width="36">
           <template #default="{ row }">
-            <div class="px-8 py-6 bg-slate-50/50">
+            <div class="min-w-0 p-4 bg-slate-50/50">
               <div class="flex justify-between items-center mb-4">
                 <h4 class="text-base font-bold text-slate-800">订单深度明细</h4>
                 <div class="flex gap-2">
@@ -326,80 +334,60 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column prop="order_no" label="订单号" min-width="180" />
-        <el-table-column label="客户信息" min-width="150">
+        <el-table-column label="订单 / 客户 / 商品" min-width="180">
           <template #default="{ row }">
-            <div class="flex flex-col gap-0.5">
-              <div class="flex items-center gap-1">
-                <span class="font-bold text-slate-700">{{ row.customer_name || '散客' }}</span>
+            <div class="flex flex-col gap-0.5 py-1">
+              <div class="flex items-center gap-1 min-w-0">
+                <span class="font-bold text-slate-800 truncate" :title="row.customer_name || '散客'">{{ row.customer_name || '散客' }}</span>
                 <el-tag v-if="row.trade_in_amount > 0" size="small" type="success" effect="plain" class="!rounded-md !px-1 shrink-0">♻️ 换新</el-tag>
                 <el-tag v-if="isBossCustomerOrder(row)" size="small" type="warning" effect="plain" class="!rounded-md !px-1 shrink-0">老板客</el-tag>
                 <el-tag v-if="row.order_type === 2" size="small" type="danger" effect="plain" class="!rounded-md !px-1 shrink-0">商会订单</el-tag>
               </div>
-              <span class="text-[10px] text-slate-400 font-mono">{{ row.customer_phone || '-' }}</span>
+              <span class="text-xs text-slate-600 truncate" :title="getOrderProductSummary(row)">{{ getOrderProductSummary(row) }}</span>
+              <span class="text-[11px] text-slate-400 font-mono truncate" :title="row.order_no">{{ row.order_no }} · {{ row.customer_phone || '无电话' }} · {{ formatDate(row.created_at).slice(5, 16) }}</span>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="商品信息" min-width="200">
+        <el-table-column label="金额 / 提成" min-width="110" align="right">
           <template #default="{ row }">
-            <div class="flex flex-col gap-1 my-1">
-              <div v-for="item in row.order_items" :key="item.id" class="text-xs leading-tight">
-                <span class="font-bold text-slate-700">{{ item.product?.name || '未知商品' }}</span>
-                <span class="text-slate-500 ml-1">({{ item.product?.category?.name || getProductCategoryName(item.product?.category_id) }})</span>
+            <div class="flex flex-col items-end gap-1">
+              <span class="font-bold text-slate-900">¥{{ row.total_amount.toFixed(2) }}</span>
+              <div class="flex items-center gap-1 group text-xs" :class="row.order_type === 2 ? '' : 'cursor-pointer'" @click="row.order_type !== 2 && openCommissionDialog(row)">
+                <span class="text-slate-400">提成</span><span class="font-bold text-orange-600">¥{{ displayedCommissionAmount(row).toFixed(2) }}</span>
+              <el-icon v-if="row.order_type !== 2" class="text-slate-300 group-hover:text-blue-500 transition-colors"><Edit /></el-icon>
               </div>
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="订单金额" width="120">
+        <el-table-column label="业务状态" min-width="110">
           <template #default="{ row }">
-            <span class="font-bold text-slate-900">¥{{ row.total_amount.toFixed(2) }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="业务提成" width="120">
-          <template #default="{ row }">
-            <div class="flex items-center gap-1 cursor-pointer group" @click="openCommissionDialog(row)">
-              <span class="font-bold text-orange-600">¥{{ (row.commission_amount || 0).toFixed(2) }}</span>
-              <el-tag v-if="isBossCustomerOrder(row)" size="small" type="warning" effect="plain" class="!h-5">老板客</el-tag>
-              <el-icon class="text-slate-300 group-hover:text-blue-500 transition-colors"><Edit /></el-icon>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="支付状态" width="100" align="center">
-          <template #default="{ row }">
+            <div class="flex flex-wrap gap-1">
             <el-tag v-if="row.order_status === 2" type="info">已取消</el-tag>
             <el-tag v-else :type="row.payment_status === 2 ? 'success' : 'warning'">
               {{ row.payment_status === 1 ? '定金' : '全款' }}
             </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="配送与安装" width="140" align="center">
-          <template #default="{ row }">
             <template v-if="row.order_status !== 2">
               <el-tag v-if="row.is_installed" type="success" effect="plain">已安装</el-tag>
               <el-tag v-else-if="row.is_delivered" type="primary" effect="plain">已送货/待安装</el-tag>
               <el-tag v-else-if="row.order_items && row.order_items.some(it => it.is_delivered || it.is_installed)" type="warning" effect="plain">部分履约</el-tag>
               <el-tag v-else type="info" effect="plain">待送货</el-tag>
             </template>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="国补状态" width="110" align="center">
-          <template #default="{ row }">
             <el-tag v-if="row.order_status !== 2 && row.subsidy_status !== 0" :type="getSubsidyType(row.subsidy_status)" effect="light">
               {{ getSubsidyLabel(row.subsidy_status) }}
             </el-tag>
-            <span v-else-if="row.subsidy_status === 0" class="text-xs text-slate-300">无补贴</span>
-            <span v-else>-</span>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" fixed="right" align="center">
+        <el-table-column label="操作" min-width="150" align="center">
           <template #default="{ row }">
-            <div v-if="row.order_status === 1" class="flex items-center justify-center gap-2">
-              <el-button v-slot v-if="row.payment_status === 1" type="success" size="small" @click="handlePayBalance(row)">结清</el-button>
-              <el-dropdown trigger="click">
+            <div class="order-row-actions flex flex-wrap items-center justify-center gap-1">
+              <el-button size="small" plain @click="ordersTable?.toggleRowExpansion(row)">详情</el-button>
+              <el-button v-if="row.order_status === 1" :type="getPrimaryAction(row).type" size="small" @click="runPrimaryAction(row)">{{ getPrimaryAction(row).label }}</el-button>
+              <el-dropdown v-if="row.order_status === 1" trigger="click">
                 <el-button size="small" class="px-2"><el-icon><MoreFilled /></el-icon></el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
+                    <el-dropdown-item v-if="row.payment_status === 1" @click="handlePayBalance(row)">结清尾款</el-dropdown-item>
                     <el-dropdown-item @click="openReceiptPreview(row)">打印小票</el-dropdown-item>
                     <el-dropdown-item v-if="row.subsidy_status === 1" @click="handleSubmitSubsidy(row)">提交国补</el-dropdown-item>
                     <el-dropdown-item @click="openCommissionDialog(row)">调整提成</el-dropdown-item>
@@ -410,56 +398,35 @@
                 </template>
               </el-dropdown>
             </div>
-            <span v-else class="text-xs text-slate-400">-</span>
           </template>
         </el-table-column>
       </el-table>
 
-      <!-- Mobile View -->
-      <div class="mobile-only md:hidden p-3 space-y-3 bg-slate-50" v-loading="loading">
-        <div
-          v-for="row in orders"
-          :key="row.id"
-          class="bg-white border border-slate-100 rounded-2xl p-4 shadow-sm active:scale-[0.99] transition-transform"
-          :class="row.order_status === 2 ? 'opacity-60' : ''"
-        >
-          <div class="flex justify-between items-start gap-3 mb-3">
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-2 mb-1">
-                <div class="font-black text-slate-900 text-base truncate">{{ row.customer_name || '散客' }}</div>
-                <el-tag v-if="isBossCustomerOrder(row)" size="small" type="warning" effect="plain" class="!rounded-md">老板客</el-tag>
-              </div>
-              <div class="text-[10px] text-slate-400 font-mono truncate">{{ row.order_no }}</div>
-              <div class="text-xs text-slate-400 mt-1">{{ row.customer_phone || '无电话' }}</div>
+      <!-- Compact mobile list -->
+      <div class="md:hidden divide-y divide-slate-100 bg-white" v-loading="loading">
+        <article v-for="row in orders" :key="row.id" class="px-3 py-3" :class="row.order_status === 2 ? 'opacity-60' : ''">
+          <div class="flex items-center justify-between gap-2">
+            <button class="flex min-w-0 items-center gap-2 text-left" @click="openOrderDetail(row)">
+              <span class="truncate text-sm font-bold text-slate-900">{{ row.customer_name || '散客' }}</span>
+              <span v-if="isBossCustomerOrder(row)" class="shrink-0 text-[10px] text-amber-600">老板客</span>
+            </button>
+            <span class="shrink-0 text-sm font-bold tabular-nums text-slate-900">¥{{ row.total_amount.toFixed(2) }}</span>
+          </div>
+          <button class="mt-1 block w-full truncate text-left text-xs text-slate-600" @click="openOrderDetail(row)">{{ getOrderProductSummary(row) }}</button>
+          <div class="mt-1 flex flex-wrap gap-x-2 text-[10px] text-slate-400">
+            <span>{{ row.order_no }}</span><span>{{ row.customer_phone || '无电话' }}</span><span>{{ formatDate(row.created_at).slice(5, 16) }}</span>
+          </div>
+          <div class="mt-2 flex items-center justify-between gap-2">
+            <div class="flex min-w-0 flex-wrap gap-1">
+              <span v-for="tag in getOrderStatusTags(row)" :key="tag.label" class="text-[10px] leading-5" :class="{ 'text-green-600': tag.type === 'success', 'text-amber-600': tag.type === 'warning', 'text-blue-600': tag.type === 'primary', 'text-red-500': tag.type === 'danger', 'text-slate-500': tag.type === 'info' }">{{ tag.label }}</span>
             </div>
-            <div class="text-right shrink-0">
-              <div class="text-slate-950 font-black text-lg leading-none">¥{{ row.total_amount.toFixed(2) }}</div>
-              <div class="text-[10px] text-slate-400 mt-1">{{ formatDate(row.created_at).slice(5, 16) }}</div>
+            <div class="order-row-actions flex shrink-0 items-center gap-1">
+              <el-button size="small" text @click="openOrderDetail(row)">详情</el-button>
+              <el-button v-if="row.order_status === 1" size="small" :type="getPrimaryAction(row).type" @click="runPrimaryAction(row)">{{ getPrimaryAction(row).label }}</el-button>
+              <el-button v-else size="small" @click="openReceiptPreview(row)">打印</el-button>
             </div>
           </div>
-
-          <div class="flex flex-wrap gap-1.5 mb-3">
-            <el-tag v-for="tag in getOrderStatusTags(row)" :key="tag.label" size="small" :type="tag.type" effect="light" class="!rounded-md">
-              {{ tag.label }}
-            </el-tag>
-          </div>
-
-          <button class="w-full text-left bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 mb-3" @click="openOrderDetail(row)">
-            <div class="text-xs font-bold text-slate-700 truncate">{{ getOrderProductSummary(row) }}</div>
-            <div class="text-[10px] text-slate-400 mt-1">点开查看商品、账务、履约和更多操作</div>
-          </button>
-
-          <div v-if="row.order_status === 1" class="grid grid-cols-[1fr_1.4fr] gap-2">
-            <el-button size="small" class="!rounded-xl" @click="openOrderDetail(row)">详情</el-button>
-            <el-button size="small" :type="getPrimaryAction(row).type" class="!rounded-xl !font-bold" @click="runPrimaryAction(row)">
-              {{ getPrimaryAction(row).label }}
-            </el-button>
-          </div>
-          <div v-else class="grid grid-cols-2 gap-2">
-            <el-button size="small" class="!rounded-xl" @click="openOrderDetail(row)">详情</el-button>
-            <el-button size="small" class="!rounded-xl" @click="openReceiptPreview(row)">打印小票</el-button>
-          </div>
-        </div>
+        </article>
         <el-empty v-if="!loading && orders.length === 0" description="暂无订单" />
       </div>
     </el-card>
@@ -660,26 +627,14 @@
     <el-drawer v-model="filterDrawerVisible" title="筛选订单" direction="btt" size="78%" class="md:hidden">
       <div class="space-y-4">
         <div>
-          <label class="block text-sm font-bold text-slate-700 mb-2">日期范围</label>
-          <div class="grid grid-cols-2 gap-2">
-            <input
-              :value="dateRange[0] ? dayjs(dateRange[0]).format('YYYY-MM-DD') : ''"
-              type="date"
-              inputmode="none"
-              aria-label="开始日期"
-              class="mobile-native-date-input"
-              @change="updateMobileDateRange(0, $event.target.value)"
-            />
-            <input
-              :value="dateRange[1] ? dayjs(dateRange[1]).format('YYYY-MM-DD') : ''"
-              type="date"
-              inputmode="none"
-              aria-label="结束日期"
-              class="mobile-native-date-input"
-              @change="updateMobileDateRange(1, $event.target.value)"
-            />
-          </div>
-
+          <label class="block text-sm font-bold text-slate-700 mb-2">订单月份</label>
+          <input
+            v-model="selectedMonth"
+            type="month"
+            inputmode="none"
+            aria-label="订单月份"
+            class="mobile-native-date-input"
+          />
         </div>
         <div>
           <label class="block text-sm font-bold text-slate-700 mb-2">产品类型</label>
@@ -720,7 +675,7 @@
       </div>
     </el-drawer>
 
-    <el-drawer v-model="orderDetailVisible" direction="btt" size="86%" class="md:hidden" :with-header="false">
+    <el-drawer v-if="isMobileView" v-model="orderDetailVisible" direction="btt" size="86%" class="md:hidden" :with-header="false">
       <div v-if="detailOrder" class="h-full flex flex-col">
         <div class="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
           <div class="min-w-0">
@@ -797,7 +752,8 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import request from '../utils/request'
 import { downloadExcel } from '../utils/export'
 import { buildReceiptFromOrder } from '../utils/receipt'
@@ -806,11 +762,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, InfoFilled, MoreFilled, Edit } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 
+const route = useRoute()
+
 const orders = ref([])
 const allOrders = ref([])
 const loading = ref(false)
 const searchKeyword = ref('')
-const dateRange = ref([])
+const selectedMonth = ref('')
 const activeTab = ref('all')
 const categories = ref([])
 const selectedCategoryId = ref('')
@@ -823,6 +781,7 @@ const currentReceipt = ref(null)
 const filterDrawerVisible = ref(false)
 const orderDetailVisible = ref(false)
 const detailOrder = ref(null)
+const ordersTable = ref(null)
 const viewportWidth = ref(typeof window === 'undefined' ? 1024 : window.innerWidth)
 const isMobileView = computed(() => viewportWidth.value < 768)
 const handleViewportResize = () => {
@@ -887,12 +846,6 @@ const mobileInstallTime = computed({
   set: value => { selectedInstallTime.value = value ? new Date(value) : null }
 })
 
-const updateMobileDateRange = (index, value) => {
-  const range = [dateRange.value?.[0] || '', dateRange.value?.[1] || '']
-  range[index] = value
-  dateRange.value = range.some(Boolean) ? range : []
-}
-
 const selectTab = (val) => {
   activeTab.value = val
   fetchOrders()
@@ -915,9 +868,9 @@ const buildOrderQueryParams = () => {
     subsidy_status: selectedSubsidyStatus.value,
     order_status: selectedOrderStatus.value,
   }
-  if (dateRange.value?.[0] && dateRange.value?.[1]) {
-    params.start_date = dayjs(dateRange.value[0]).startOf('day').toISOString()
-    params.end_date = dayjs(dateRange.value[1]).endOf('day').toISOString()
+  if (selectedMonth.value) {
+    params.start_date = dayjs(selectedMonth.value).startOf('month').toISOString()
+    params.end_date = dayjs(selectedMonth.value).endOf('month').toISOString()
   }
   Object.keys(params).forEach(key => {
     if (params[key] === '' || params[key] === null || params[key] === undefined) delete params[key]
@@ -1044,13 +997,39 @@ const openOrderDetail = (row) => {
   orderDetailVisible.value = true
 }
 
+const openLinkedOrder = async orderNo => {
+	const normalizedOrderNo = String(orderNo || '').trim()
+	if (!normalizedOrderNo) return false
+	activeTab.value = 'all'
+	selectedMonth.value = ''
+	selectedCategoryId.value = ''
+	selectedPaymentStatus.value = ''
+	selectedFulfillmentStatus.value = ''
+	selectedSubsidyStatus.value = ''
+	selectedOrderStatus.value = ''
+	searchKeyword.value = normalizedOrderNo
+	await fetchOrders()
+	const target = allOrders.value.find(order => order.order_no === normalizedOrderNo)
+	if (!target) {
+		ElMessage.warning(`未找到订单 ${normalizedOrderNo}`)
+		return false
+	}
+	await nextTick()
+	if (isMobileView.value) {
+		openOrderDetail(target)
+	} else {
+		ordersTable.value?.toggleRowExpansion(target, true)
+	}
+	return true
+}
+
 const applyMobileFilters = () => {
   filterDrawerVisible.value = false
   fetchOrders()
 }
 
 const resetMobileFilters = () => {
-  dateRange.value = []
+  selectedMonth.value = ''
   selectedCategoryId.value = ''
   selectedPaymentStatus.value = ''
   selectedFulfillmentStatus.value = ''
@@ -1117,8 +1096,12 @@ const getSubsidyType = (status) => {
 }
 
 const isBossCustomerOrder = (row) => {
-  return row?.referrer_name === '老板客户' && Number(row?.commission_amount || 0) === 0
+  return row?.order_type !== 2 && row?.referrer_name === '老板客户' && Number(row?.commission_amount || 0) === 0
 }
+
+const displayedCommissionAmount = row => row?.order_type === 2
+  ? Math.round(Number(row.total_amount || 0) * 0.01 * 100) / 100
+  : Number(row?.commission_amount || 0)
 
 const isOrderFulfilled = (row) => {
   if (!row || row.order_status !== 1) return false
@@ -1296,6 +1279,7 @@ const commissionTargetOrder = ref(null)
 const newCommissionAmount = ref(0)
 
 const openCommissionDialog = (row) => {
+  if (row.order_type === 2) return
   commissionTargetOrder.value = row
   newCommissionAmount.value = row.commission_amount || 0
   if (isMobileView.value) orderDetailVisible.value = false
@@ -1344,11 +1328,15 @@ const confirmUpdateReferralFee = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   window.addEventListener('resize', handleViewportResize)
   if (isMobileView.value) activeTab.value = 'todo'
   fetchCategories()
-  fetchOrders()
+  if (!(await openLinkedOrder(route.query.order_no))) await fetchOrders()
+})
+
+watch(() => route.query.order_no, (orderNo, previousOrderNo) => {
+	if (orderNo && orderNo !== previousOrderNo) openLinkedOrder(orderNo)
 })
 
 onUnmounted(() => {
@@ -1358,6 +1346,13 @@ onUnmounted(() => {
 
 <style scoped>
 :deep(.el-card__body) { padding: 0; }
+.order-row-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.orders-desktop-table :deep(.cell) { padding: 0 8px; overflow-wrap: anywhere; }
+.orders-desktop-table :deep(.el-table__expanded-cell) { padding: 0; }
+.orders-desktop-table :deep(.el-table__expanded-cell > div) { max-width: 100%; }
+@media (max-width: 767px) {
+  .order-workspace { margin-inline: -8px; width: calc(100% + 16px); }
+}
 .mobile-native-date-input {
   width: 100%;
   min-height: 40px;

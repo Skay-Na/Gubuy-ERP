@@ -16,12 +16,11 @@ test('actualReceipt returns totalPayable in full-pay mode', () => {
   assert.match(body ?? '', /isDepositMode\.value \? depositAmount\.value : totalPayable\.value/)
 })
 
-test('mixedPaymentTarget returns actualReceipt (not actualReceipt + subsidyAmount)', () => {
+test('subsidized full-payment mixed split includes the POS gross subsidy amount', () => {
   const body = extractComputed('mixedPaymentTarget')
   assert.ok(body, 'mixedPaymentTarget computed 应存在')
-  assert.match(body, /return actualReceipt\.value/)
-  // 防止历史 BUG-3 复发：不能加 subsidyAmount
-  assert.doesNotMatch(body, /\+= subsidyAmount|subsidyAmount\.value\)/)
+  assert.match(body, /isSubsidized\.value && !isDepositMode\.value/)
+  assert.match(body, /actualReceipt\.value[\s\S]*subsidyAmount\.value/)
 })
 
 test('mixedPaymentTotal sums all split amounts', () => {

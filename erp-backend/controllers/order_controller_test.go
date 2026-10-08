@@ -40,6 +40,37 @@ func TestOrderCostFallsBackToLatestCostWhenAverageCostIsUnset(t *testing.T) {
 	}
 }
 
+func TestCommissionableOrderAmount(t *testing.T) {
+	tests := []struct {
+		name                string
+		totalAmount         float64
+		actualPayAmount     float64
+		commissionableSales float64
+		isSubsidy           bool
+		want                float64
+	}{
+		{name: "all products commissionable", totalAmount: 1000, actualPayAmount: 900, commissionableSales: 1000, want: 900},
+		{name: "discount allocated proportionally", totalAmount: 1000, actualPayAmount: 900, commissionableSales: 600, want: 540},
+		{name: "subsidy keeps original sales basis", totalAmount: 1000, actualPayAmount: 850, commissionableSales: 600, isSubsidy: true, want: 600},
+		{name: "all products excluded", totalAmount: 1000, actualPayAmount: 900, commissionableSales: 0, want: 0},
+		{name: "zero value order", totalAmount: 0, actualPayAmount: 0, commissionableSales: 0, want: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := commissionableOrderAmount(
+				tt.totalAmount,
+				tt.actualPayAmount,
+				tt.commissionableSales,
+				tt.isSubsidy,
+			)
+			if got != tt.want {
+				t.Fatalf("commissionableOrderAmount() = %.2f, want %.2f", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestApplyOrderFiltersKeywordMatchesSubsidyOrders(t *testing.T) {
 	sql := dryRunOrderFilterSQL(t, "国补")
 

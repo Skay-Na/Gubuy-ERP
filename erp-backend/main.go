@@ -3,10 +3,14 @@
 package main
 
 import (
+	"erp-backend/agentnative"
 	"erp-backend/config"
+	"erp-backend/middlewares"
 	"erp-backend/models"
 	"erp-backend/routers"
 	"fmt"
+	"log"
+	"os"
 
 	_ "erp-backend/docs"
 )
@@ -20,14 +24,24 @@ import (
 // @name Authorization
 // @description Use the value: Bearer {token}
 func main() {
+	if err := middlewares.LoadJWTSecretFromEnvironment(); err != nil {
+		log.Fatal("invalid JWT configuration: JWT_SECRET must be set to a secret of at least 32 bytes")
+	}
 	// 1. 初始化数据库
 	config.InitDB()
+	if os.Getenv("AGENT_RUNTIME_ENABLED") == "1" {
+		agentnative.StartRuntimeWorker(config.DB)
+	} else if os.Getenv("AGENT_MONITOR_ENABLED") == "1" {
+		agentnative.StartDailyMonitor(config.DB)
+	}
 
 	// 自动初始化拼音索引
 	config.AutoInitPinyin()
 
-	// 2. 插入测试数据 (如果数据库为空)
-	seedData()
+	// 演示数据只能在明确指定的隔离环境中启用。
+	if os.Getenv("ERP_SEED_DEMO_DATA") == "1" {
+		seedData()
+	}
 
 	// 3. 初始化路由
 	r := routers.SetupRouter()
@@ -47,11 +61,20 @@ func strPtr(s string) *string {
 // seedData 插入 Mock 数据
 func seedData() {
 	var count int64
-	config.DB.Model(&models.Product{}).Count(&count)
+	if err := config.DB.Model(&models.Product{}).Count(&count).Error; err != nil {
+		log.Printf("demo product count failed: %v", err)
+		return
+	}
 	if count == 0 {
+		category := models.Category{Name: "演示商品"}
+		if err := config.DB.Where("name = ?", category.Name).FirstOrCreate(&category).Error; err != nil {
+			log.Printf("demo category creation failed: %v", err)
+			return
+		}
 		products := []models.Product{
 			{
 				Name:        "海尔冰箱 BCD-500",
+				CategoryID:  category.ID,
 				Remark:      strPtr("HR-RF-500"),
 				LatestCost:  3200.00,
 				MarginRate:  0.15,
@@ -61,6 +84,7 @@ func seedData() {
 			},
 			{
 				Name:        "美的洗衣机 MD-100",
+				CategoryID:  category.ID,
 				Remark:      strPtr("MD-WM-100"),
 				LatestCost:  1800.00,
 				MarginRate:  0.12,
@@ -70,6 +94,7 @@ func seedData() {
 			},
 			{
 				Name:        "小米电视 65寸",
+				CategoryID:  category.ID,
 				Remark:      strPtr("XM-TV-65"),
 				LatestCost:  2500.00,
 				MarginRate:  0.10,
@@ -78,7 +103,10 @@ func seedData() {
 				SampleStock: 0,
 			},
 		}
-		config.DB.Create(&products)
+		if err := config.DB.Create(&products).Error; err != nil {
+			log.Printf("demo product creation failed: %v", err)
+			return
+		}
 		fmt.Println("Inserted 3 mock products into database.")
 	}
 

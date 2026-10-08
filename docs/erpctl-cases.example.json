@@ -1,0 +1,123 @@
+[
+  {
+    "name": "跨月销售对比",
+    "question": "2026年8月和9月销售情况对比",
+    "contains": [
+      "8月",
+      "9月"
+    ],
+    "not_contains": [
+      "查询参数：",
+      "\"dataset\""
+    ],
+    "assertions": {
+      "topic": "sales",
+      "metrics": [
+        "sales_revenue",
+        "order_count",
+        "units",
+        "average_order"
+      ],
+      "periods": [
+        {
+          "start": "2026-08-01",
+          "end": "2026-08-31"
+        },
+        {
+          "start": "2026-09-01",
+          "end": "2026-09-30"
+        }
+      ]
+    }
+  },
+  {
+    "name": "国补未回款",
+    "question": "国补还有多少没有回款",
+    "contains": [],
+    "not_contains": [
+      "查询参数：",
+      "\"dataset\""
+    ],
+    "assertions": {
+      "topic": "subsidy",
+      "metrics": [
+        "subsidy_pending"
+      ]
+    }
+  },
+  {
+    "name": "模糊问上月销售表现",
+    "question": "上个月卖得怎么样",
+    "not_contains": [
+      "查询参数：",
+      "\"dataset\""
+    ],
+    "assertions": {
+      "topic": "sales",
+      "metrics": [
+        "sales_revenue",
+        "order_count",
+        "units",
+        "average_order"
+      ]
+    }
+  },
+  {
+    "name": "模糊问上月收支概况",
+    "question": "上个月收支情况怎么样",
+    "not_contains": [
+      "查询参数：",
+      "\"dataset\""
+    ],
+    "assertions": {
+      "topic": "cashflow",
+      "metrics": [
+        "cash_in",
+        "cash_out"
+      ]
+    }
+  },
+  {
+    "name": "预测样本不足时给出解释",
+    "question": "未来三个月销售额大概多少",
+    "contains": [
+      "预测"
+    ],
+    "not_contains": [
+      "查询参数：",
+      "\"dataset\"",
+      "分析还未完成",
+      "未能生成可靠的分析结论"
+    ],
+    "assertions": {
+      "topic": "sales",
+      "metrics": [
+        "sales_revenue"
+      ]
+    }
+  },
+  {
+    "name": "多轮追问纠正指标",
+    "turns": [
+      "2026年8月和9月销售情况对比",
+      "那9月呢",
+      "我说的是订单数量"
+    ],
+    "not_contains": [
+      "查询参数：",
+      "\"dataset\""
+    ],
+    "assertions": {
+      "topic": "sales",
+      "metrics": [
+        "order_count"
+      ],
+      "periods": [
+        {
+          "start": "2026-09-01",
+          "end": "2026-09-30"
+        }
+      ]
+    }
+  }
+]

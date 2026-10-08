@@ -132,17 +132,18 @@
     </aside>
 
     <!-- Main Content Area -->
-    <main class="flex-1 overflow-hidden flex flex-col relative z-0 bg-slate-50">
+    <main class="min-w-0 flex-1 overflow-hidden flex flex-col relative z-0 bg-slate-50">
       <div
         ref="scrollContainer"
         :style="{ paddingTop: scrollPaddingTop }"
-        class="flex-1 overflow-y-auto px-4 md:px-8 pt-0 md:pt-8 scroll-smooth will-change-scroll pb-[env(safe-area-inset-bottom)] transition-[padding-top] duration-300 ease-out"
+        class="min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-4 md:px-8 pt-0 md:pt-8 scroll-smooth will-change-scroll pb-[env(safe-area-inset-bottom)] transition-[padding-top] duration-300 ease-out"
       >
-        <div class="max-w-7xl mx-auto w-full">
+        <div class="min-w-0 max-w-7xl mx-auto w-full">
           <router-view />
         </div>
       </div>
     </main>
+	<AIChatAssistant />
 
 
   </div>
@@ -154,18 +155,18 @@ import {
   DataLine,
   ShoppingCart,
   Box,
-  DocumentCopy,
   Memo,
   Fold,
   User,
-  List,
   SwitchButton,
   Close,
   Setting,
-  Money
+  Money,
+  EditPen
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../utils/request'
+import AIChatAssistant from '../components/AIChatAssistant.vue'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -337,27 +338,28 @@ onUnmounted(() => {
   }
 })
 
-const menuItems = ref([
+const menuItems = [
+  { title: 'AI 店长', path: '/admin/ai-manager', icon: DataLine },
   { title: '看板', path: '/admin/dashboard', icon: DataLine },
   { title: '收银', path: '/admin/pos', icon: ShoppingCart },
   { title: '商品', path: '/admin/products', icon: Box },
-  { title: '入库', path: '/admin/purchase', icon: DocumentCopy },
-  { title: '库存流水', path: '/admin/inventory-logs', icon: List },
   { title: '订单', path: '/admin/orders', icon: Memo },
+  { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
   { title: '财务', path: '/admin/finance', icon: DataLine },
   { title: '国补管理', path: '/admin/subsidy', icon: Money },
   { title: '员工', path: '/admin/employees', icon: User },
   { title: '系统设置', path: '/admin/settings', icon: Setting },
-])
+]
 
-const mobileMenuItems = ref([
+const mobileMenuItems = [
+  { title: 'AI 店长', path: '/admin/ai-manager', icon: DataLine },
   { title: '看板', path: '/admin/dashboard', icon: DataLine },
   { title: '收银', path: '/admin/pos', icon: ShoppingCart },
   { title: '商品', path: '/admin/products', icon: Box },
-  { title: '库存流水', path: '/admin/inventory-logs', icon: List },
   { title: '订单', path: '/admin/orders', icon: Memo },
+  { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
   { title: '国补', path: '/admin/subsidy', icon: Money },
-])
+]
 </script>
 
 <style>

@@ -1,0 +1,301 @@
+package agentnative
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"math"
+	"time"
+
+	"erp-backend/models"
+	"erp-backend/services"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+const SingleTenant = "single"
+
+type StockObservation struct {
+	ProductID   uint `json:"product_id"`
+	Available   int  `json:"available"`
+	Sales30Days int  `json:"sales_30_days"`
+}
+
+type LowStockAssessment struct {
+	Threshold int
+	Quantity  int
+	Eligible  bool
+}
+
+// AssessLowStock requires at least three sales in the observation window.
+// The threshold is a seven-day sales estimate; the draft aims for fourteen days.
+// Neither number claims to include lead time or supplier availability.
+func AssessLowStock(o StockObservation) LowStockAssessment {
+	if o.Available < 0 || o.Sales30Days < 3 {
+		return LowStockAssessment{}
+	}
+	threshold := int(math.Ceil(float64(o.Sales30Days) * 7 / 30))
+	if threshold < 2 {
+		threshold = 2
+	}
+	if o.Available >= threshold {
+		return LowStockAssessment{Threshold: threshold}
+	}
+	target := int(math.Ceil(float64(o.Sales30Days) * 14 / 30))
+	if target < threshold {
+		target = threshold
+	}
+	quantity := target - o.Available
+	if quantity > 100 {
+		quantity = 100
+	}
+	return LowStockAssessment{Threshold: threshold, Quantity: quantity, Eligible: true}
+}
+
+type MonitorService struct {
+	DB  *gorm.DB
+	Now func() time.Time
+}
+
+func (s MonitorService) now() time.Time {
+	if s.Now != nil {
+		return s.Now()
+	}
+	return time.Now()
+}
+
+// Observe reads the same business product and sales records used by ERP pages.
+// It never changes stock, cost, orders or account balances.
+func (s MonitorService) Observe(ctx context.Context) ([]StockObservation, error) {
+	if s.DB == nil {
+		return nil, errors.New("database unavailable")
+	}
+	now := s.now()
+	contexts, err := (services.RetailReadService{DB: s.DB}).GetReplenishmentContext(ctx, now.AddDate(0, 0, -30), now)
+	if err != nil {
+		return nil, fmt.Errorf("read replenishment context: %w", err)
+	}
+	observations := make([]StockObservation, 0, len(contexts))
+	for _, item := range contexts {
+		observations = append(observations, StockObservation{
+			ProductID: item.ProductID, Available: item.Available, Sales30Days: item.Sales,
+		})
+	}
+	return observations, nil
+}
+
+// Scan writes at most one low-stock signal per product per local day.
+// A unique fingerprint makes repeated scheduler calls idempotent.
+func (s MonitorService) Scan(ctx context.Context) (int, error) {
+	observations, err := s.Observe(ctx)
+	if err != nil {
+		return 0, err
+	}
+	openSignals := []models.AgentSignal{}
+	if err := s.DB.WithContext(ctx).Select("product_id").
+		Where("tenant_id = ? AND signal_type = ? AND status = ?", SingleTenant, "low_stock", "open").
+		Find(&openSignals).Error; err != nil {
+		return 0, fmt.Errorf("read open signals: %w", err)
+	}
+	openProducts := make(map[uint]bool, len(openSignals))
+	for _, signal := range openSignals {
+		openProducts[signal.ProductID] = true
+	}
+	count := 0
+	for _, observation := range observations {
+		assessment := AssessLowStock(observation)
+		if !assessment.Eligible {
+			if openProducts[observation.ProductID] {
+				if err := s.resolveRecoveredStock(ctx, observation.ProductID); err != nil {
+					return count, err
+				}
+			}
+			continue
+		}
+		if openProducts[observation.ProductID] {
+			continue
+		}
+		metrics, err := json.Marshal(struct {
+			StockObservation
+			Threshold int `json:"threshold"`
+		}{StockObservation: observation, Threshold: assessment.Threshold})
+		if err != nil {
+			return count, fmt.Errorf("encode signal: %w", err)
+		}
+		now := s.now()
+		signal := models.AgentSignal{
+			TenantID:    SingleTenant,
+			Fingerprint: fmt.Sprintf("%s:low_stock:%d:%s", SingleTenant, observation.ProductID, now.Format("2006-01-02")),
+			SignalType:  "low_stock",
+			Severity:    "medium",
+			ProductID:   observation.ProductID,
+			MetricsJSON: string(metrics),
+			Evidence:    "近30天有效订单销量和当前主仓、门店、云仓库存；样机不计入可售库存",
+			Status:      "open",
+			DetectedAt:  now,
+		}
+		inserted := false
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&signal)
+			if result.Error != nil || result.RowsAffected == 0 {
+				return result.Error
+			}
+			inserted = true
+			return tx.Create(&models.AgentWorkTask{
+				TenantID: SingleTenant, SignalID: &signal.ID, Kind: "replenishment",
+				CreatedBy: "system_monitor",
+				Status:    "CREATED", Step: "assess",
+			}).Error
+		})
+		if err != nil {
+			return count, fmt.Errorf("save signal and task: %w", err)
+		}
+		if inserted {
+			count++
+			openProducts[observation.ProductID] = true
+		}
+	}
+	return count, nil
+}
+
+func (s MonitorService) resolveRecoveredStock(ctx context.Context, productID uint) error {
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		signals := []models.AgentSignal{}
+		if err := tx.Where(
+			"tenant_id = ? AND product_id = ? AND signal_type = ? AND status = ?",
+			SingleTenant, productID, "low_stock", "open",
+		).Find(&signals).Error; err != nil {
+			return err
+		}
+		for _, signal := range signals {
+			if err := tx.Model(&signal).Where("status = ?", "open").Update("status", "resolved").Error; err != nil {
+				return err
+			}
+			var task models.AgentWorkTask
+			if err := tx.Where("signal_id = ? AND tenant_id = ?", signal.ID, SingleTenant).First(&task).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.AgentReplenishmentDraft{}).
+				Where("task_id = ? AND tenant_id = ? AND status = ?", task.ID, SingleTenant, "suggested").
+				Update("status", "resolved").Error; err != nil {
+				return err
+			}
+			if err := tx.Create(&models.AgentActivity{
+				TenantID: SingleTenant, TaskID: task.ID, Event: "stock_recovered",
+				Detail: "最新库存与销量不再满足缺货规则，信号和内部草案已关闭",
+			}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// ProcessPending claims persisted work. A stale lease can be reclaimed after
+// a process restart; unique TaskID on drafts prevents duplicate suggestions.
+func (s MonitorService) ProcessPending(ctx context.Context) (int, error) {
+	if s.DB == nil {
+		return 0, errors.New("database unavailable")
+	}
+	if err := NewRuntimeExecutor(s.DB).ReconcileCompletedTasks(ctx); err != nil {
+		return 0, err
+	}
+	now := s.now()
+	var tasks []models.AgentWorkTask
+	err := s.DB.WithContext(ctx).Where(
+		"tenant_id = ? AND attempts < ? AND (status IN (?, ?) OR (status = ? AND lease_until < ?))",
+		SingleTenant, 3, "CREATED", "FAILED", "RUNNING", now,
+	).Order("id").Limit(100).Find(&tasks).Error
+	if err != nil {
+		return 0, fmt.Errorf("read tasks: %w", err)
+	}
+	completed := 0
+	for _, task := range tasks {
+		lease := now.Add(2 * time.Minute)
+		claimed := s.DB.WithContext(ctx).Model(&models.AgentWorkTask{}).
+			Where("id = ? AND tenant_id = ? AND attempts < ? AND (status IN (?, ?) OR (status = ? AND lease_until < ?))",
+				task.ID, SingleTenant, 3, "CREATED", "FAILED", "RUNNING", now).
+			Updates(map[string]any{"status": "RUNNING", "step": "draft", "attempts": gorm.Expr("attempts + 1"), "lease_until": lease})
+		if claimed.Error != nil {
+			return completed, fmt.Errorf("claim task: %w", claimed.Error)
+		}
+		if claimed.RowsAffected == 0 {
+			continue
+		}
+		if err := NewRuntimeExecutor(s.DB).ExecutePersistedTask(ctx, task, now); errors.Is(err, ErrTaskCancelled) {
+			continue
+		} else if err != nil {
+			s.DB.WithContext(ctx).Model(&models.AgentWorkTask{}).Where("id = ? AND status = ?", task.ID, "RUNNING").
+				Updates(map[string]any{"status": "FAILED", "error_code": "draft_failed", "lease_until": nil})
+			return completed, fmt.Errorf("task %d: %w", task.ID, err)
+		}
+		completed++
+	}
+	return completed, nil
+}
+
+func (s MonitorService) createDraft(ctx context.Context, task models.AgentWorkTask) error {
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var existing models.AgentReplenishmentDraft
+		if err := tx.Where("task_id = ? AND tenant_id = ?", task.ID, SingleTenant).First(&existing).Error; err == nil {
+			return tx.Model(&models.AgentWorkTask{}).
+				Where("id = ? AND tenant_id = ? AND status = ?", task.ID, SingleTenant, "RUNNING").
+				Updates(map[string]any{"status": "SUCCEEDED", "step": "draft_ready", "lease_until": nil, "error_code": ""}).Error
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		var signal models.AgentSignal
+		if task.SignalID == nil {
+			return errors.New("replenishment task is missing its signal")
+		}
+		if err := tx.Where("id = ? AND tenant_id = ?", *task.SignalID, SingleTenant).First(&signal).Error; err != nil {
+			return err
+		}
+		var product models.Product
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, signal.ProductID).Error; err != nil {
+			return err
+		}
+		var metrics struct {
+			StockObservation
+			Threshold int `json:"threshold"`
+		}
+		if err := json.Unmarshal([]byte(signal.MetricsJSON), &metrics); err != nil {
+			return err
+		}
+		currentStock := product.MainStock + product.StoreStock + product.CloudStock
+		assessment := AssessLowStock(StockObservation{
+			ProductID: product.ID, Available: currentStock, Sales30Days: metrics.Sales30Days,
+		})
+		status := "SUCCEEDED"
+		step := "draft_ready"
+		detail := "已生成内部补货草案；供应商、交付周期和在途采购数据缺失，未提交采购订单"
+		if !assessment.Eligible {
+			step = "resolved"
+			detail = "库存变化后不再满足缺货阈值，未生成草案"
+			if err := tx.Model(&signal).Update("status", "resolved").Error; err != nil {
+				return err
+			}
+		} else {
+			draft := models.AgentReplenishmentDraft{
+				TenantID: SingleTenant, TaskID: task.ID, ProductID: product.ID,
+				Quantity: assessment.Quantity, StockSnapshot: currentStock,
+				Sales30Days: metrics.Sales30Days, CostSnapshot: product.LatestCost,
+				DataNote: "仅按近30天销量估算14天目标库存；缺少供应商、交付周期、在途订单和预算数据，需人工核对",
+				Status:   "suggested",
+			}
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&draft).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Create(&models.AgentActivity{
+			TenantID: SingleTenant, TaskID: task.ID, Event: step, Detail: detail,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Model(&models.AgentWorkTask{}).
+			Where("id = ? AND tenant_id = ? AND status = ?", task.ID, SingleTenant, "RUNNING").
+			Updates(map[string]any{"status": status, "step": step, "lease_until": nil, "error_code": ""}).Error
+	})
+}

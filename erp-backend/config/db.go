@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"erp-backend/models"
@@ -21,6 +22,12 @@ func InitDB() {
 	dbHost := getEnv("DB_HOST", "127.0.0.1")
 	dbPort := getEnv("DB_PORT", "3306")
 	dbName := getEnv("DB_NAME", "erp_db")
+	if os.Getenv("ERP_AUDIT_DB") == "1" {
+		dbName = getEnv("DB_NAME", "erp_audit_test")
+		if !strings.HasSuffix(dbName, "_test") {
+			log.Fatalf("refusing database %q for audit tests; DB_NAME must end in _test", dbName)
+		}
+	}
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		dbUser, dbPass, dbHost, dbPort, dbName)
@@ -60,6 +67,25 @@ func InitDB() {
 		&models.InventoryLog{},
 		&models.HistoricalCostRepair{},
 		&models.FinancialLog{},
+		&models.AIImport{},
+		&models.AIProviderConfig{},
+		&models.AIAgentSession{},
+		&models.AIAgentMessage{},
+		&models.AIAgentAction{},
+		&models.AIAgentMemory{},
+		&models.AIAgentMemoryState{},
+		&models.AIAgentRun{},
+		&models.AIAgentFeedback{},
+		&models.AIAgentCase{},
+		&models.AIAgentPredictionSnapshot{},
+		&models.AIAgentKnowledge{},
+		&models.AgentSignal{},
+		&models.AgentGoal{},
+		&models.AgentWorkTask{},
+		&models.AgentWorkTaskStep{},
+		&models.AgentToolCallAudit{},
+		&models.AgentReplenishmentDraft{},
+		&models.AgentActivity{},
 		&models.AdminUser{},
 		&models.DailyAttendance{},
 		&models.SubsidySettlement{},

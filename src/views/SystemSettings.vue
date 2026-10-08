@@ -11,6 +11,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <!-- Left Column: General Info -->
       <div class="lg:col-span-2 space-y-8">
+        <AIProviderSettings />
         <el-card shadow="never" class="!rounded-[2rem] border-slate-200/60 overflow-hidden relative">
           <div class="absolute top-0 right-0 p-8 opacity-5">
             <el-icon size="120"><Setting /></el-icon>
@@ -209,6 +210,7 @@ import { ref } from 'vue'
 import { Setting, Monitor, Lock, Warning, Delete, Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
+import AIProviderSettings from '../components/settings/AIProviderSettings.vue'
 
 const showResetConfirm = ref(false)
 const confirmText = ref('')

@@ -30,8 +30,6 @@ type ResetSystemRequest struct {
 // @Param body body ResetSystemRequest true "固定传 confirm=RESET"
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
-// @ID post_api_system_reset
-// @Router /api/system/reset [post]
 func ResetSystem(c *gin.Context) {
 	// 这里可以加一个简单的校验，或者从 Header 传一个 RESET 标记
 	var req ResetSystemRequest
@@ -46,6 +44,11 @@ func ResetSystem(c *gin.Context) {
 	// 清空所有业务表 (按照依赖关系逆序删除或直接 TRUNCATE)
 	// 注意：MySQL 中如果有外键约束，TRUNCATE 可能会失败，可以使用 DELETE
 	tables := []interface{}{
+		&models.AIProviderConfig{},
+		&models.AIImport{},
+		&models.AIAgentSession{},
+		&models.AIAgentMessage{},
+		&models.AIAgentAction{},
 		&models.FinancialLog{},
 		&models.InventoryLog{},
 		&models.TransferRecord{},
@@ -271,6 +274,8 @@ func collectRestoreCounts() gin.H {
 		"products",
 		"inventory_logs",
 		"financial_logs",
+		"ai_imports",
+		"ai_provider_configs",
 	} {
 		var count int64
 		if err := config.DB.Raw(fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table)).Scan(&count).Error; err != nil {

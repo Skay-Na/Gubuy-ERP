@@ -19,6 +19,14 @@ type CreatePendingInboundRequest struct {
 }
 
 // CreatePendingInbound records a staff inventory application without affecting saleable stock or cost.
+// @Summary 创建待确认入库
+// @Tags System
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID create_pending_inbound
+// @Router /api/pending-inbounds [post]
 func CreatePendingInbound(c *gin.Context) {
 	var req CreatePendingInboundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -57,6 +65,15 @@ type ApprovePendingInboundRequest struct {
 }
 
 // ApprovePendingInbound converts an approved application into a normal purchase inbound atomically.
+// @Summary 确认待入库单
+// @Tags System
+// @Accept json
+// @Produce json
+// @Param id path int true "编号"
+// @Success 200 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID approve_pending_inbound
+// @Router /api/pending-inbounds/{id}/approve [post]
 func ApprovePendingInbound(c *gin.Context) {
 	var req ApprovePendingInboundRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -180,6 +197,14 @@ func ApprovePendingInbound(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "入库申请已通过审核"})
 }
 
+// @Summary 列出待确认入库
+// @Tags System
+// @Accept json
+// @Produce json
+// @Success 200 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID list_pending_inbounds
+// @Router /api/pending-inbounds [get]
 func ListPendingInbounds(c *gin.Context) {
 	status := c.Query("status")
 	var records []models.PendingInbound
@@ -194,6 +219,15 @@ func ListPendingInbounds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": records})
 }
 
+// @Summary 驳回待入库单
+// @Tags System
+// @Accept json
+// @Produce json
+// @Param id path int true "编号"
+// @Success 200 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID reject_pending_inbound
+// @Router /api/pending-inbounds/{id}/reject [post]
 func RejectPendingInbound(c *gin.Context) {
 	tx := config.DB.Begin()
 	if tx.Error != nil {

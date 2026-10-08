@@ -4,19 +4,19 @@
     <transition name="el-fade-in-linear">
       <div v-if="!currentEmployee" class="absolute inset-0 z-[100] bg-slate-900 flex items-center justify-center p-6">
         <div class="max-w-4xl w-full">
-          <div class="text-center mb-12">
-            <h1 class="text-4xl font-black text-white tracking-widest mb-2">WONCHON POS</h1>
+          <div class="text-center mb-6 md:mb-12">
+            <h1 class="text-2xl md:text-4xl font-black text-white tracking-widest mb-2">WONCHON POS</h1>
             <p class="text-slate-400">请选择您的身份以开始营业</p>
           </div>
 
-          <div v-if="!selectedEmployee" class="grid grid-cols-2 md:grid-cols-4 gap-6">
+          <div v-if="!selectedEmployee" class="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6 max-h-[70dvh] overflow-y-auto">
             <div
               v-for="emp in staffEmployees"
               :key="emp.id"
               @click="selectedEmployee = emp"
-              class="bg-slate-800/50 border border-slate-700 p-6 rounded-2xl flex flex-col items-center hover:bg-blue-600 hover:border-blue-400 transition-all cursor-pointer group"
+              class="bg-slate-800/50 border border-slate-700 p-3 md:p-6 rounded-2xl flex flex-col items-center hover:bg-blue-600 hover:border-blue-400 transition-all cursor-pointer group"
             >
-              <div class="w-20 h-20 bg-slate-700 rounded-full flex items-center justify-center mb-4 text-3xl font-bold text-white group-hover:bg-white/20 transition-colors">
+              <div class="w-14 h-14 md:w-20 md:h-20 bg-slate-700 rounded-full flex items-center justify-center mb-4 text-3xl font-bold text-white group-hover:bg-white/20 transition-colors">
                 {{ emp.name.charAt(0) }}
               </div>
               <div class="text-lg font-bold text-white">{{ emp.name }}</div>
@@ -39,7 +39,7 @@
             </div>
 
             <!-- 数字键盘：禁用双击缩放 -->
-            <div class="grid grid-cols-3 gap-4 touch-none" style="touch-action: manipulation;">
+            <div class="grid grid-cols-3 gap-2 md:gap-4 touch-none" style="touch-action: manipulation;">
               <button v-for="n in 9" :key="n"
                 @click="inputPin(n)"
                 class="h-16 rounded-2xl bg-slate-700 text-white text-2xl font-bold active:bg-blue-600 active:scale-95 transition-all outline-none"
@@ -93,14 +93,14 @@
           <div class="hidden md:block"></div>
         </div>
 
-        <div class="flex items-center gap-4 md:gap-8">
+        <div class="flex items-center gap-2 md:gap-8 min-w-0">
           <!-- Digital Clock (Hidden on Mobile) -->
           <div class="hidden lg:flex flex-col items-end border-r border-slate-100 pr-8">
             <div class="text-2xl font-black text-slate-800 tabular-nums leading-none tracking-tighter">{{ currentTime.time }}</div>
             <div class="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">{{ currentTime.date }} {{ currentTime.weekday }}</div>
           </div>
 
-          <div class="flex items-center gap-3 md:gap-6">
+          <div class="flex items-center gap-2 md:gap-6">
             <!-- Attendance Buttons for Mobile/Desktop -->
             <div class="flex items-center">
               <el-button
@@ -163,11 +163,11 @@
 
       <!-- Compact Search & Filter Bar -->
       <div class="bg-white border-b border-slate-50 px-4 md:px-6 py-2 md:py-3 shadow-sm flex flex-col gap-2">
-        <div class="flex gap-2 w-full items-center">
+        <div class="flex flex-wrap gap-2 w-full items-center">
           <el-input
             v-model="searchQuery"
             :placeholder="inventoryMode ? '搜索要盘点的商品...' : '搜型号、名称、备注...'"
-            class="terminal-search-input flex-1"
+            class="terminal-search-input flex-1 min-w-[150px]"
             clearable
             @input="handleSearch"
           >
@@ -335,9 +335,12 @@
             <div class="font-black text-xl text-slate-800 tracking-tighter">¥{{ originalTotal.toFixed(2) }}</div>
           </div>
         </div>
-        <el-button type="primary" size="large" round class="!px-6 md:!px-10 !h-11 md:!h-12 font-black shadow-lg shadow-blue-200 active:scale-95 transition-all" @click="openDrawer" :disabled="cart.length === 0">
-          立即结算
-        </el-button>
+        <div class="flex items-center gap-2">
+          <button class="rounded-full border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-bold text-blue-700" @click="photoOrderVisible = true">📷 拍照录单</button>
+          <el-button type="primary" size="large" round class="!px-4 md:!px-10 !h-11 md:!h-12 font-black shadow-lg shadow-blue-200 active:scale-95 transition-all" @click="openDrawer" :disabled="cart.length === 0">
+            立即结算
+          </el-button>
+        </div>
       </div>
 
       <el-drawer v-model="drawerVisible" direction="rtl" :size="isMobile ? '100%' : '500px'" :show-close="false">
@@ -472,6 +475,12 @@
                     </div>
                   </div>
                   <div>
+                    <span class="text-[10px] text-slate-400 font-medium pl-1">实际付款账户</span>
+                    <el-select v-model="tradeInAccountId" placeholder="请选择付款账户" class="w-full" clearable>
+                      <el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（账面 ¥${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" />
+                    </el-select>
+                  </div>
+                  <div>
                     <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
                     <el-input
                       v-model="tradeInRemark"
@@ -599,7 +608,7 @@
                       </div>
                       <div v-if="isSubsidized" class="mt-1 text-[10px] text-orange-500 bg-orange-50 p-1.5 rounded-md flex items-start gap-1">
                         <el-icon class="mt-0.5"><WarningFilled /></el-icon>
-                        <span>国补混付提示：请将客户在POS机上刷的<b>原始金额(含国补)</b>直接填入公户，系统将据此精准计算待回款。</span>
+                        <span>国补混付提示：公户填写 POS <b>原始金额(含国补)</b>；公户实际到账金额会扣除国补，其他方式按实际到账填写。</span>
                       </div>
                     </div>
                   </el-collapse-transition>
@@ -713,118 +722,94 @@
     </el-drawer>
 
     <!-- 我的订单跟踪抽屉 -->
-    <el-drawer v-model="ordersDrawerVisible" direction="ltr" :size="isMobile ? '100%' : '450px'" title="订单查询与追踪" class="staff-orders-drawer">
-      <div v-loading="ordersLoading" class="relative h-full flex flex-col bg-slate-50 pt-[65px]">
+    <el-drawer v-model="ordersDrawerVisible" direction="ltr" :size="isMobile ? '100%' : '450px'" :show-close="false" class="staff-orders-drawer">
+      <template #header>
+        <div class="staff-orders-header">
+          <span>订单查询与追踪</span>
+          <button type="button" class="staff-orders-close" aria-label="关闭订单查询与追踪" @click="ordersDrawerVisible = false">×</button>
+        </div>
+      </template>
+      <div v-loading="ordersLoading" class="relative h-full min-w-0 flex flex-col bg-slate-50">
         <!-- 搜索栏 -->
-        <div class="absolute top-0 left-0 right-0 p-4 bg-white border-b border-slate-100 z-20">
+        <div class="shrink-0 p-3 bg-white border-b border-slate-100 space-y-3">
           <el-input
             v-model="orderSearchKeyword"
-            placeholder="搜索订单号/客户电话 (全局)"
+            placeholder="搜索订单号、客户、电话或推荐人"
             clearable
             @input="handleOrderSearchInput"
             class="staff-order-search"
           >
             <template #prefix><el-icon><Search /></el-icon></template>
           </el-input>
+          <button
+            type="button"
+            class="staff-filter-toggle"
+            :aria-expanded="orderFiltersExpanded"
+            aria-controls="staff-order-filter-options"
+            @click="orderFiltersExpanded = !orderFiltersExpanded"
+          >
+            <span>筛选 <span v-if="activeOrderFilterCount" class="staff-filter-count">{{ activeOrderFilterCount }}</span></span>
+            <span>{{ orderFiltersExpanded ? '收起 ▲' : '展开 ▼' }}</span>
+          </button>
+          <div v-show="orderFiltersExpanded" id="staff-order-filter-options" class="staff-order-filters" aria-label="订单筛选">
+            <label class="staff-order-filter"><span>订单状态</span><el-select v-model="orderStatusFilter" aria-label="订单状态" @change="fetchMyOrders"><el-option label="全部状态" value="" /><el-option label="正常" value="1" /><el-option label="已取消" value="2" /></el-select></label>
+            <label class="staff-order-filter"><span>付款状态</span><el-select v-model="paymentFilter" aria-label="付款状态" @change="fetchMyOrders"><el-option label="全部付款" value="" /><el-option label="定金" value="1" /><el-option label="已结清" value="2" /></el-select></label>
+            <label class="staff-order-filter"><span>履约进度</span><el-select v-model="fulfillmentFilter" aria-label="履约进度" @change="fetchMyOrders"><el-option label="全部履约" value="" /><el-option label="待送货" value="pending_delivery" /><el-option label="待安装" value="pending_install" /><el-option label="已安装" value="installed" /><el-option label="门店自提" value="pickup" /></el-select></label>
+            <label class="staff-order-filter"><span>订单类型</span><el-select v-model="orderTypeFilter" aria-label="订单类型"><el-option label="全部类型" value="" /><el-option label="老板客" value="boss" /><el-option label="商会订单" value="chamber" /><el-option label="有推荐人" value="referral" /></el-select></label>
+            <el-button v-if="hasOrderFilters" link type="primary" @click="resetOrderFilters">重置</el-button>
+          </div>
         </div>
 
-        <div class="flex-1 overflow-y-auto p-4 space-y-4">
-          <div
-            v-for="order in myOrders"
+        <div class="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
+          <article
+            v-for="order in visibleOrders"
             :key="order.id"
-            class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100"
-            :class="order.order_status === 2 ? 'border-red-100 bg-red-50/40 opacity-80' : ''"
+            class="staff-order-row"
+            :class="{ 'staff-order-row-cancelled': order.order_status === 2 }"
           >
-            <div class="flex justify-between items-start mb-3">
-              <div>
-                <div class="text-[10px] text-slate-400 font-mono">{{ order.order_no }}</div>
-                <div class="flex items-center gap-1.5">
-                  <div class="font-bold" :class="order.order_status === 2 ? 'text-slate-500 line-through' : 'text-slate-800'">{{ order.customer_name || '散客' }}</div>
-                  <el-tag v-if="order.trade_in_amount > 0" size="small" type="success" effect="plain" class="!rounded-md !px-1 text-[9px] shrink-0">♻️ 换新</el-tag>
+            <button
+              type="button"
+              class="staff-order-summary"
+              :aria-expanded="expandedOrderId === order.id"
+              @click="expandedOrderId = expandedOrderId === order.id ? null : order.id"
+            >
+              <span class="staff-order-summary-main">
+                <span class="staff-order-customer">{{ order.customer_name || '散客' }}</span>
+                <span v-if="isBossOrder(order)" class="staff-order-badge bg-amber-50 text-amber-700">老板客</span>
+                <span v-if="order.order_type === 2" class="staff-order-badge bg-violet-50 text-violet-700">商会</span>
+                <span class="staff-order-payment" :class="order.order_status === 2 ? 'text-red-600' : order.payment_status === 2 ? 'text-green-600' : 'text-orange-600'">
+                  {{ order.order_status === 2 ? '已取消' : order.payment_status === 1 ? '定金' : '已清' }}
+                </span>
+              </span>
+              <span class="staff-order-summary-meta">
+                <span class="font-mono">{{ order.order_no }}</span>
+                <span class="truncate">{{ order.order_items?.[0]?.product?.name || '商品信息待补充' }}<template v-if="order.order_items?.length > 1"> 等{{ order.order_items.length }}件</template></span>
+              </span>
+              <span class="staff-order-summary-bottom">
+                <span>{{ order.order_status === 2 ? '已取消' : order.delivery_method === 1 ? '门店自提' : order.is_installed ? '已安装' : order.is_delivered ? '已送货' : '待送货' }}</span>
+                <span>国补：{{ getSubsidyLabel(order.subsidy_status) }}</span>
+                <span class="staff-order-expand-text">{{ expandedOrderId === order.id ? '收起 ▲' : '处理 ▼' }}</span>
+              </span>
+            </button>
+
+            <div v-if="expandedOrderId === order.id" class="staff-order-expanded">
+              <div class="text-xs text-slate-500">推荐人：{{ order.referrer_name && !isBossOrder(order) ? order.referrer_name : '无' }}</div>
+              <div v-if="order.order_status === 2" class="rounded-lg bg-red-50 p-2 text-xs text-red-600">订单已取消，请勿继续送货或安装。</div>
+              <div v-for="item in order.order_items" :key="item.id" class="staff-order-item">
+                <div class="min-w-0 flex-1">
+                  <div class="truncate text-sm font-semibold text-slate-700">{{ item.product?.name || '未知商品' }} ×{{ item.quantity }}</div>
+                  <div class="text-xs text-slate-500">{{ item.is_delivered ? '已送货' : '待送货' }} · {{ item.is_installed ? '已安装' : '待安装' }}</div>
                 </div>
+                <el-button v-if="order.order_status === 1 && order.delivery_method !== 1 && !item.is_delivered" type="warning" size="small" @click="handleStaffDeliver(item)">确认送货</el-button>
+                <el-button v-else-if="order.order_status === 1 && order.delivery_method !== 1 && !item.is_installed" type="primary" size="small" @click="handleStaffInstall(item)">确认安装</el-button>
               </div>
-              <el-tag v-if="order.order_status === 2" type="danger" size="small" effect="dark">
-                已取消
-              </el-tag>
-              <el-tag v-else :type="order.payment_status === 2 ? 'success' : 'warning'" size="small">
-                {{ order.payment_status === 1 ? '定金' : '已清' }}
-              </el-tag>
-            </div>
-
-            <div v-if="order.order_status === 2" class="mb-3 rounded-xl border border-red-100 bg-white/80 px-3 py-2 text-xs font-bold text-red-600">
-              ⚠️ 该订单已被管理端取消/红冲，请勿继续送货、安装或作为有效订单处理。
-            </div>
-
-            <!-- 商品履约明细 -->
-            <div class="mb-3 p-3 bg-blue-50/20 rounded-2xl space-y-3">
-              <div v-for="item in order.order_items" :key="item.id" class="flex flex-col text-[11px] border-b border-slate-100/50 last:border-0 pb-2 last:pb-0">
-                <div class="flex justify-between items-center mb-1">
-                  <span class="text-slate-700 font-bold truncate flex-1 mr-2">{{ item.product?.name }}</span>
-                  <span class="text-slate-400 font-semibold flex-shrink-0">x{{ item.quantity }}</span>
-                </div>
-                <!-- 配送与安装状态及动作 -->
-                <div class="flex justify-between items-center mt-1 bg-white/50 p-1.5 rounded-lg border border-slate-100/50">
-                  <div class="flex gap-2">
-                    <span :class="item.is_delivered ? 'text-blue-600' : 'text-orange-500'">
-                      {{ item.is_delivered ? '🚚已送' : '📦待送' }}
-                    </span>
-                    <span :class="item.is_installed ? 'text-green-600' : 'text-slate-400'">
-                      {{ item.is_installed ? '✅已装' : '⏳待装' }}
-                    </span>
-                  </div>
-                  <!-- 快捷操作按钮 -->
-                  <div v-if="order.order_status === 1 && order.delivery_method !== 1">
-                    <el-button
-                      v-if="!item.is_delivered"
-                      type="warning"
-                      size="small"
-                      class="!h-5 !px-2 !py-0 !text-[10px] !rounded-md"
-                      @click="handleStaffDeliver(item)"
-                    >确认送货</el-button>
-                    <el-button
-                      v-else-if="!item.is_installed"
-                      type="primary"
-                      size="small"
-                      class="!h-5 !px-2 !py-0 !text-[10px] !rounded-md"
-                      @click="handleStaffInstall(item)"
-                    >确认安装</el-button>
-                  </div>
-                </div>
+              <div class="flex flex-wrap items-center justify-end gap-2 pt-2">
+                <el-button v-if="order.order_status === 1 && order.subsidy_status === 1" type="warning" size="small" plain @click="confirmSubsidy(order)">确认已交资料</el-button>
+                <el-button type="primary" size="small" plain @click="showOrderDetail(order)">查看详情</el-button>
               </div>
             </div>
-
-            <!-- 关键状态追踪 -->
-            <div class="grid grid-cols-2 gap-2 mb-4">
-              <div class="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                <div class="text-[10px] text-slate-400 mb-1">安装进度</div>
-                <div class="text-xs font-bold" :class="order.order_status === 2 ? 'text-red-500' : (order.is_installed ? 'text-green-600' : (order.is_delivered ? 'text-blue-600' : 'text-orange-500'))">
-                  {{ order.order_status === 2 ? '⛔ 已取消' : (order.is_installed ? '✅ 已安装' : (order.is_delivered ? '🚚 已送货' : (order.order_items && order.order_items.some(it => it.is_delivered || it.is_installed) ? '⏳ 部分履约' : '📦 待送货'))) }}
-                </div>
-              </div>
-              <div class="p-2 rounded-xl bg-slate-50 border border-slate-100">
-                <div class="text-[10px] text-slate-400 mb-1">国补资料</div>
-                <div class="text-xs font-bold" :class="getSubsidyType(order.subsidy_status)">
-                  {{ getSubsidyLabel(order.subsidy_status) }}
-                </div>
-              </div>
-            </div>
-
-            <!-- 操作按钮 -->
-            <div v-if="order.order_status === 1" class="flex justify-end gap-2 pt-3 border-t border-slate-50">
-              <el-button
-                v-if="order.subsidy_status === 1"
-                type="warning"
-                size="small"
-                plain
-                @click="confirmSubsidy(order)"
-              >确认已交资料</el-button>
-              <el-button type="info" size="small" link @click="showOrderDetail(order)">详情</el-button>
-            </div>
-            <div v-else class="flex justify-end gap-2 pt-3 border-t border-red-100">
-              <el-button type="danger" size="small" link @click="showOrderDetail(order)">查看已取消订单</el-button>
-            </div>
-          </div>
-          <el-empty v-if="myOrders.length === 0" description="暂无历史订单" />
+          </article>
+          <el-empty v-if="visibleOrders.length === 0" description="没有符合条件的订单" />
         </div>
       </div>
     </el-drawer>
@@ -1049,6 +1034,12 @@
           class="!rounded-xl"
         />
 
+        <div class="flex flex-wrap gap-2 text-xs">
+          <span v-if="isBossOrder(currentDetailOrder)" class="staff-order-badge bg-amber-50 text-amber-700">老板客</span>
+          <span class="staff-order-badge" :class="currentDetailOrder.order_type === 2 ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-500'">{{ currentDetailOrder.order_type === 2 ? '商会订单' : '普通订单' }}</span>
+          <span class="text-slate-600">推荐人：{{ currentDetailOrder.referrer_name && !isBossOrder(currentDetailOrder) ? currentDetailOrder.referrer_name : '无' }}</span>
+        </div>
+
         <!-- 商品明细 -->
         <div class="space-y-3">
           <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">购买清单</div>
@@ -1221,6 +1212,7 @@
         </el-button>
       </template>
     </el-dialog>
+    <StaffPhotoOrder v-if="currentEmployee" v-model:visible="photoOrderVisible" :employee="currentEmployee" @apply="applyPhotoOrder" />
   </div>
 </template>
 
@@ -1230,6 +1222,7 @@ import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton, S
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import dayjs from 'dayjs'
+import StaffPhotoOrder from '../components/employee/StaffPhotoOrder.vue'
 
 // --- 响应式识别逻辑 ---
 const isMobile = ref(false)
@@ -1274,6 +1267,8 @@ const resetTerminalSession = () => {
   selectedEmployee.value = null
   pin.value = ''
   cart.value = []
+  photoOrderDraftId.value = null
+  photoOrderVisible.value = false
   inventoryMode.value = false
   inventoryActionVisible.value = false
   inventoryProduct.value = null
@@ -1372,6 +1367,28 @@ const ordersDrawerVisible = ref(false)
 const ordersLoading = ref(false)
 const myOrders = ref([])
 const orderSearchKeyword = ref('')
+const orderFiltersExpanded = ref(false)
+const expandedOrderId = ref(null)
+const orderStatusFilter = ref('')
+const paymentFilter = ref('')
+const fulfillmentFilter = ref('')
+const orderTypeFilter = ref('')
+const isBossOrder = order => (order.referrer_name || '').includes('老板')
+const visibleOrders = computed(() => myOrders.value.filter(order => {
+  if (orderTypeFilter.value === 'boss') return isBossOrder(order)
+  if (orderTypeFilter.value === 'chamber') return order.order_type === 2
+  if (orderTypeFilter.value === 'referral') return Boolean(order.referrer_name) && !isBossOrder(order)
+  return true
+}))
+const hasOrderFilters = computed(() => Boolean(orderStatusFilter.value || paymentFilter.value || fulfillmentFilter.value || orderTypeFilter.value))
+const activeOrderFilterCount = computed(() => [orderStatusFilter, paymentFilter, fulfillmentFilter, orderTypeFilter].filter(item => item.value).length)
+const resetOrderFilters = () => {
+  orderStatusFilter.value = ''
+  paymentFilter.value = ''
+  fulfillmentFilter.value = ''
+  orderTypeFilter.value = ''
+  fetchMyOrders()
+}
 const deliveryDialogVisible = ref(false)
 const deliveryTargetItem = ref(null)
 const selectedDeliveryTime = ref(null)
@@ -1411,6 +1428,7 @@ const installerOptions = computed(() => {
 
 const openOrdersDrawer = () => {
   ordersDrawerVisible.value = true
+  expandedOrderId.value = null
   orderSearchKeyword.value = ''
   fetchMyOrders()
 }
@@ -1432,18 +1450,14 @@ const fetchMyOrders = async () => {
   ordersLoading.value = true
   try {
     const params = {}
-    if (orderSearchKeyword.value) {
-      params.keyword = orderSearchKeyword.value
-    }
+    if (orderSearchKeyword.value.trim()) params.keyword = orderSearchKeyword.value.trim()
+    if (orderStatusFilter.value) params.order_status = orderStatusFilter.value
+    if (paymentFilter.value) params.payment_status = paymentFilter.value
+    if (fulfillmentFilter.value) params.fulfillment_status = fulfillmentFilter.value
 
     const res = await request.get('/api/orders', { params })
     if (res.data.code === 200) {
-      // 如果没有关键词，只看自己的；如果有关键词，则是全局搜索
-      if (orderSearchKeyword.value) {
-        myOrders.value = res.data.data
-      } else {
-        myOrders.value = res.data.data.filter(o => o.employee_id === currentEmployee.value.id)
-      }
+      myOrders.value = res.data.data.filter(o => o.employee_id === currentEmployee.value.id)
     }
   } catch (err) {
     ElMessage.error('获取订单失败')
@@ -1539,6 +1553,16 @@ const fetchEmployees = async () => {
   employees.value = res.data.data || []
 }
 
+const accounts = ref([])
+const fetchAccounts = async () => {
+  try {
+    const res = await request.get('/api/accounts')
+    if (res.data.code === 200) accounts.value = res.data.data || []
+  } catch (error) {
+    console.error('Fetch accounts error:', error)
+  }
+}
+
 const inputPin = (n) => {
   if (pin.value.length < 6) pin.value += n
 }
@@ -1560,6 +1584,7 @@ const verifyPin = async () => {
       await fetchTodayAttendance()
       fetchCategories() // 登录成功后再拉取品类数据
       fetchProducts()
+      fetchAccounts()
       ElMessage.success(`欢迎回来，${currentEmployee.value.name}`)
     }
   } catch (err) {
@@ -1623,6 +1648,8 @@ const inventoryActionOptions = [
   { label: '增加库存', value: 'increase' }
 ]
 const cart = ref([])
+const photoOrderDraftId = ref(null)
+const photoOrderVisible = ref(false)
 const drawerVisible = ref(false)
 const loading = ref(false)
 
@@ -1839,6 +1866,7 @@ const fetchProducts = async () => {
 let productSearchTimer = null
 const handleSearch = () => {
   if (productSearchTimer) clearTimeout(productSearchTimer)
+  if (orderSearchTimer) clearTimeout(orderSearchTimer)
   productSearchTimer = setTimeout(fetchProducts, 300)
 }
 
@@ -1930,13 +1958,59 @@ const addToCart = (product) => {
   }
 }
 
-const removeFromCart = (index) => cart.value.splice(index, 1)
+const removeFromCart = (index) => {
+  cart.value.splice(index, 1)
+  if (!cart.value.length) photoOrderDraftId.value = null
+}
 const openDrawer = () => drawerVisible.value = true
+
+const applyPhotoOrder = async (draft) => {
+  if (cart.value.length) {
+    try {
+      await ElMessageBox.confirm('放入识别订单会替换当前购物车，继续吗？', '替换购物车')
+    } catch { return }
+  }
+  isSubsidized.value = Boolean(draft.is_subsidy)
+  isTradeIn.value = false
+  tradeInAmount.value = 0
+  tradeInAccountId.value = null
+  tradeInType.value = ''
+  tradeInRemark.value = ''
+  isDepositMode.value = false
+  depositAmount.value = 0
+  wipeZeroAmount.value = 0
+  isBossCustomer.value = false
+  orderType.value = 1
+  paymentMethod.value = draft.is_subsidy ? 3 : 1
+  mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
+  deliveryMethod.value = 2
+  referrerName.value = ''
+  referralFee.value = 0
+  cart.value = draft.items.map(item => ({
+    id: item.product.id,
+    name: item.product.name,
+    category_name: item.product.category?.name || '',
+    minPrice: calculateMinPrice(item.product),
+    price: item.unit_price,
+    quantity: item.quantity,
+    store_stock: item.product.store_stock,
+    main_stock: item.product.main_stock,
+    isGift: false
+  }))
+  customerName.value = draft.customer.name
+  customerPhone.value = draft.customer.phone
+  customerAddress.value = draft.customer.address
+  photoOrderDraftId.value = draft.id
+  photoOrderVisible.value = false
+  drawerVisible.value = true
+  if (cart.value.some(item => item.price < item.minPrice)) ElMessage.warning('部分识别单价低于系统最低售价，请在结算前核对')
+}
 
 // 结算状态
 const isSubsidized = ref(false)
 const isTradeIn = ref(false)
 const tradeInAmount = ref(0)
+const tradeInAccountId = ref(null)
 const tradeInType = ref('')
 const tradeInRemark = ref('')
 const isDepositMode = ref(false)
@@ -1995,11 +2069,8 @@ const mixedPaymentTotal = computed(() => {
 })
 
 const mixedPaymentTarget = computed(() => {
-  let target = actualReceipt.value
-  if (isSubsidized.value && !isDepositMode.value) {
-    target += subsidyAmount.value
-  }
-  return target
+  // 国补混付中的公户填写 POS 原始刷卡额（含国补）；后端会从公户净到账中扣除国补。
+  return actualReceipt.value + (isSubsidized.value && !isDepositMode.value ? subsidyAmount.value : 0)
 })
 
 const mixedPaymentRemaining = computed(() => {
@@ -2090,6 +2161,7 @@ const handleCheckout = async () => {
   if (!customerName.value) return ElMessage.warning('请输入客户姓名')
   if (!customerPhone.value) return ElMessage.warning('请输入客户手机号')
   if (!customerAddress.value) return ElMessage.warning('请输入客户收货地址')
+  if (isTradeIn.value && tradeInAmount.value > 0 && !tradeInAccountId.value) return ElMessage.warning('请选择以旧换新付款账户')
 
   try {
     const type = isDepositMode.value ? '定金' : '全款'
@@ -2104,6 +2176,7 @@ const handleCheckout = async () => {
 
     loading.value = true
     const payload = {
+      ai_import_id: photoOrderDraftId.value || undefined,
       items: cart.value.map(i => ({
         product_id: i.id,
         quantity: i.quantity,
@@ -2123,6 +2196,7 @@ const handleCheckout = async () => {
       payment_splits: paymentSplits,
       delivery_method: deliveryMethod.value,
       trade_in_amount: isTradeIn.value ? tradeInAmount.value : 0,
+      trade_in_account_id: isTradeIn.value ? tradeInAccountId.value : undefined,
       trade_in_type: isTradeIn.value ? tradeInType.value : '',
       trade_in_remark: isTradeIn.value ? tradeInRemark.value : '',
       discount_amount: wipeZeroAmount.value,
@@ -2132,6 +2206,7 @@ const handleCheckout = async () => {
     if (res.data.code === 200) {
       ElMessage.success('开单成功！')
       cart.value = []
+      photoOrderDraftId.value = null
       customerName.value = ''
       customerPhone.value = ''
       customerAddress.value = ''
@@ -2140,6 +2215,7 @@ const handleCheckout = async () => {
       isSubsidized.value = false
       isTradeIn.value = false
       tradeInAmount.value = 0
+      tradeInAccountId.value = null
       tradeInType.value = ''
       tradeInRemark.value = ''
       orderType.value = 1
@@ -2178,6 +2254,7 @@ onMounted(() => {
       fetchTodayAttendance().then(() => {
         fetchCategories() // 恢复自动登录时拉取品类数据
         fetchProducts()
+        fetchAccounts()
       })
     } catch (e) {
       resetTerminalSession()
@@ -2446,5 +2523,38 @@ onUnmounted(() => {
 
 .special-offer-card .text-slate-800 {
   color: #991b1b !important;
+}
+</style>
+
+<style>
+.staff-orders-drawer .el-drawer__header { margin: 0; padding: 0; border-bottom: 1px solid #f1f5f9; }
+.staff-orders-header { width: 100%; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px 8px max(20px, env(safe-area-inset-left)); color: #1e293b; font-size: 17px; font-weight: 700; }
+.staff-orders-close { flex: none; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; background: #f1f5f9; color: #475569; font-size: 30px; line-height: 1; cursor: pointer; }
+.staff-orders-drawer .el-drawer__body { padding: 0; min-width: 0; overflow: hidden; }
+.staff-filter-toggle { width: 100%; min-height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #f8fafc; color: #334155; font-size: 13px; font-weight: 700; cursor: pointer; }
+.staff-filter-count { display: inline-grid; place-items: center; min-width: 18px; height: 18px; margin-left: 4px; padding: 0 4px; border-radius: 9px; background: #2563eb; color: white; font-size: 11px; }
+.staff-order-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.staff-order-filter { min-width: 0; display: flex; flex-direction: column; gap: 5px; color: #475569; font-size: 12px; font-weight: 700; }
+.staff-order-filters .el-select { min-width: 0; width: 100%; }
+.staff-order-filters .el-button { justify-self: start; margin: 0; }
+.staff-order-badge { display: inline-flex; align-items: center; padding: 2px 7px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+.staff-order-row { min-width: 0; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 14px; background: white; box-shadow: 0 1px 3px rgba(15, 23, 42, .04); }
+.staff-order-row-cancelled { border-color: #fecaca; }
+.staff-order-summary { display: flex; width: 100%; min-width: 0; flex-direction: column; gap: 5px; padding: 11px 12px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.staff-order-summary-main, .staff-order-summary-meta, .staff-order-summary-bottom { display: flex; min-width: 0; width: 100%; align-items: center; gap: 6px; }
+.staff-order-customer { min-width: 0; overflow: hidden; color: #1e293b; font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.staff-order-payment { flex: none; margin-left: auto; font-size: 12px; font-weight: 700; }
+.staff-order-summary-meta { color: #64748b; font-size: 11px; }
+.staff-order-summary-meta .font-mono { flex: none; }
+.staff-order-summary-bottom { color: #475569; font-size: 11px; }
+.staff-order-expand-text { margin-left: auto; color: #2563eb; font-weight: 700; white-space: nowrap; }
+.staff-order-expanded { display: grid; gap: 9px; padding: 10px 12px 12px; border-top: 1px solid #f1f5f9; }
+.staff-order-item { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+.staff-order-item .el-button { flex: none; min-height: 36px; margin: 0; }
+@media (max-width: 767px) {
+  .staff-orders-drawer { width: 100vw !important; max-width: 100vw !important; }
+  .staff-orders-header { padding-top: max(8px, env(safe-area-inset-top)); padding-right: max(16px, env(safe-area-inset-right)); }
+  .staff-orders-drawer .el-drawer__body { padding-bottom: env(safe-area-inset-bottom); }
+  .staff-orders-drawer .el-button { min-height: 34px; }
 }
 </style>

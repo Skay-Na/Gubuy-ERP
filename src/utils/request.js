@@ -37,7 +37,7 @@ service.interceptors.request.use(
     return config
   },
   error => {
-    console.error('Request error:', error)
+    console.error('Request error:', error?.message || '请求配置失败')
     return Promise.reject(error)
   }
 )
@@ -71,7 +71,7 @@ service.interceptors.response.use(
     return response
   },
   error => {
-    console.error('Response error:', error)
+    console.error('Response error:', error?.response?.status || error?.message || '请求失败')
     if (error.response && error.response.status === 401) {
       if (isPinVerifyRequest(error.config)) {
         return Promise.reject(error)

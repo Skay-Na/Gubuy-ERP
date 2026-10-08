@@ -1,3 +1,5 @@
+//go:build ignore
+
 // audit-2026-08-02-balance-replay.go
 // 用途：按 financial_logs.id 顺序重放每个账户的余额，与 accounts.balance 比对
 // 运行：go run scripts/audit-2026-08-02-balance-replay.go -db erp_db

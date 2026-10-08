@@ -87,6 +87,9 @@ func TestHistoricalCostRepairRequiresExplicitConfirmationBeforeDatabaseAccess(t 
 }
 
 func TestAdminAuthRejectsEmployeeTokenBeforeHandler(t *testing.T) {
+	if err := middlewares.ConfigureJWTSecret("isolated-test-signing-secret-32-bytes-minimum"); err != nil {
+		t.Fatal(err)
+	}
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/admin-only", middlewares.AdminAuthRequired(), func(c *gin.Context) {

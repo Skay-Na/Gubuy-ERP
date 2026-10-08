@@ -1,0 +1,13 @@
+{
+  "id": "subsidy",
+  "title": "国补回款",
+  "summary": "累计应回款、已登记回款和尚未回款余额。",
+  "keywords": ["国补", "补贴", "补助", "回款"],
+  "datasets": ["subsidy_settlements", "orders", "financial_logs"],
+  "rules": [
+    "问‘国补还有多少没回款’时使用 subsidy_pending 标准指标，即国补概览的当前余额；不能只查结算记录或只看订单状态。",
+    "累计应回款来自有效国补订单，新版优先 subsidy_pending_amount，旧订单回退 subsidy_amount；累计已回款来自国补结算记录；余额为两者之差，最低为零。",
+    "结算状态与财务到账记录是不同证据；不得将订单金额或结算应收额直接写成已到账资金。"
+  ],
+  "limits": ["跨表对账需要业务关联键；通用数据查询不能自行拼接未经验证的关联。"]
+}
