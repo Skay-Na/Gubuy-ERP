@@ -5,6 +5,7 @@ package main
 import (
 	"erp-backend/agentnative"
 	"erp-backend/config"
+	"erp-backend/controllers"
 	"erp-backend/middlewares"
 	"erp-backend/models"
 	"erp-backend/routers"
@@ -29,10 +30,16 @@ func main() {
 	}
 	// 1. 初始化数据库
 	config.InitDB()
-	if os.Getenv("AGENT_RUNTIME_ENABLED") == "1" {
-		agentnative.StartRuntimeWorker(config.DB)
-	} else if os.Getenv("AGENT_MONITOR_ENABLED") == "1" {
-		agentnative.StartDailyMonitor(config.DB)
+	runtimeEnabled := os.Getenv("AGENT_RUNTIME_ENABLED") == "1"
+	legacyTaskWorkerEnabled := os.Getenv("AGENT_PERSISTENT_SCHEDULER_ENABLED") == "1"
+	var planner agentnative.AgentPlanner
+	if os.Getenv("AGENT_LLM_PLANNER_ENABLED") == "1" {
+		planner = controllers.NewRuntimePlanner()
+	}
+	if legacyTaskWorkerEnabled || runtimeEnabled {
+		// Durable user-requested tasks remain available, but inventory alert and
+		// replenishment scans are retired and must not run at startup.
+		agentnative.StartAgentTaskWorker(config.DB, planner)
 	}
 
 	// 自动初始化拼音索引
@@ -50,8 +57,14 @@ func main() {
 	r.MaxMultipartMemory = 100 << 20
 
 	// 4. 启动服务
-	fmt.Println("Backend service starting on http://localhost:8080")
-	r.Run(":8080")
+	listenAddr := os.Getenv("BACKEND_LISTEN_ADDR")
+	if listenAddr == "" {
+		listenAddr = ":8080"
+	}
+	fmt.Printf("Backend service starting on %s\n", listenAddr)
+	if err := r.Run(listenAddr); err != nil {
+		log.Fatalf("backend server stopped: %v", err)
+	}
 }
 
 func strPtr(s string) *string {
@@ -78,7 +91,7 @@ func seedData() {
 				Remark:      strPtr("HR-RF-500"),
 				LatestCost:  3200.00,
 				MarginRate:  0.15,
-				MainStock:   10,
+				CloudStock:  10,
 				StoreStock:  0,
 				SampleStock: 0,
 			},
@@ -88,7 +101,7 @@ func seedData() {
 				Remark:      strPtr("MD-WM-100"),
 				LatestCost:  1800.00,
 				MarginRate:  0.12,
-				MainStock:   5,
+				CloudStock:  5,
 				StoreStock:  0,
 				SampleStock: 0,
 			},
@@ -98,7 +111,7 @@ func seedData() {
 				Remark:      strPtr("XM-TV-65"),
 				LatestCost:  2500.00,
 				MarginRate:  0.10,
-				MainStock:   8,
+				CloudStock:  8,
 				StoreStock:  0,
 				SampleStock: 0,
 			},

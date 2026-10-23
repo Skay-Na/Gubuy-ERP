@@ -15,26 +15,14 @@ type inboundSettlement struct {
 	AccountID *uint
 }
 
-func normalizeInboundSettlement(settlementType string, accountID *uint) (inboundSettlement, error) {
+func normalizeInboundSettlement(settlementType string, _ *uint) (inboundSettlement, error) {
 	settlementType = strings.TrimSpace(settlementType)
-	if settlementType == "" {
-		settlementType = SettlementTypeSaleSettlement
-	}
-
-	settlement := inboundSettlement{
-		Type:      settlementType,
-		AccountID: accountID,
-	}
-
-	switch settlement.Type {
-	case SettlementTypeCashPurchase:
-		if settlement.AccountID == nil || *settlement.AccountID == 0 {
-			return inboundSettlement{}, fmt.Errorf("现款采购必须选择付款账户")
-		}
-	case SettlementTypeSaleSettlement:
+	switch settlementType {
+	case "", SettlementTypeCashPurchase, SettlementTypeSaleSettlement:
+		// Inventory entry records a cost basis only. Procurement is not a real cash
+		// payment in this business, so legacy cash_purchase requests are normalized.
+		return inboundSettlement{Type: SettlementTypeSaleSettlement}, nil
 	default:
 		return inboundSettlement{}, fmt.Errorf("不支持的结算方式")
 	}
-
-	return settlement, nil
 }

@@ -3,8 +3,10 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -139,6 +141,26 @@ func CreateExpense(c *gin.Context) {
 			"msg":  "财务流水写入失败",
 		})
 		return
+	}
+	if strings.Contains(req.ExpenseType, "退款") && req.RelatedNo != "" {
+		var linkedOrder models.Order
+		if err := tx.Where("order_no = ?", req.RelatedNo).First(&linkedOrder).Error; err == nil {
+			var financialLog models.FinancialLog
+			if err := tx.Where("related_no = ? AND account_id = ? AND category = ?", linkedOrder.OrderNo, req.AccountID, req.ExpenseType).Order("id DESC").First(&financialLog).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询退款流水失败"})
+				return
+			}
+			if err := postExitOrderRefundAlert(tx, linkedOrder, req.ExpenseType, req.Amount, &financialLog.ID, time.Now()); err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "离职后订单退款告警写入失败，支出操作已回滚"})
+				return
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询退款关联订单失败"})
+			return
+		}
 	}
 
 	if err := tx.Commit().Error; err != nil {
@@ -303,6 +325,26 @@ func UpdateExpense(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "新账流水写入失败"})
 		return
+	}
+	if strings.Contains(req.ExpenseType, "退款") && req.RelatedNo != "" {
+		var linkedOrder models.Order
+		if err := tx.Where("order_no = ?", req.RelatedNo).First(&linkedOrder).Error; err == nil {
+			var financialLog models.FinancialLog
+			if err := tx.Where("related_no = ? AND account_id = ? AND category = ?", linkedOrder.OrderNo, newAccountID, req.ExpenseType).Order("id DESC").First(&financialLog).Error; err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询退款流水失败"})
+				return
+			}
+			if err := postExitOrderRefundAlert(tx, linkedOrder, req.ExpenseType, req.Amount, &financialLog.ID, time.Now()); err != nil {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "离职后订单退款告警写入失败，支出操作已回滚"})
+				return
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询退款关联订单失败"})
+			return
+		}
 	}
 
 	// 3. 更新Expense记录

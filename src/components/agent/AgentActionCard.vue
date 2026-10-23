@@ -61,7 +61,7 @@ async function confirm() {
           <select v-model.number="item.product_id" class="rounded-lg border p-2"><option :value="0">选择实际商品</option><option v-for="product in products" :key="product.id" :value="product.id">{{ product.name }} (#{{ product.id }})</option></select>
           <div class="flex gap-2"><input v-model.number="item.quantity" type="number" min="1" placeholder="数量" class="w-1/2 rounded-lg border p-2" /><input v-model.number="item.unit_price" type="number" min="0.01" step="0.01" placeholder="单价" class="w-1/2 rounded-lg border p-2" /></div>
         </div>
-        <select v-model.number="form.delivery_method" class="rounded-lg border p-2"><option :value="0">选择发货方式</option><option :value="1">门店自提</option><option :value="2">主仓发货</option><option :value="3">云仓代发</option></select>
+        <select v-model.number="form.delivery_method" class="rounded-lg border p-2"><option :value="0">选择发货方式</option><option :value="1">门店自提</option><option :value="4">云仓发货</option></select>
         <select v-model.number="form.payment_method" class="rounded-lg border p-2"><option :value="0">选择支付方式</option><option :value="1">支付宝</option><option :value="2">微信</option><option :value="3">公户</option><option :value="5">现金</option></select>
         <select v-model="form.payment_mode" class="rounded-lg border p-2"><option value="full">全款</option><option value="deposit">定金</option></select>
         <input v-if="form.payment_mode === 'deposit'" v-model.number="form.deposit_amount" type="number" min="0.01" step="0.01" placeholder="定金金额" class="rounded-lg border p-2" />

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -44,11 +45,15 @@ func ResetSystem(c *gin.Context) {
 	// 清空所有业务表 (按照依赖关系逆序删除或直接 TRUNCATE)
 	// 注意：MySQL 中如果有外键约束，TRUNCATE 可能会失败，可以使用 DELETE
 	tables := []interface{}{
+		&models.EmployeeOffboardingAlert{},
+		&models.EmployeeHandoverTask{},
+		&models.EmployeeOffboarding{},
 		&models.AIProviderConfig{},
 		&models.AIImport{},
-		&models.AIAgentSession{},
+		&models.AIAgentAttachment{},
 		&models.AIAgentMessage{},
 		&models.AIAgentAction{},
+		&models.AIAgentSession{},
 		&models.FinancialLog{},
 		&models.InventoryLog{},
 		&models.TransferRecord{},
@@ -60,6 +65,7 @@ func ResetSystem(c *gin.Context) {
 		&models.Product{},
 		&models.Category{},
 		&models.MonthlyAttendance{},
+		&models.DailyAttendance{},
 		&models.Employee{},
 		&models.Account{},
 		&models.AdminUser{},
@@ -94,6 +100,12 @@ func ExportBackup(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Minute)
 	defer cancel()
 
+	dumpCommand, err := findMySQLCommand("mariadb-dump", "mysqldump")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库备份执行失败: " + err.Error()})
+		return
+	}
+
 	tempFile, err := os.CreateTemp("", "erpwonchon-backup-*.sql")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "创建备份临时文件失败: " + err.Error()})
@@ -102,15 +114,19 @@ func ExportBackup(c *gin.Context) {
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath)
 
-	args := mysqlClientArgs()
-	cmd := exec.CommandContext(ctx, "mysqldump", args...)
+	args := []string{"--single-transaction", "--quick", "--hex-blob", "--no-tablespaces"}
+	args = append(args, mysqlClientArgs(dumpCommand)...)
+	cmd := exec.CommandContext(ctx, dumpCommand, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = tempFile
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
 		tempFile.Close()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库备份执行失败: " + stderr.String()})
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"code": 500, "msg": "数据库备份执行失败: " + mysqlCommandError(stderr.String(), err)},
+		)
 		return
 	}
 
@@ -156,6 +172,12 @@ func ImportBackup(c *gin.Context) {
 		return
 	}
 
+	restoreCommand, err := findMySQLCommand("mariadb", "mysql")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库恢复执行失败: " + err.Error()})
+		return
+	}
+
 	tempFile, err := os.CreateTemp("", "erpwonchon-restore-*.sql")
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "创建临时文件失败: " + err.Error()})
@@ -177,15 +199,18 @@ func ImportBackup(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "文件保存失败: " + err.Error()})
 		return
 	}
-	tempFile.Close()
+	if err := tempFile.Close(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "备份文件保存失败: " + err.Error()})
+		return
+	}
 
 	beforeCounts := collectRestoreCounts()
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
 	defer cancel()
 
-	args := mysqlClientArgs()
-	cmd := exec.CommandContext(ctx, "mysql", args...)
+	args := mysqlClientArgs(restoreCommand)
+	cmd := exec.CommandContext(ctx, restoreCommand, args...)
 	var stderr bytes.Buffer
 
 	f, err := os.Open(tempPath)
@@ -198,7 +223,10 @@ func ImportBackup(c *gin.Context) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "数据库恢复执行失败: " + stderr.String()})
+		c.JSON(
+			http.StatusInternalServerError,
+			gin.H{"code": 500, "msg": "数据库恢复执行失败: " + mysqlCommandError(stderr.String(), err)},
+		)
 		return
 	}
 
@@ -217,12 +245,21 @@ func ImportBackup(c *gin.Context) {
 	})
 }
 
-func mysqlClientArgs() []string {
+func mysqlClientArgs(command string) []string {
 	dbUser := getEnvString("DB_USER", "root")
 	dbPass := os.Getenv("DB_PASS")
 	dbHost := getEnvString("DB_HOST", "127.0.0.1")
 	dbPort := getEnvString("DB_PORT", "3306")
 	dbName := getEnvString("DB_NAME", "erp_db")
+
+	sslOption := "--ssl-mode=DISABLED"
+	clientPath, err := filepath.EvalSymlinks(command)
+	if err != nil {
+		clientPath = command
+	}
+	if strings.Contains(filepath.Base(clientPath), "mariadb") {
+		sslOption = "--skip-ssl"
+	}
 
 	args := []string{
 		"--protocol=tcp",
@@ -230,7 +267,7 @@ func mysqlClientArgs() []string {
 		"-P", dbPort,
 		"-u", dbUser,
 		"--default-character-set=utf8mb4",
-		"--ssl=FALSE",
+		sslOption,
 	}
 	if dbPass != "" {
 		args = append(args, "-p"+dbPass)
@@ -238,6 +275,29 @@ func mysqlClientArgs() []string {
 
 	args = append(args, dbName)
 	return args
+}
+
+func mysqlCommandError(stderr string, err error) string {
+	detail := strings.TrimSpace(stderr)
+	if detail != "" {
+		return detail
+	}
+
+	return err.Error()
+}
+
+func findMySQLCommand(names ...string) (string, error) {
+	for _, name := range names {
+		path, err := exec.LookPath(name)
+		if err == nil {
+			return path, nil
+		}
+	}
+
+	return "", fmt.Errorf(
+		"未找到数据库客户端命令（尝试了 %s），请在后端运行环境安装 MariaDB 或 MySQL 客户端",
+		strings.Join(names, "、"),
+	)
 }
 
 func getEnvString(key string, fallback string) string {
@@ -269,6 +329,10 @@ func collectRestoreCounts() gin.H {
 		"admin_users",
 		"categories",
 		"employees",
+		"employee_offboardings",
+		"employee_handover_tasks",
+		"employee_offboarding_alerts",
+		"daily_attendances",
 		"orders",
 		"order_items",
 		"products",
@@ -276,6 +340,7 @@ func collectRestoreCounts() gin.H {
 		"financial_logs",
 		"ai_imports",
 		"ai_provider_configs",
+		"ai_agent_attachments",
 	} {
 		var count int64
 		if err := config.DB.Raw(fmt.Sprintf("SELECT COUNT(*) FROM `%s`", table)).Scan(&count).Error; err != nil {

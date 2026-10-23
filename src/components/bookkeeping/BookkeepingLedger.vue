@@ -27,10 +27,15 @@ watch(
   () => props.initialFilters,
   (value) => {
     if (!value) return
-    Object.assign(filters, value)
-    if (value.start_date || value.end_date) {
-      filters.date_range = [value.start_date || '', value.end_date || '']
-    }
+    filters.account_id = value.account_id || ''
+    filters.flow_type = value.flow_type || ''
+    filters.source_type = value.source_type || ''
+    filters.keyword = value.keyword || ''
+    filters.page = Number(value.page) > 0 ? Number(value.page) : 1
+    filters.page_size = Number(value.page_size) > 0 ? Number(value.page_size) : 20
+    filters.date_range = value.start_date || value.end_date
+      ? [value.start_date || '', value.end_date || '']
+      : []
   },
   { immediate: true, deep: true }
 )

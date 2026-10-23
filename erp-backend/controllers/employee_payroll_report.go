@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -54,7 +55,7 @@ func monthlyEmployeePayrollReport(startMonth time.Time) ([]CommissionReportItem,
 		}
 		var attendance models.MonthlyAttendance
 		config.DB.Where("employee_id = ? AND month = ?", employee.ID, month).Find(&attendance)
-		item.AbsentDays = countAbsentDays(employee.ID, startMonth)
+		item.AbsentDays = countAbsentDays(employee, startMonth)
 		item.ManualLeaveDays = attendance.LeaveDays
 		if attendance.ID == 0 {
 			item.ManualLeaveDays = item.AbsentDays
@@ -67,6 +68,27 @@ func monthlyEmployeePayrollReport(startMonth time.Time) ([]CommissionReportItem,
 			item.Deduction = float64(moneyCents(item.DailySalary*float64(item.DeductionDays))) / 100
 		}
 		item.FinalSalary = float64(moneyCents(item.BaseSalary)+moneyCents(item.TotalCommission)-moneyCents(item.Deduction)) / 100
+	}
+	var completedOffboardings []models.EmployeeOffboarding
+	if err := config.DB.Where("settlement_month = ? AND status = ?", month, "completed").Find(&completedOffboardings).Error; err != nil {
+		return nil, fmt.Errorf("查询离职结算快照: %w", err)
+	}
+	for _, settlement := range completedOffboardings {
+		item, ok := reportMap[settlement.EmployeeID]
+		if !ok {
+			continue
+		}
+		item.BaseSalary = settlement.CalculatedBaseSalary
+		item.PersonalCommission = settlement.PersonalCommissionSnapshot
+		item.ChamberCommission = settlement.ChamberCommissionSnapshot
+		item.TotalCommission = settlement.CommissionSnapshot
+		item.Deduction = 0
+		item.DeductionDays = 0
+		item.FinalSalary = settlement.FinalPayableSnapshot
+		var detailSnapshot []CommissionDetail
+		if err := json.Unmarshal([]byte(settlement.CommissionDetailsSnapshot), &detailSnapshot); err == nil {
+			item.CommissionDetails = detailSnapshot
+		}
 	}
 	result := make([]CommissionReportItem, 0, len(reportMap))
 	for _, item := range reportMap {

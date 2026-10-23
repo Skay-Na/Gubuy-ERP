@@ -84,10 +84,10 @@ func (s MonitorService) ReviewDraft(ctx context.Context, input DraftReviewInput)
 			return ErrDraftNotReviewable
 		}
 		var product models.Product
-		if err := tx.Select("id", "main_stock", "store_stock", "cloud_stock").First(&product, draft.ProductID).Error; err != nil {
+		if err := tx.Select("id", "store_stock", "cloud_stock").First(&product, draft.ProductID).Error; err != nil {
 			return fmt.Errorf("load draft product: %w", err)
 		}
-		currentStock := product.MainStock + product.StoreStock + product.CloudStock
+		currentStock := product.StoreStock + product.CloudStock
 		status := "approved"
 		detail := "管理员确认了内部补货建议；未创建采购订单且未修改库存"
 		if input.Decision == "reject" {

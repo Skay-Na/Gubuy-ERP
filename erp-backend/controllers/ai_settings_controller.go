@@ -100,7 +100,7 @@ func decryptAIKey(encoded string) (string, error) {
 	}
 	plain, err := aead.Open(nil, data[:aead.NonceSize()], data[aead.NonceSize():], nil)
 	if err != nil {
-		return "", errors.New("无法解密 AI 密钥，请检查 AI_CONFIG_SECRET")
+		return "", errors.New("无法解密 AI 密钥：当前服务端加密密钥与保存时不一致。请恢复原 AI_CONFIG_SECRET/JWT_SECRET，或在系统设置重新输入服务商 API Key 并保存")
 	}
 	return string(plain), nil
 }

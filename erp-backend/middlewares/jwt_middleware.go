@@ -1,6 +1,8 @@
 package middlewares
 
 import (
+	"erp-backend/config"
+	"erp-backend/models"
 	"errors"
 	"net/http"
 	"os"
@@ -95,7 +97,23 @@ func authenticate(c *gin.Context) bool {
 // AuthRequired JWT 认证中间件
 func AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authenticate(c)
+		if !authenticate(c) {
+			return
+		}
+		username := c.GetString("username")
+		if !strings.HasPrefix(username, "emp_") {
+			return
+		}
+		var employee models.Employee
+		if err := config.DB.Where("emp_no = ?", strings.TrimPrefix(username, "emp_")).First(&employee).Error; err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "员工身份无效，请重新登录"})
+			c.Abort()
+			return
+		}
+		if !employee.CanUseEmployeeAccess(time.Now()) {
+			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "员工已离职，终端权限已停用"})
+			c.Abort()
+		}
 	}
 }
 

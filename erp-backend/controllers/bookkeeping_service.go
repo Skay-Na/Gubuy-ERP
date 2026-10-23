@@ -3,6 +3,7 @@ package controllers
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"erp-backend/models"
@@ -90,5 +91,17 @@ func postBookkeepingEntry(
 	if err := tx.Create(&entry).Error; err != nil {
 		return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "记账流水保存失败", err)
 	}
+	if req.EntryType == bookkeepingExpense && linkedOrder != nil && strings.Contains(req.Category, "退款") {
+		if err := postExitOrderRefundAlert(tx, *linkedOrder, req.Category, req.Amount, &entry.ID, time.Now()); err != nil {
+			return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "离职后订单退款告警写入失败", err)
+		}
+	}
 	return entry, linkedOrder, nil
+}
+
+func postExitOrderRefundAlert(tx *gorm.DB, order models.Order, category string, amount float64, financialLogID *uint, occurredAt time.Time) error {
+	if !strings.Contains(category, "退款") {
+		return nil
+	}
+	return PostExitOrderChangeAlerts(tx, order, "order_refund", amount, financialLogID, occurredAt)
 }

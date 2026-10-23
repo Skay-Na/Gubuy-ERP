@@ -21,6 +21,7 @@ type ExecutionContext struct {
 	PermissionSet  []string
 	TenantID       string
 	TaskID         uint
+	LeaseVersion   uint64
 	ToolCallID     string
 	IdempotencyKey string
 	Timeout        time.Duration
@@ -48,6 +49,17 @@ type RuntimeExecutor struct {
 	DB      *gorm.DB
 	Monitor MonitorService
 	Tools   map[string]ToolHandler
+	Planner AgentPlanner
+	Limits  PlannerLimits
+	Now     func() time.Time
+	OnEvent func(RuntimeEvent)
+}
+
+func (r *RuntimeExecutor) now() time.Time {
+	if r != nil && r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 var ErrTaskCancelled = errors.New("agent task cancelled")
@@ -55,8 +67,20 @@ var ErrTaskCancelled = errors.New("agent task cancelled")
 var toolPermissions = map[string]string{
 	"retail.product_inventory":            "retail.read",
 	"retail.replenishment_context":        "retail.read",
+	"retail.sales_summary":                "retail.read",
+	"retail.sales_trend":                  "retail.read",
+	"retail.inventory_sales":              "retail.read",
 	"monitor.get_signal":                  "monitor.signal.read",
+	"replenishment.get_draft":             "replenishment.draft.read",
 	"replenishment.create_internal_draft": "replenishment.draft.create",
+	"agent.get_task_status":               "agent.task.read",
+	"schedule.create":                     "schedule.manage",
+	"schedule.list":                       "schedule.read",
+	"schedule.history":                    "schedule.read",
+	"schedule.update":                     "schedule.manage",
+	"schedule.pause":                      "schedule.manage",
+	"schedule.resume":                     "schedule.manage",
+	"schedule.cancel":                     "schedule.manage",
 }
 
 func NewRuntimeExecutor(db *gorm.DB) *RuntimeExecutor {
@@ -64,6 +88,9 @@ func NewRuntimeExecutor(db *gorm.DB) *RuntimeExecutor {
 	r.Tools["retail.product_inventory"] = func(ctx context.Context, ec ExecutionContext, args map[string]any) (ToolOutput, error) {
 		keyword, _ := args["keyword"].(string)
 		limit := 20
+		if configured, ok := integerValue(args["limit"]); ok {
+			limit = configured
+		}
 		items, err := (services.RetailReadService{DB: db}).SearchProductInventory(ctx, keyword, limit)
 		if err != nil {
 			return ToolOutput{}, err
@@ -111,7 +138,7 @@ func NewRuntimeExecutor(db *gorm.DB) *RuntimeExecutor {
 		if err := db.WithContext(ctx).Where("id = ? AND tenant_id = ?", ec.TaskID, ec.TenantID).First(&task).Error; err != nil {
 			return ToolOutput{}, err
 		}
-		if err := r.Monitor.createDraft(ctx, task); err != nil {
+		if err := r.Monitor.createDraft(ctx, task, ec.LeaseVersion); err != nil {
 			return ToolOutput{}, err
 		}
 		var draft models.AgentReplenishmentDraft
@@ -123,6 +150,7 @@ func NewRuntimeExecutor(db *gorm.DB) *RuntimeExecutor {
 		}
 		return ToolOutput{Name: "replenishment.create_internal_draft", Summary: "已保存可人工审核的内部补货草案", Data: draft}, nil
 	}
+	registerPlannerTools(r)
 	return r
 }
 
@@ -148,6 +176,14 @@ func (r *RuntimeExecutor) Execute(ctx context.Context, ec ExecutionContext, inpu
 	permission, registered := toolPermissions[input.Name]
 	if !registered || !hasPermission(ec.PermissionSet, permission) {
 		return ToolOutput{}, fmt.Errorf("principal is not authorized for tool %q", input.Name)
+	}
+	if err := validateToolInput(input); err != nil {
+		return ToolOutput{}, fmt.Errorf("invalid arguments for tool %q: %w", input.Name, err)
+	}
+	if ec.TaskID > 0 && ec.LeaseVersion > 0 {
+		if err := r.checkTaskLease(ctx, models.AgentWorkTask{ID: ec.TaskID, LeaseVersion: ec.LeaseVersion}); err != nil {
+			return ToolOutput{}, err
+		}
 	}
 	if err := ctx.Err(); err != nil {
 		return ToolOutput{}, err
@@ -236,12 +272,8 @@ func (r *RuntimeExecutor) ExecutePersistedTask(ctx context.Context, task models.
 		principal = "admin"
 	}
 	for index, call := range steps {
-		var current models.AgentWorkTask
-		if err := r.DB.WithContext(ctx).Select("status").First(&current, task.ID).Error; err != nil {
-			return fmt.Errorf("reload task status: %w", err)
-		}
-		if current.Status == "CANCELLED" {
-			return ErrTaskCancelled
+		if err := r.checkTaskLease(ctx, task); err != nil {
+			return err
 		}
 		var saved models.AgentWorkTaskStep
 		if err := r.DB.WithContext(ctx).Where("task_id = ? AND sequence = ?", task.ID, index+1).First(&saved).Error; err == nil && saved.Status == "SUCCEEDED" {
@@ -249,35 +281,39 @@ func (r *RuntimeExecutor) ExecutePersistedTask(ctx context.Context, task models.
 		}
 		key := fmt.Sprintf("agent-task:%d:step:%d", task.ID, index+1)
 		step := models.AgentWorkTaskStep{TaskID: task.ID, Sequence: index + 1, StepType: "tool", ToolName: call.Name, InputSummary: summarizeInput(call), Status: "RUNNING", StartedAt: &now, IdempotencyKey: key}
-		if err := r.DB.WithContext(ctx).Where("task_id = ? AND sequence = ?", task.ID, index+1).FirstOrCreate(&step).Error; err != nil {
-			return fmt.Errorf("persist step %d: %w", index+1, err)
+		if err := r.DB.WithContext(ctx).Where("task_id = ? AND sequence = ?", task.ID, index+1).First(&step).Error; errors.Is(err, gorm.ErrRecordNotFound) {
+			if err := r.createTaskStep(ctx, task, &step); err != nil {
+				return fmt.Errorf("persist step %d: %w", index+1, err)
+			}
+		} else if err != nil {
+			return fmt.Errorf("load step %d: %w", index+1, err)
 		}
 		if step.Status == "SUCCEEDED" {
 			continue
 		}
 		step.Status, step.StartedAt = "RUNNING", &now
-		if err := r.DB.WithContext(ctx).Model(&step).Updates(map[string]any{"status": step.Status, "started_at": now, "retry_count": gorm.Expr("retry_count + 1"), "error_message": ""}).Error; err != nil {
+		if err := r.updateTaskStep(ctx, task, step, map[string]any{"status": step.Status, "started_at": now, "retry_count": gorm.Expr("retry_count + 1"), "error_message": ""}); err != nil {
 			return fmt.Errorf("start step %d: %w", index+1, err)
 		}
-		output, err := r.Execute(ctx, ExecutionContext{UserID: task.CreatedBy, Principal: principal, PermissionSet: permissions, TenantID: task.TenantID, TaskID: task.ID, ToolCallID: key, IdempotencyKey: key, Timeout: 30 * time.Second}, call)
+		output, err := r.Execute(ctx, ExecutionContext{UserID: task.CreatedBy, Principal: principal, PermissionSet: permissions, TenantID: task.TenantID, TaskID: task.ID, LeaseVersion: task.LeaseVersion, ToolCallID: key, IdempotencyKey: key, Timeout: 30 * time.Second}, call)
 		finished := time.Now()
 		if err != nil {
 			message := err.Error()
 			if len(message) > 500 {
 				message = message[:500]
 			}
-			_ = r.DB.WithContext(ctx).Model(&step).Updates(map[string]any{"status": "FAILED", "finished_at": finished, "error_message": message}).Error
+			_ = r.updateTaskStep(ctx, task, step, map[string]any{"status": "FAILED", "finished_at": finished, "error_message": message})
 			return fmt.Errorf("execute step %d: %w", index+1, err)
 		}
 		result, marshalErr := json.Marshal(output)
 		if marshalErr != nil {
 			return fmt.Errorf("encode step result: %w", marshalErr)
 		}
-		if err := r.DB.WithContext(ctx).Model(&step).Updates(map[string]any{"status": "SUCCEEDED", "finished_at": finished, "result_summary": string(result), "error_message": ""}).Error; err != nil {
+		if err := r.updateTaskStep(ctx, task, step, map[string]any{"status": "SUCCEEDED", "finished_at": finished, "result_summary": string(result), "error_message": ""}); err != nil {
 			return fmt.Errorf("save step %d result: %w", index+1, err)
 		}
 	}
-	return nil
+	return r.completeFixedTask(ctx, task)
 }
 
 // ReconcileCompletedTasks closes the crash window between the draft transaction and step result write.
@@ -286,7 +322,10 @@ func (r *RuntimeExecutor) ReconcileCompletedTasks(ctx context.Context) error {
 	if err := r.DB.WithContext(ctx).
 		Joins("JOIN agent_work_tasks ON agent_work_tasks.id = agent_work_task_steps.task_id").
 		Where("agent_work_tasks.tenant_id = ? AND agent_work_tasks.status = ? AND agent_work_task_steps.status = ? AND agent_work_task_steps.tool_name = ?",
-			SingleTenant, "SUCCEEDED", "RUNNING", "replenishment.create_internal_draft").Find(&steps).Error; err != nil {
+			SingleTenant, "SUCCEEDED", "RUNNING", "replenishment.create_internal_draft").
+		Where("agent_work_tasks.kind NOT IN ?", []string{"replenishment", "replenishment_analysis", "schedule_inventory_check"}).
+		Where("agent_work_tasks.created_by NOT IN ?", []string{"system_monitor", "system_scheduler"}).
+		Find(&steps).Error; err != nil {
 		return fmt.Errorf("find completed tasks with unfinished draft steps: %w", err)
 	}
 	for _, step := range steps {

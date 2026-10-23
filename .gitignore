@@ -91,3 +91,4 @@ erp-backend/docs/
 # Local build artifacts
 erp-backend/erp-backend-linux
 erp-backend/.tmp/
+erp-backend/tmp/

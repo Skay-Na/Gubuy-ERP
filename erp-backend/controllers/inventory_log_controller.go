@@ -5,10 +5,37 @@ import (
 	"erp-backend/models"
 	"erp-backend/utils"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+type InventoryOperator struct {
+	EmployeeID *uint
+	Name       string
+}
+
+// InventoryOperatorFromContext derives the operator from the verified JWT identity.
+func InventoryOperatorFromContext(c *gin.Context) InventoryOperator {
+	username := c.GetString("username")
+	operator := InventoryOperator{Name: username}
+	if !strings.HasPrefix(username, "emp_") {
+		return operator
+	}
+
+	empNo := strings.TrimPrefix(username, "emp_")
+	var employee models.Employee
+	if err := config.DB.Select("id", "name").Where("emp_no = ?", empNo).First(&employee).Error; err != nil {
+		operator.Name = "员工（工号：" + empNo + "）"
+		return operator
+	}
+
+	operator.EmployeeID = &employee.ID
+	operator.Name = employee.Name
+	return operator
+}
 
 // WriteInventoryLog 在事务中写入一条库存流水记录（公用辅助函数）
 // tx: 当前事务（保证原子性，流水与主操作同事务回滚）
@@ -19,7 +46,7 @@ import (
 // changeQty: 变动量（正=增加，负=减少）
 // relatedNo: 关联单号（如订单号）
 // remark: 说明
-func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType string, beforeQty int, changeQty int, unitCost float64, relatedNo string, remark string) error {
+func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType string, beforeQty int, changeQty int, unitCost float64, relatedNo string, remark string, operators ...InventoryOperator) error {
 	log := models.InventoryLog{
 		ProductID:     productID,
 		WarehouseType: warehouseType,
@@ -30,6 +57,10 @@ func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType s
 		UnitCost:      unitCost,
 		RelatedNo:     relatedNo,
 		Remark:        remark,
+	}
+	if len(operators) > 0 {
+		log.OperatorID = operators[0].EmployeeID
+		log.OperatorName = operators[0].Name
 	}
 	return tx.Create(&log).Error
 }
@@ -50,41 +81,56 @@ func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType s
 // @ID get_api_products_id_logs
 // @Router /api/products/{id}/logs [get]
 func GetInventoryLogs(c *gin.Context) {
+	if !requireNoActiveBlindStocktake(c) {
+		return
+	}
 	productID := c.Param("id")
 	warehouseType := c.Query("warehouse_type")
-	page := c.DefaultQuery("page", "1")
-	pageSize := c.DefaultQuery("page_size", "50")
-	_ = page
-	_ = pageSize
+	logType := c.Query("log_type")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 
 	query := config.DB.
 		Preload("Product").
 		Where("product_id = ?", productID).
-		Order("created_at desc")
+		Order("created_at desc, id desc")
 
 	if warehouseType != "" {
 		query = query.Where("warehouse_type = ?", warehouseType)
 	}
+	if logType != "" {
+		query = query.Where("log_type = ?", logType)
+	}
 
 	var total int64
-	query.Model(&models.InventoryLog{}).Count(&total)
+	if err := query.Model(&models.InventoryLog{}).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "统计库存流水失败"})
+		return
+	}
 
-	var offset int
-	var limit int
-	// Simply use default for now
-	offset = 0
-	limit = 50
+	offset := (page - 1) * pageSize
 
 	var logs []models.InventoryLog
-	if err := query.Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
+	if err := query.Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询失败"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":  200,
-		"total": total,
-		"data":  logs,
+		"code":      200,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+		"data":      logs,
 	})
 }
 
@@ -97,6 +143,7 @@ func GetInventoryLogs(c *gin.Context) {
 // @Param warehouse_type query int false "仓库类型"
 // @Param log_type query string false "流水类型 (purchase/sale/transfer等)"
 // @Param product_id query int false "商品ID"
+// @Param operator_id query int false "操作员工ID"
 // @Param keyword query string false "模糊搜索关键字"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
@@ -106,19 +153,30 @@ func GetInventoryLogs(c *gin.Context) {
 // @ID get_api_inventory_logs
 // @Router /api/inventory/logs [get]
 func GetGlobalInventoryLogs(c *gin.Context) {
+	if !requireNoActiveBlindStocktake(c) {
+		return
+	}
 	warehouseType := c.Query("warehouse_type")
 	logType := c.Query("log_type")
 	productID := c.Query("product_id")
 	keyword := c.Query("keyword")
-	page := c.DefaultQuery("page", "1")
-	pageSize := c.DefaultQuery("page_size", "50")
-	_ = page
-	_ = pageSize
+	operatorID := c.Query("operator_id")
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "50"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 50
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 
 	query := config.DB.
 		Model(&models.InventoryLog{}).
 		Preload("Product").
-		Order("created_at desc")
+		Order("created_at desc, id desc")
 
 	if warehouseType != "" {
 		query = query.Where("warehouse_type = ?", warehouseType)
@@ -128,6 +186,9 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 	}
 	if productID != "" {
 		query = query.Where("product_id = ?", productID)
+	}
+	if operatorID != "" {
+		query = query.Where("operator_id = ?", operatorID)
 	}
 	if keyword != "" {
 		k := "%" + keyword + "%"
@@ -139,13 +200,10 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 	var total int64
 	query.Model(&models.InventoryLog{}).Count(&total)
 
-	var offset int
-	var limit int
-	offset = 0
-	limit = 100 // Global logs usually need more visibility
+	offset := (page - 1) * pageSize
 
 	var logs []models.InventoryLog
-	if err := query.Offset(offset).Limit(limit).Find(&logs).Error; err != nil {
+	if err := query.Offset(offset).Limit(pageSize).Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询失败"})
 		return
 	}
@@ -165,18 +223,23 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 // @Param warehouse_type query int false "仓库类型"
 // @Param log_type query string false "流水类型"
 // @Param product_id query int false "商品ID"
+// @Param operator_id query int false "操作员工ID"
 // @Param keyword query string false "搜索关键字"
 // @Success 200 {file} binary "Excel 文件"
 // @Security ApiKeyAuth
 // @ID get_api_inventory_logs_export
 // @Router /api/inventory/logs/export [get]
 func ExportInventoryLogs(c *gin.Context) {
+	if !requireNoActiveBlindStocktake(c) {
+		return
+	}
 	warehouseType := c.Query("warehouse_type")
 	logType := c.Query("log_type")
 	productID := c.Query("product_id")
 	keyword := c.Query("keyword")
+	operatorID := c.Query("operator_id")
 
-	query := config.DB.Model(&models.InventoryLog{}).Preload("Product").Order("created_at desc")
+	query := config.DB.Model(&models.InventoryLog{}).Preload("Product").Order("created_at desc, id desc")
 
 	if warehouseType != "" {
 		query = query.Where("warehouse_type = ?", warehouseType)
@@ -186,6 +249,9 @@ func ExportInventoryLogs(c *gin.Context) {
 	}
 	if productID != "" {
 		query = query.Where("product_id = ?", productID)
+	}
+	if operatorID != "" {
+		query = query.Where("operator_id = ?", operatorID)
 	}
 	if keyword != "" {
 		k := "%" + keyword + "%"
@@ -199,12 +265,16 @@ func ExportInventoryLogs(c *gin.Context) {
 		return
 	}
 
-	headers := []string{"日志ID", "商品名称", "仓库类型", "记录类型", "变动数量", "变动前", "变动后", "单价", "总价", "关联单号", "备注", "记录时间"}
+	headers := []string{"日志ID", "商品名称", "操作人", "仓库类型", "记录类型", "变动数量", "变动前", "变动后", "单价", "总价", "关联单号", "备注", "记录时间"}
 	var data [][]interface{}
 	for _, l := range logs {
 		prodName := "-"
 		if l.Product != nil {
 			prodName = l.Product.Name
+		}
+		operatorName := l.OperatorName
+		if operatorName == "" {
+			operatorName = "历史记录"
 		}
 		wh := "主仓"
 		if l.WarehouseType == 2 {
@@ -230,6 +300,7 @@ func ExportInventoryLogs(c *gin.Context) {
 		row := []interface{}{
 			l.ID,
 			prodName,
+			operatorName,
 			wh,
 			lt,
 			l.ChangeQty,

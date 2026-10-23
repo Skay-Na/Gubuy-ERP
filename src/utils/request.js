@@ -10,7 +10,7 @@ const service = axios.create({
   timeout: 10000
 })
 
-const isTerminalRoute = () => router.currentRoute.value.path === '/terminal'
+const isTerminalRoute = () => router.currentRoute.value.path.startsWith('/terminal')
 const isPinVerifyRequest = config => config?.url?.includes('/api/employees/verify-pin')
 
 const clearAuth = () => {
@@ -72,21 +72,22 @@ service.interceptors.response.use(
   },
   error => {
     console.error('Response error:', error?.response?.status || error?.message || '请求失败')
+    const isBlobRequest = error.config?.responseType === 'blob'
     if (error.response && error.response.status === 401) {
       if (isPinVerifyRequest(error.config)) {
         return Promise.reject(error)
       }
       if (isTerminalRoute()) {
-        ElMessage.error(error.response?.data?.msg || '员工登录已过期，请重新输入 PIN')
+        if (!isBlobRequest) ElMessage.error(error.response?.data?.msg || '员工登录已过期，请重新输入 PIN')
         clearPosAuth()
         router.replace('/terminal')
         return Promise.reject(error)
       }
-      ElMessage.error('登录失效或无权限，请重新登录')
+      if (!isBlobRequest) ElMessage.error('登录失效或无权限，请重新登录')
       clearAuth()
       router.push('/')
     } else {
-      ElMessage.error(error.response?.data?.msg || error.message || '网络请求错误')
+      if (!isBlobRequest) ElMessage.error(error.response?.data?.msg || error.message || '网络请求错误')
     }
     return Promise.reject(error)
   }

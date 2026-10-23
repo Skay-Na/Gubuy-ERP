@@ -2,8 +2,10 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -13,7 +15,93 @@ import (
 	"erp-backend/models"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
+
+type CreateAIAgentPlannerTaskRequest struct {
+	Message string `json:"message"`
+}
+
+// CreateAIAgentPlannerTask queues a durable, read-only retail analysis from chat.
+// @Summary 提交通用 Agent Planner 分析任务
+// @Tags AI
+// @Accept json
+// @Produce json
+// @Param id path int true "会话编号"
+// @Param body body CreateAIAgentPlannerTaskRequest true "经营分析目标"
+// @Success 202 {object} APIResponse
+// @Security ApiKeyAuth
+// @ID create_agent_planner_task
+// @Router /api/ai/agent/sessions/{id}/planner-tasks [post]
+func CreateAIAgentPlannerTask(c *gin.Context) {
+	session, ok := agentSession(c)
+	if !ok {
+		return
+	}
+	if os.Getenv("AGENT_RUNTIME_ENABLED") != "1" || os.Getenv("AGENT_LLM_PLANNER_ENABLED") != "1" {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "msg": "通用 Planner 尚未启用，请联系管理员检查 Agent Runtime 配置"})
+		return
+	}
+	var request CreateAIAgentPlannerTaskRequest
+	if err := c.ShouldBindJSON(&request); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "任务参数无效"})
+		return
+	}
+	goal := strings.TrimSpace(request.Message)
+	if goal == "" || len([]rune(goal)) > 1200 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "分析目标必须为 1 至 1200 个字符"})
+		return
+	}
+	runID, err := newAgentRunID()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "任务编号生成失败"})
+		return
+	}
+	inputJSON, err := json.Marshal(map[string]string{"goal": goal})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "任务内容编码失败"})
+		return
+	}
+	capabilities := []string{"retail.read", "agent.task.read"}
+	capabilitiesJSON, err := json.Marshal(capabilities)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "任务权限范围生成失败"})
+		return
+	}
+	var task models.AgentWorkTask
+	var assistant models.AIAgentMessage
+	userMessage := models.AIAgentMessage{SessionID: session.ID, Role: "user", Content: goal, RunID: runID}
+	err = config.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		key := "planner-chat:" + runID
+		task = models.AgentWorkTask{
+			TenantID: agentnative.SingleTenant, Kind: "agent_analysis", Status: "CREATED", Step: "queued",
+			CreatedBy: session.Owner, IdempotencyKey: &key, InputJSON: string(inputJSON),
+			CapabilitiesJSON: string(capabilitiesJSON), ChatSessionID: &session.ID,
+		}
+		if err := tx.Create(&task).Error; err != nil {
+			return err
+		}
+		taskID := task.ID
+		userMessage.TaskID = &taskID
+		if err := tx.Create(&userMessage).Error; err != nil {
+			return err
+		}
+		assistant = models.AIAgentMessage{
+			SessionID: session.ID, Role: "assistant", Content: "已提交通用经营分析任务，正在等待 Agent Runtime 执行。",
+			Sources: "[]", Evidence: "[]", Status: "running", TaskID: &taskID, RunID: runID,
+		}
+		if err := tx.Create(&assistant).Error; err != nil {
+			return err
+		}
+		return tx.Model(&task).Update("chat_message_id", assistant.ID).Error
+	})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "Planner 任务入队失败"})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"code": 202, "data": gin.H{"task": task, "message": assistant, "user_message": userMessage}})
+}
 
 func nativeMonitor() agentnative.MonitorService {
 	return agentnative.MonitorService{DB: config.DB}
@@ -95,14 +183,39 @@ func CancelAgentNativeTask(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "任务编号无效"})
 		return
 	}
-	result := config.DB.Model(&models.AgentWorkTask{}).
-		Where("id = ? AND tenant_id = ? AND status IN ?", id, agentnative.SingleTenant, []string{"CREATED", "PLANNING", "RUNNING"}).
-		Updates(map[string]any{"status": "CANCELLED", "step": "cancelled", "lease_until": nil})
-	if result.Error != nil {
+	now := time.Now()
+	err = config.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var task models.AgentWorkTask
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+			"id = ? AND tenant_id = ? AND status IN ?", id, agentnative.SingleTenant, []string{"CREATED", "PLANNING", "RUNNING"},
+		).First(&task).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&task).Updates(map[string]any{"status": "CANCELLED", "step": "cancelled", "lease_until": nil}).Error; err != nil {
+			return err
+		}
+		if task.ChatMessageID != nil {
+			if err := tx.Model(&models.AIAgentMessage{}).Where("id = ?", *task.ChatMessageID).
+				Updates(map[string]any{"status": "cancelled", "content": "已取消该 Agent 任务。"}).Error; err != nil {
+				return err
+			}
+		}
+		if task.Kind == "schedule_inventory_check" {
+			if err := tx.Model(&models.AgentScheduleRun{}).Where("linked_task_id = ? AND status IN ?", task.ID, []string{"QUEUED", "RUNNING"}).
+				Updates(map[string]any{"status": "CANCELLED", "finished_at": now, "error": "用户取消", "lease_until": nil}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&models.AgentActivity{
+			TenantID: agentnative.SingleTenant, TaskID: uint(id), Event: "task_cancelled",
+			Detail: "管理员请求取消任务；可取消的模型和工具调用已收到取消信号",
+		}).Error
+	})
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "任务取消失败"})
 		return
 	}
-	if result.RowsAffected == 0 {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "任务不存在或已结束"})
 		return
 	}

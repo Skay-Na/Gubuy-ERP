@@ -83,6 +83,12 @@ const routes = [
         meta: { title: '资金工作台' }
       },
       {
+        path: 'history',
+        name: 'OperationHistory',
+        component: () => import('../views/OperationHistory.vue'),
+        meta: { title: '历史操作' }
+      },
+      {
         path: 'bookkeeping',
         name: 'Bookkeeping',
         component: () => import('../views/Bookkeeping.vue'),
@@ -113,6 +119,12 @@ const routes = [
     name: 'StaffTerminal',
     component: () => import('../views/StaffTerminal.vue'),
     meta: { title: '员工收银终端' }
+  },
+  {
+    path: '/terminal/inventory',
+    name: 'StaffInventory',
+    component: () => import('../views/StaffInventory.vue'),
+    meta: { title: '员工库管' }
   }
 ]
 
@@ -123,7 +135,7 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('erp_token')
-  if (to.path !== '/' && to.path !== '/terminal' && !token) {
+  if (to.path !== '/' && !to.path.startsWith('/terminal') && !token) {
     next('/')
   } else {
     next()

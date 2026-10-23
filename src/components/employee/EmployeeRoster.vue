@@ -6,7 +6,7 @@ defineProps({
   type: { type: String, default: 'employees' },
   loading: { type: Boolean, default: false }
 })
-const emit = defineEmits(['edit', 'attendance', 'remove'])
+const emit = defineEmits(['edit', 'attendance', 'remove', 'offboard'])
 const money = value => `¥${Number(value || 0).toFixed(2)}`
 const date = value => value ? dayjs(value).format('YYYY-MM-DD') : '未填写'
 </script>
@@ -25,7 +25,10 @@ const date = value => value ? dayjs(value).format('YYYY-MM-DD') : '未填写'
       <div class="pay-setting" v-else><strong>外包服务</strong><small>按订单记录结算</small></div>
       <div class="contact"><strong>{{ row.phone || '未填写电话' }}</strong><small v-if="type === 'employees'">收银 PIN：{{ row.pin_code || '未设置' }}</small></div>
       <div class="actions">
+        <el-tag v-if="type === 'employees' && row.employment_status === 'offboarding'" size="small" type="warning">交接中</el-tag>
+        <el-tag v-else-if="type === 'employees' && row.employment_status === 'departed'" size="small" type="info">已离职</el-tag>
         <el-button size="small" type="primary" plain @click="emit('edit', row)">编辑</el-button>
+        <el-button v-if="type === 'employees'" size="small" type="warning" plain @click="emit('offboard', row)">{{ row.employment_status === 'departed' ? '交接记录' : row.employment_status === 'offboarding' ? '交接进度' : '办理离职' }}</el-button>
         <el-button v-if="type === 'employees'" size="small" @click="emit('attendance', row)">考勤</el-button>
         <el-button size="small" text type="danger" @click="emit('remove', row)">删除</el-button>
       </div>

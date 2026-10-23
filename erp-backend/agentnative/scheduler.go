@@ -9,10 +9,22 @@ import (
 )
 
 // StartRuntimeWorker resumes durable tasks after startup and polls for newly queued tasks.
-// The daily scan uses the legacy interval until persistent schedule definitions are enabled.
-func StartRuntimeWorker(db *gorm.DB) {
+// Inventory monitoring has been retired and is not started here.
+func StartRuntimeWorker(db *gorm.DB, planners ...AgentPlanner) {
+	startTaskWorker(db, planners...)
+}
+
+// StartAgentTaskWorker processes queued durable work without the legacy daily scan.
+func StartAgentTaskWorker(db *gorm.DB, planners ...AgentPlanner) {
+	startTaskWorker(db, planners...)
+}
+
+func startTaskWorker(db *gorm.DB, planners ...AgentPlanner) {
 	go func() {
 		service := MonitorService{DB: db}
+		if len(planners) > 0 {
+			service.Planner = planners[0]
+		}
 		process := func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
@@ -20,53 +32,14 @@ func StartRuntimeWorker(db *gorm.DB) {
 				log.Printf("agent runtime task processing failed: %v", err)
 			}
 		}
-		scan := func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			if _, err := service.Scan(ctx); err != nil {
-				log.Printf("agent monitor scan failed: %v", err)
-				return
-			}
-			process()
-		}
-		scan()
+		process()
 		workerTicker := time.NewTicker(5 * time.Second)
 		defer workerTicker.Stop()
-		scanTicker := time.NewTicker(24 * time.Hour)
-		defer scanTicker.Stop()
 		for {
 			select {
 			case <-workerTicker.C:
 				process()
-			case <-scanTicker.C:
-				scan()
 			}
-		}
-	}()
-}
-
-// StartDailyMonitor runs only when explicitly enabled by the deployment.
-// Signals and work are persisted before processing, so a restart can resume
-// CREATED tasks or expired RUNNING leases.
-func StartDailyMonitor(db *gorm.DB) {
-	go func() {
-		service := MonitorService{DB: db}
-		run := func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			defer cancel()
-			if _, err := service.Scan(ctx); err != nil {
-				log.Printf("agent monitor scan failed: %v", err)
-				return
-			}
-			if _, err := service.ProcessPending(ctx); err != nil {
-				log.Printf("agent monitor task processing failed: %v", err)
-			}
-		}
-		run()
-		ticker := time.NewTicker(24 * time.Hour)
-		defer ticker.Stop()
-		for range ticker.C {
-			run()
 		}
 	}()
 }

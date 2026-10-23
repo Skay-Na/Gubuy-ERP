@@ -12,10 +12,17 @@ func TestNormalizeInboundSettlementDefaultsToSaleSettlement(t *testing.T) {
 	}
 }
 
-func TestNormalizeInboundSettlementRequiresAccountForCashPurchase(t *testing.T) {
-	_, err := normalizeInboundSettlement(SettlementTypeCashPurchase, nil)
-	if err == nil {
-		t.Fatal("normalizeInboundSettlement() error = nil, want missing account error")
+func TestNormalizeInboundSettlementNeverCreatesCashPayment(t *testing.T) {
+	accountID := uint(7)
+	settlement, err := normalizeInboundSettlement(SettlementTypeCashPurchase, &accountID)
+	if err != nil {
+		t.Fatalf("normalizeInboundSettlement() error = %v", err)
+	}
+	if settlement.Type != SettlementTypeSaleSettlement {
+		t.Fatalf("settlement.Type = %q, want %q", settlement.Type, SettlementTypeSaleSettlement)
+	}
+	if settlement.AccountID != nil {
+		t.Fatalf("settlement.AccountID = %v, want nil", settlement.AccountID)
 	}
 }
 

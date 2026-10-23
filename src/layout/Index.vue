@@ -143,9 +143,6 @@
         </div>
       </div>
     </main>
-	<AIChatAssistant />
-
-
   </div>
 </template>
 
@@ -162,11 +159,11 @@ import {
   Close,
   Setting,
   Money,
-  EditPen
+  EditPen,
+  Clock
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../utils/request'
-import AIChatAssistant from '../components/AIChatAssistant.vue'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -346,6 +343,7 @@ const menuItems = [
   { title: '订单', path: '/admin/orders', icon: Memo },
   { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
   { title: '财务', path: '/admin/finance', icon: DataLine },
+  { title: '历史操作', path: '/admin/history', icon: Clock },
   { title: '国补管理', path: '/admin/subsidy', icon: Money },
   { title: '员工', path: '/admin/employees', icon: User },
   { title: '系统设置', path: '/admin/settings', icon: Setting },

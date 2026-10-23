@@ -48,21 +48,50 @@ export function useAIAgent() {
     }
   }
 
-  async function send(message, path) {
-    if (loading.value || !message.trim()) return
+  async function send(message, path, attachments = []) {
+    const content = message.trim()
+    if (loading.value || (!content && !attachments.length)) return
     error.value = ''
     loading.value = true
-    const optimistic = { id: `local-${Date.now()}`, role: 'user', content: message.trim() }
+    const optimistic = {
+      id: `local-${Date.now()}`,
+      role: 'user',
+      content,
+      attachments: attachments.map(item => ({
+        id: item.id,
+        name: item.name,
+        relative_path: item.relativePath || '',
+        media_type: item.mediaType || '',
+        size: item.size
+      }))
+    }
     messages.value.push(optimistic)
     try {
-      const response = await request.post(`/api/ai/agent/sessions/${sessionId.value}/messages`, { message: message.trim(), path, thinking: thinking.value }, { timeout: 270000 })
+      let payload = { message: content, path, thinking: thinking.value }
+      if (attachments.length) {
+        payload = new FormData()
+        payload.append('message', content)
+        payload.append('path', path)
+        payload.append('thinking', thinking.value)
+        for (const attachment of attachments) {
+          payload.append('attachments', attachment.file, attachment.name)
+          payload.append('attachment_paths', attachment.relativePath || '')
+        }
+      }
+      const response = await request.post(`/api/ai/agent/sessions/${sessionId.value}/messages`, payload, { timeout: 270000 })
+      if (response.result.user_message) {
+        const optimisticIndex = messages.value.indexOf(optimistic)
+        if (optimisticIndex >= 0) messages.value.splice(optimisticIndex, 1, response.result.user_message)
+      }
       messages.value.push(response.result.message)
       feedbacks.value = { ...feedbacks.value, [response.result.message.id]: null }
       if (response.result.action) actions.value.push(response.result.action)
       if (response.result.memory_updates?.length) ElMessage.success('已归纳长期记忆，可在「长期记忆」中查看和修改')
+      return response.result
     } catch (cause) {
       messages.value = messages.value.filter(item => item !== optimistic)
       error.value = cause.response?.data?.msg || 'Agent 暂时无法处理，请重试。'
+      return null
     } finally {
       loading.value = false
     }

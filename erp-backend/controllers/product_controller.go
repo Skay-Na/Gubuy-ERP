@@ -5,11 +5,13 @@ import (
 	"erp-backend/models"
 	"erp-backend/utils"
 	"fmt"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 )
 
 type CreateProductRequest struct {
@@ -17,7 +19,6 @@ type CreateProductRequest struct {
 	Remark            string  `json:"remark"`
 	CategoryID        uint    `json:"category_id"`
 	MarginRate        float64 `json:"margin_rate"`
-	SupportCloud      bool    `json:"support_cloud"`
 	NoCommission      bool    `json:"no_commission"`
 	SpecialPrice      float64 `json:"special_price"`
 	SpecialPriceStart *string `json:"special_price_start"`
@@ -25,16 +26,15 @@ type CreateProductRequest struct {
 }
 
 type UpdateProductRequest struct {
-	Name              string  `json:"name" binding:"required"`
-	Remark            string  `json:"remark"`
-	CategoryID        *uint   `json:"category_id"`
-	MarginRate        float64 `json:"margin_rate"`
-	SupportCloud      bool    `json:"support_cloud"`
-	NoCommission      bool    `json:"no_commission"`
-	SpecialPrice      float64 `json:"special_price"`
-	SpecialPriceStart *string `json:"special_price_start"`
-	SpecialPriceEnd   *string `json:"special_price_end"`
-	AvgCost           float64 `json:"avg_cost"`
+	Name              string   `json:"name" binding:"required"`
+	Remark            string   `json:"remark"`
+	CategoryID        *uint    `json:"category_id"`
+	MarginRate        float64  `json:"margin_rate"`
+	NoCommission      bool     `json:"no_commission"`
+	SpecialPrice      float64  `json:"special_price"`
+	SpecialPriceStart *string  `json:"special_price_start"`
+	SpecialPriceEnd   *string  `json:"special_price_end"`
+	AvgCost           *float64 `json:"avg_cost"`
 }
 
 // GetProducts 获取商品列表
@@ -45,7 +45,7 @@ type UpdateProductRequest struct {
 // @Produce json
 // @Param keyword query string false "搜索关键字 (名称或SKU)"
 // @Param category_id query int false "分类ID"
-// @Param all query string false "是否拉取全部(包含无库存)"
+// @Param stock_filter query string false "库存筛选：store/cloud/available/none"
 // @Param only_special query string false "是否仅拉取特价商品(1:是)"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
@@ -54,9 +54,18 @@ type UpdateProductRequest struct {
 // @ID get_api_products
 // @Router /api/products [get]
 func GetProducts(c *gin.Context) {
+	blindStocktakeMode, ok := employeeBlindStocktakeMode(c)
+	if !ok {
+		return
+	}
 	keyword := c.Query("keyword")
 	categoryID := c.Query("category_id")
-	all := c.Query("all")
+	stockFilter := c.Query("stock_filter")
+	if blindStocktakeMode {
+		// Inventory-based filters would reveal whether a product has stock even
+		// when the quantities themselves are removed from the response.
+		stockFilter = ""
+	}
 	onlySpecial := c.Query("only_special")
 	pageStr := c.Query("page")
 	pageSizeStr := c.Query("page_size")
@@ -70,15 +79,21 @@ func GetProducts(c *gin.Context) {
 	}
 
 	if keyword != "" {
-		db = db.Where("name LIKE ? OR sku LIKE ?", "%"+keyword+"%", "%"+keyword+"%")
+		db = db.Where("(name LIKE ? OR sku LIKE ?)", "%"+keyword+"%", "%"+keyword+"%")
 	}
 
 	if categoryID != "" {
 		db = db.Where("category_id = ?", categoryID)
 	}
-
-	if all != "1" && keyword == "" && categoryID == "" {
-		db = db.Where("main_stock > 0 OR store_stock > 0 OR cloud_stock > 0 OR support_cloud = ?", true)
+	switch stockFilter {
+	case "store":
+		db = db.Where("store_stock > 0")
+	case "cloud":
+		db = db.Where("cloud_stock > 0")
+	case "available":
+		db = db.Where("(store_stock > 0 OR sample_stock > 0 OR cloud_stock > 0)")
+	case "none":
+		db = db.Where("store_stock <= 0 AND cloud_stock <= 0")
 	}
 
 	// 如果传了 page 参数，则执行真分页
@@ -105,10 +120,11 @@ func GetProducts(c *gin.Context) {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"code":  200,
-			"msg":   "success",
-			"data":  products,
-			"total": total,
+			"code":                 200,
+			"msg":                  "success",
+			"data":                 productsForEmployeeStocktake(products, blindStocktakeMode),
+			"total":                total,
+			"blind_stocktake_mode": blindStocktakeMode,
 		})
 		return
 	}
@@ -119,7 +135,31 @@ func GetProducts(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "success", "data": products})
+	c.JSON(http.StatusOK, gin.H{
+		"code":                 200,
+		"msg":                  "success",
+		"data":                 productsForEmployeeStocktake(products, blindStocktakeMode),
+		"blind_stocktake_mode": blindStocktakeMode,
+	})
+}
+
+type productWithoutStock struct {
+	models.Product
+	MainStock   *int `json:"main_stock,omitempty"`
+	StoreStock  *int `json:"store_stock,omitempty"`
+	SampleStock *int `json:"sample_stock,omitempty"`
+	CloudStock  *int `json:"cloud_stock,omitempty"`
+}
+
+func productsForEmployeeStocktake(products []models.Product, blindStocktakeMode bool) interface{} {
+	if !blindStocktakeMode {
+		return products
+	}
+	redacted := make([]productWithoutStock, len(products))
+	for i, product := range products {
+		redacted[i] = productWithoutStock{Product: product}
+	}
+	return redacted
 }
 
 // CreateProduct 创建商品
@@ -156,7 +196,7 @@ func CreateProduct(c *gin.Context) {
 		Name:         input.Name,
 		CategoryID:   input.CategoryID,
 		MarginRate:   input.MarginRate,
-		SupportCloud: input.SupportCloud,
+		SupportCloud: true,
 		NoCommission: input.NoCommission,
 		SpecialPrice: input.SpecialPrice,
 	}
@@ -206,14 +246,38 @@ func UpdateProduct(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}
+	if input.AvgCost != nil && *input.AvgCost < 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "平均成本不能小于 0"})
+		return
+	}
+
+	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": tx.Error.Error()})
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	var product models.Product
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, id).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "商品不存在"})
+		return
+	}
 
 	// 查重：商品名称（排除自身）
 	var count int64
-	if err := config.DB.Model(&models.Product{}).Where("name = ? AND id != ?", input.Name, id).Count(&count).Error; err != nil {
+	if err := tx.Model(&models.Product{}).Where("name = ? AND id != ?", input.Name, id).Count(&count).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
 		return
 	}
 	if count > 0 {
+		tx.Rollback()
 		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "商品名称已存在"})
 		return
 	}
@@ -227,12 +291,15 @@ func UpdateProduct(c *gin.Context) {
 		"name":          input.Name,
 		"sku":           remarkPtr,
 		"margin_rate":   input.MarginRate,
-		"support_cloud": input.SupportCloud,
+		"support_cloud": true,
 		"no_commission": input.NoCommission,
 		"special_price": input.SpecialPrice,
-		"avg_cost":      input.AvgCost,
 	}
-
+	costChanged := false
+	if input.AvgCost != nil {
+		updates["avg_cost"] = *input.AvgCost
+		costChanged = int64(math.Round(product.AvgCost*100)) != int64(math.Round(*input.AvgCost*100))
+	}
 	if input.CategoryID != nil {
 		updates["category_id"] = *input.CategoryID
 	}
@@ -253,8 +320,27 @@ func UpdateProduct(c *gin.Context) {
 		updates["special_price_end"] = nil
 	}
 
-	if err := config.DB.Model(&models.Product{}).Where("id = ?", id).Updates(updates).Error; err != nil {
+	if err := tx.Model(&product).Updates(updates).Error; err != nil {
+		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
+		return
+	}
+	if costChanged {
+		if err := tx.Create(&models.HistoricalCostRepair{
+			ProductID:        product.ID,
+			UnitCost:         *input.AvgCost,
+			PreviousUnitCost: product.AvgCost,
+			StockQty:         productTotalStock(product),
+			CostBaseline:     true,
+			Remark:           "商品档案手动校准平均成本",
+		}).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "保存商品成本校准记录失败"})
+			return
+		}
+	}
+	if err := tx.Commit().Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "保存商品失败：" + err.Error()})
 		return
 	}
 
@@ -272,43 +358,49 @@ func UpdateProduct(c *gin.Context) {
 // @ID post_api_products_recalculate_costs
 // @Router /api/products/recalculate-costs [post]
 func RecalculateAllAvgCosts(c *gin.Context) {
-	var products []models.Product
-	if err := config.DB.Find(&products).Error; err != nil {
+	var productIDs []uint
+	if err := config.DB.Model(&models.Product{}).Order("id asc").Pluck("id", &productIDs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "获取商品失败"})
 		return
 	}
 
 	successCount := 0
-	for _, p := range products {
-		var logs []models.InventoryLog
-		// 仅查询采购入库(purchase)且录入了单价记录的流水
-		err := config.DB.Where("product_id = ? AND log_type = ? AND unit_cost > 0", p.ID, "purchase").Find(&logs).Error
-		if err != nil || len(logs) == 0 {
-			// 如果没有流水记录，则尝试将 AvgCost 同步为 LatestCost
-			if p.LatestCost > 0 {
-				config.DB.Model(&p).Update("avg_cost", p.LatestCost)
-			}
+	failed := make([]gin.H, 0)
+	for _, productID := range productIDs {
+		tx := config.DB.Begin()
+		if tx.Error != nil {
+			failed = append(failed, gin.H{"product_id": productID, "error": tx.Error.Error()})
 			continue
 		}
-
-		var totalQty int
-		var totalAmount float64
-		for _, log := range logs {
-			totalQty += log.ChangeQty
-			totalAmount += float64(log.ChangeQty) * log.UnitCost
+		var product models.Product
+		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, productID).Error
+		if err == nil {
+			err = RecalculateSingleProductCosts(tx, productID)
 		}
-
-		if totalQty > 0 {
-			avgCost := totalAmount / float64(totalQty)
-			if err := config.DB.Model(&p).Update("avg_cost", avgCost).Error; err == nil {
-				successCount++
-			}
+		if err != nil {
+			tx.Rollback()
+			failed = append(failed, gin.H{"product_id": productID, "error": err.Error()})
+			continue
 		}
+		if err := tx.Commit().Error; err != nil {
+			failed = append(failed, gin.H{"product_id": productID, "error": err.Error()})
+			continue
+		}
+		successCount++
 	}
 
+	if len(failed) > 0 {
+		c.JSON(http.StatusConflict, gin.H{
+			"code": 409,
+			"msg":  fmt.Sprintf("已核算 %d 个商品，%d 个商品因成本流水不完整或库存不一致而跳过", successCount, len(failed)),
+			"data": gin.H{"recalculated_count": successCount, "failed": failed},
+		})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
-		"msg":  fmt.Sprintf("重构完成，共重新核算 %d 个商品", successCount),
+		"msg":  fmt.Sprintf("核算完成，共重新核算 %d 个商品", successCount),
+		"data": gin.H{"recalculated_count": successCount, "failed": failed},
 	})
 }
 
@@ -347,9 +439,11 @@ func parseTime(s string) (time.Time, error) {
 // @ID get_api_products_export
 // @Router /api/products/export [get]
 func ExportProducts(c *gin.Context) {
+	if !requireNoActiveBlindStocktake(c) {
+		return
+	}
 	keyword := c.Query("keyword")
 	categoryID := c.Query("category_id")
-	all := c.Query("all")
 	onlySpecial := c.Query("only_special")
 
 	var products []models.Product
@@ -368,16 +462,12 @@ func ExportProducts(c *gin.Context) {
 		db = db.Where("category_id = ?", categoryID)
 	}
 
-	if all != "1" && keyword == "" && categoryID == "" {
-		db = db.Where("main_stock > 0 OR store_stock > 0 OR cloud_stock > 0 OR support_cloud = ?", true)
-	}
-
 	if err := db.Order("id desc").Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询商品失败"})
 		return
 	}
 
-	headers := []string{"商品ID", "商品名称", "分类", "备注(SKU)", "最新进价", "平均成本", "主仓库存", "门店库存", "样机数量", "云仓库存", "支持云仓代发", "提成规则", "特价金额"}
+	headers := []string{"商品ID", "商品名称", "分类", "备注(SKU)", "最新进价", "平均成本", "门店库存", "样机数量", "云仓库存", "提成规则", "特价金额"}
 	var data [][]interface{}
 	for _, p := range products {
 		catName := "-"
@@ -387,10 +477,6 @@ func ExportProducts(c *gin.Context) {
 		sku := ""
 		if p.Remark != nil {
 			sku = *p.Remark
-		}
-		supportCloud := "否"
-		if p.SupportCloud {
-			supportCloud = "是"
 		}
 		commissionRule := "正常提成"
 		if p.NoCommission {
@@ -404,11 +490,9 @@ func ExportProducts(c *gin.Context) {
 			sku,
 			p.LatestCost,
 			p.AvgCost,
-			p.MainStock,
 			p.StoreStock,
 			p.SampleStock,
 			p.CloudStock,
-			supportCloud,
 			commissionRule,
 			p.SpecialPrice,
 		}

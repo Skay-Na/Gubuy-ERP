@@ -13,11 +13,13 @@ import (
 )
 
 type agentReportRow struct {
-	Period  agentTaskPeriod    `json:"period"`
-	Values  map[string]float64 `json:"values"`
-	Records int64              `json:"records"`
-	Missing bool               `json:"missing"`
-	Partial bool               `json:"partial_period"`
+	Period                 agentTaskPeriod    `json:"period"`
+	Values                 map[string]float64 `json:"values"`
+	Records                int64              `json:"records"`
+	Missing                bool               `json:"missing"`
+	Partial                bool               `json:"partial_period"`
+	CostIncomplete         bool               `json:"cost_incomplete"`
+	UncostedOrderItemCount int64              `json:"uncosted_order_item_count,omitempty"`
 }
 type agentReportChange struct {
 	Metric     string   `json:"metric"`
@@ -35,8 +37,8 @@ type agentBusinessReport struct {
 
 var agentMetricLabels = map[string]string{
 	"sales_revenue": "折后销售额", "order_count": "有效订单数", "units": "销售件数", "average_order": "客单价",
-	"stock_units": "可用库存件数", "stock_value": "库存平均成本估值", "low_stock_count": "低库存商品数", "sample_stock": "样机件数", "main_stock": "主仓件数", "store_stock": "门店件数", "cloud_stock": "云仓件数", "unvalued_count": "缺少平均成本的商品数",
-	"gross_profit": "订单毛利", "cash_in": "已登记收入", "cash_out": "已登记支出", "net_cashflow": "净收支",
+	"stock_units": "可用库存件数", "stock_value": "库存平均成本估值", "sample_stock": "样机件数", "main_stock": "主仓件数", "store_stock": "门店件数", "cloud_stock": "云仓件数", "unvalued_count": "缺少平均成本的商品数",
+	"gross_profit": "订单毛利", "uncosted_order_item_count": "成本待核订单明细数", "cash_in": "已登记收入", "cash_out": "已登记支出", "net_cashflow": "净收支",
 	"subsidy_due": "累计应回款", "subsidy_received": "累计已回款", "subsidy_pending": "尚未回款",
 	"salary_payable": "应发工资", "commission_payable": "应计提成", "base_salary": "底薪", "deduction": "请假扣款",
 	"salary_paid": "实发工资", "commission_paid": "实发提成",
@@ -59,7 +61,7 @@ func agentCanReport(task agentTask) bool {
 	if task.Topic == "inventory" && len(task.Periods) == 0 && task.Entity == "" && task.Scope != "one" {
 		for _, metric := range task.Metrics {
 			switch metric {
-			case "stock_units", "stock_value", "low_stock_count", "sample_stock", "main_stock", "store_stock", "cloud_stock", "unvalued_count":
+			case "stock_units", "stock_value", "sample_stock", "main_stock", "store_stock", "cloud_stock", "unvalued_count":
 			default:
 				return false
 			}
@@ -124,27 +126,26 @@ func agentBuildReport(ctx context.Context, task agentTask) (agentBusinessReport,
 				"subsidy_pending": overview.PendingBalance,
 			}
 		case "inventory":
-			report.Basis = "当前商品库存快照；可用件数=主仓+门店+云仓，不含样机；估值按平均成本乘全部库存（含样机），缺少平均成本的商品未计入估值；低库存阈值为可用件数不超过3。"
+			report.Basis = "当前商品库存快照；可用件数=门店+云仓，不含样机；估值按平均成本乘全部库存（含样机），缺少平均成本的商品未计入估值。"
 			var total struct {
-				Count                                                   int64
-				Units, Value, Low, Sample, Main, Store, Cloud, Unvalued float64
+				Count                                              int64
+				Units, Value, Sample, Main, Store, Cloud, Unvalued float64
 			}
 			err := config.DB.WithContext(ctx).Model(&models.Product{}).Select(`COUNT(*) AS count,
-    COALESCE(SUM(main_stock+store_stock+cloud_stock),0) AS units,
-    COALESCE(SUM((main_stock+store_stock+cloud_stock+sample_stock)*avg_cost),0) AS value,
-    COALESCE(SUM(CASE WHEN main_stock+store_stock+cloud_stock<=3 THEN 1 ELSE 0 END),0) AS low,
-    COALESCE(SUM(sample_stock),0) AS sample,COALESCE(SUM(main_stock),0) AS main,
+				COALESCE(SUM(store_stock+cloud_stock),0) AS units,
+				COALESCE(SUM((store_stock+cloud_stock+sample_stock)*avg_cost),0) AS value,
+				COALESCE(SUM(sample_stock),0) AS sample,0 AS main,
     COALESCE(SUM(store_stock),0) AS store,COALESCE(SUM(cloud_stock),0) AS cloud,
-    COALESCE(SUM(CASE WHEN avg_cost<=0 AND main_stock+store_stock+cloud_stock+sample_stock>0 THEN 1 ELSE 0 END),0) AS unvalued`).Scan(&total).Error
+				COALESCE(SUM(CASE WHEN avg_cost<=0 AND store_stock+cloud_stock+sample_stock>0 THEN 1 ELSE 0 END),0) AS unvalued`).Scan(&total).Error
 			if err != nil {
 				return report, err
 			}
 			row.Records = total.Count
 			row.Partial = false
-			row.Values = map[string]float64{"stock_units": total.Units, "stock_value": agentRound(total.Value), "low_stock_count": total.Low, "sample_stock": total.Sample, "main_stock": total.Main, "store_stock": total.Store, "cloud_stock": total.Cloud, "unvalued_count": total.Unvalued}
+			row.Values = map[string]float64{"stock_units": total.Units, "stock_value": agentRound(total.Value), "sample_stock": total.Sample, "main_stock": total.Main, "store_stock": total.Store, "cloud_stock": total.Cloud, "unvalued_count": total.Unvalued}
 
 		case "sales":
-			report.Basis = "按订单发生日期统计有效订单；销售额=订单金额−折扣；客单价=折后销售额÷订单数；订单毛利按现有订单费用和成本快照计算，尚未扣经营费用。"
+			report.Basis = "按订单发生日期统计有效订单；销售额=订单金额−折扣；客单价=折后销售额÷订单数；订单毛利按现有订单费用和成本快照计算，尚未扣经营费用。若存在成本为 0 的历史订单明细，该期间毛利不提供，需先核实成本。"
 			var total struct {
 				Count                                                                int64
 				Revenue, Cost, Delivery, Installation, Referral, Commission, TradeIn float64
@@ -167,6 +168,13 @@ func agentBuildReport(ctx context.Context, task agentTask) (agentBusinessReport,
 			if err != nil {
 				return report, err
 			}
+			err = config.DB.WithContext(ctx).Table("order_items oi").Joins("JOIN orders o ON o.id=oi.order_id").
+				Where("o.order_status=1 AND o.deleted_at IS NULL AND o.created_at>=? AND o.created_at<? AND oi.unit_cost<=0", start, end.AddDate(0, 0, 1)).
+				Count(&row.UncostedOrderItemCount).Error
+			if err != nil {
+				return report, err
+			}
+			row.CostIncomplete = row.UncostedOrderItemCount > 0
 			row.Records = total.Count
 			row.Values["sales_revenue"] = agentRound(total.Revenue)
 			row.Values["order_count"] = float64(total.Count)
@@ -175,7 +183,9 @@ func agentBuildReport(ctx context.Context, task agentTask) (agentBusinessReport,
 			if total.Count > 0 {
 				row.Values["average_order"] = agentRound(total.Revenue / float64(total.Count))
 			}
-			row.Values["gross_profit"] = agentRound(CalculateGrossProfit(total.Revenue, items.Cost, total.Delivery, total.Installation, total.Referral, total.Commission, total.TradeIn))
+			if !row.CostIncomplete {
+				row.Values["gross_profit"] = agentRound(CalculateGrossProfit(total.Revenue, items.Cost, total.Delivery, total.Installation, total.Referral, total.Commission, total.TradeIn))
+			}
 		case "cashflow":
 			report.Basis = "按财务流水发生日期统计已登记收支，排除成对冲销；现金流不等于利润。"
 			var rows []struct {
@@ -306,6 +316,9 @@ func agentRenderReport(report agentBusinessReport, task agentTask) string {
 		line := row.Period.Label + "：" + strings.Join(parts, "，") + "。"
 		if row.Partial {
 			line += "该期间尚未结束，数值截至目前。"
+		}
+		if row.CostIncomplete {
+			line += fmt.Sprintf("另有 %d 条订单明细成本待核，毛利暂不提供。", row.UncostedOrderItemCount)
 		}
 		lines = append(lines, line)
 	}

@@ -10,6 +10,15 @@
         <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-blue-400" @click="handleRecalculateCosts">
           <el-icon class="mr-1 text-orange-500"><MagicStick /></el-icon>重构历史成本
         </el-button>
+        <el-button
+          plain
+          class="!rounded-xl h-10"
+          :type="onlyInStock ? 'primary' : 'default'"
+          :aria-pressed="onlyInStock"
+          @click="toggleInStock"
+        >
+          <el-icon class="mr-1"><Box /></el-icon>只显示有库存
+        </el-button>
         <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-blue-400" @click="openCategoryManage">
           <el-icon class="mr-1"><Setting /></el-icon>分类管理
         </el-button>
@@ -42,6 +51,9 @@
             <el-dropdown-menu>
               <el-dropdown-item command="recalculate">
                 <el-icon class="text-orange-500"><MagicStick /></el-icon>重构历史成本
+              </el-dropdown-item>
+              <el-dropdown-item command="stockFilter">
+                <el-icon><Box /></el-icon>{{ onlyInStock ? '取消仅看有库存' : '只显示有库存' }}
               </el-dropdown-item>
               <el-dropdown-item command="category">
                 <el-icon><Setting /></el-icon>分类管理
@@ -141,7 +153,8 @@
             <div class="flex flex-col items-end gap-0.5">
               <div class="flex items-center gap-1">
                 <span class="text-[10px] text-slate-400">平均:</span>
-                <span class="font-mono text-xs font-bold text-blue-600">¥{{ (row.avg_cost || row.latest_cost).toFixed(2) }}</span>
+                <span v-if="Number(row.avg_cost) > 0" class="font-mono text-xs font-bold text-blue-600">¥{{ Number(row.avg_cost).toFixed(2) }}</span>
+                <span v-else class="font-mono text-xs font-bold text-amber-600">待核</span>
               </div>
               <div class="flex items-center gap-1">
                 <span class="text-[10px] text-slate-400">最新:</span>
@@ -159,10 +172,6 @@
         <el-table-column label="库存分布" min-width="190">
           <template #default="{ row }">
             <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
-              <div class="flex justify-between border-b border-slate-50 pb-0.5">
-                <span class="text-slate-400">主仓</span>
-                <span class="font-bold text-slate-700">{{ row.main_stock }}</span>
-              </div>
               <div class="flex justify-between border-b border-slate-50 pb-0.5">
                 <span class="text-slate-400">门店</span>
                 <span class="font-bold" :class="row.store_stock > 10 ? 'text-green-600' : 'text-orange-500'">{{ row.store_stock }}</span>
@@ -228,9 +237,6 @@
 
           <!-- Compact Inventory Badges -->
           <div class="flex gap-1.5 mt-2 flex-wrap">
-             <div v-if="row.main_stock > 0" class="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[11px]">
-               <span class="opacity-70">主仓</span><span class="font-bold">{{ row.main_stock }}</span>
-             </div>
              <div v-if="row.store_stock > 0" class="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-orange-50 text-orange-600 text-[11px]">
                <span class="opacity-70">门店</span><span class="font-bold">{{ row.store_stock }}</span>
              </div>
@@ -240,7 +246,7 @@
              <div v-if="row.cloud_stock > 0" class="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-600 text-[11px]">
                <span class="opacity-70">云仓</span><span class="font-bold">{{ row.cloud_stock }}</span>
              </div>
-             <div v-if="!row.main_stock && !row.store_stock && !row.sample_stock && !row.cloud_stock" class="text-[11px] text-slate-300">
+             <div v-if="!row.store_stock && !row.sample_stock && !row.cloud_stock" class="text-[11px] text-slate-300">
                无可用库存
              </div>
           </div>
@@ -342,9 +348,6 @@
           <el-input-number v-model="productForm.margin_rate" :precision="2" :step="0.01" :min="0" :max="1" style="width: 100%" />
           <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? ((productForm.avg_cost || 0) / (1 - productForm.margin_rate)).toFixed(2) : '0.00' }}</div>
         </el-form-item>
-        <el-form-item label="云仓代发" prop="support_cloud">
-          <el-switch v-model="productForm.support_cloud" active-text="支持" inactive-text="不支持" />
-        </el-form-item>
         <el-form-item label="销售提成" prop="no_commission">
           <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
           <div class="input-tip">开启后，新订单中该商品的成交金额不参与员工及商会订单提成。</div>
@@ -356,6 +359,7 @@
           </div>
           <el-form-item label="平均成本" prop="avg_cost">
             <el-input-number v-model="productForm.avg_cost" :precision="2" :min="0" style="width: 100%" />
+            <p class="mt-1 text-xs text-slate-400">手动调整会记录成本基准；最新进价仍以实际入库流水为准。</p>
           </el-form-item>
         </div>
 
@@ -413,9 +417,6 @@
               <span class="font-mono font-black text-blue-600">¥{{ previewPrice }}</span>
             </div>
           </el-form-item>
-          <el-form-item label="云仓代发" prop="support_cloud">
-            <el-switch v-model="productForm.support_cloud" active-text="支持" inactive-text="不支持" />
-          </el-form-item>
           <el-form-item label="销售提成" prop="no_commission">
             <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
             <div class="input-tip">开启后，新订单中该商品的成交金额不参与提成。</div>
@@ -425,6 +426,7 @@
             <div class="text-xs font-bold text-blue-600 mb-2">成本校准</div>
             <el-form-item label="平均成本" prop="avg_cost" class="mb-0">
               <el-input-number v-model="productForm.avg_cost" size="large" :precision="2" :min="0" style="width: 100%" />
+              <p class="mt-1 text-xs text-slate-400">手动调整会记录成本基准；最新进价仍以实际入库流水为准。</p>
             </el-form-item>
           </div>
 
@@ -452,11 +454,8 @@
       <el-form :model="transferForm" label-position="top">
         <el-form-item label="调拨动作">
           <el-select v-model="transferForm.action" class="w-full">
-            <el-option label="主仓 调至 门店可用" value="main_to_store" />
             <el-option label="门店可用 调至 样机" value="store_to_sample" />
             <el-option label="样机 撤回至 门店可用" value="sample_to_store" />
-            <el-option label="主仓 调至 云仓" value="main_to_cloud" />
-            <el-option label="云仓 调至 主仓" value="cloud_to_main" />
           </el-select>
         </el-form-item>
         <el-form-item label="调拨数量">
@@ -479,7 +478,7 @@
       <div class="p-4 safe-area-pb">
         <div class="font-bold text-sm mb-2 text-slate-700">请选择调拨路线</div>
         <div class="grid grid-cols-1 gap-2 mb-4">
-          <div v-for="(label, val) in {'main_to_store': '主仓 调至 门店可用', 'store_to_sample': '门店可用 调至 样机', 'sample_to_store': '样机 撤回至 门店可用', 'main_to_cloud': '主仓 调至 云仓', 'cloud_to_main': '云仓 调至 主仓'}" :key="val"
+          <div v-for="(label, val) in {'store_to_sample': '门店可用 调至 样机', 'sample_to_store': '样机 撤回至 门店可用'}" :key="val"
                @click="transferForm.action = val"
                class="border rounded-xl p-3 text-center transition-colors font-bold text-sm cursor-pointer"
                :class="transferForm.action === val ? 'border-blue-500 bg-blue-50 text-blue-600' : 'border-slate-200 text-slate-600'">
@@ -496,8 +495,7 @@
     <el-dialog v-if="!isMobile" v-model="stocktakeVisible" title="盘点清查" width="440px" destroy-on-close class="custom-dialog">
       <el-form :model="stocktakeForm" label-position="top">
         <el-form-item label="盘点仓库">
-          <el-radio-group v-model="stocktakeForm.warehouse_type">
-            <el-radio :value="1">主仓</el-radio>
+            <el-radio-group v-model="stocktakeForm.warehouse_type" @change="syncStocktakeExpectedStock">
             <el-radio :value="2">门店</el-radio>
             <el-radio :value="3">云仓</el-radio>
           </el-radio-group>
@@ -512,7 +510,7 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="备注说明">
-          <el-input v-model="stocktakeForm.remark" placeholder="如：B门店卖出2台/调货至总仓等" />
+          <el-input v-model="stocktakeForm.remark" placeholder="数量与账面不一致时必填差异原因" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -531,8 +529,7 @@
       <div class="p-4 safe-area-pb space-y-4">
         <div>
           <div class="font-bold text-sm mb-2 text-slate-700">盘点仓库</div>
-          <el-radio-group v-model="stocktakeForm.warehouse_type" class="w-full flex gap-2" size="large">
-            <el-radio-button :value="1" class="flex-1 text-center">主仓</el-radio-button>
+          <el-radio-group v-model="stocktakeForm.warehouse_type" class="w-full flex gap-2" size="large" @change="syncStocktakeExpectedStock">
             <el-radio-button :value="2" class="flex-1 text-center">门店</el-radio-button>
             <el-radio-button :value="3" class="flex-1 text-center">云仓</el-radio-button>
           </el-radio-group>
@@ -556,7 +553,7 @@
         </div>
         <div>
           <div class="font-bold text-sm mb-2 text-slate-700">备注说明</div>
-          <el-input v-model="stocktakeForm.remark" size="large" placeholder="选填，如：B门店卖出2台" />
+          <el-input v-model="stocktakeForm.remark" size="large" placeholder="数量与账面不一致时必填差异原因" />
         </div>
         <el-button type="primary" size="large" class="w-full !rounded-xl mt-2" :loading="stocktaking" @click="submitStocktake">确认盘点</el-button>
       </div>
@@ -567,7 +564,6 @@
       <div class="mb-4 flex items-center justify-between">
         <el-radio-group v-model="logWarehouseType" size="small" @change="fetchLogs">
           <el-radio-button value="">全部仓库</el-radio-button>
-          <el-radio-button :value="1">主仓</el-radio-button>
           <el-radio-button :value="2">门店</el-radio-button>
           <el-radio-button :value="3">云仓</el-radio-button>
           <el-radio-button :value="4">样机</el-radio-button>
@@ -608,8 +604,8 @@
         </el-table-column>
         <el-table-column label="单价/进价" width="100" align="right">
           <template #default="{ row }">
-            <span v-if="row.unit_cost" class="font-mono text-xs text-slate-600">¥{{ row.unit_cost.toFixed(2) }}</span>
-            <span v-else class="text-slate-300">-</span>
+            <span v-if="Number(row.unit_cost) > 0" class="font-mono text-xs text-slate-600">¥{{ Number(row.unit_cost).toFixed(2) }}</span>
+            <span v-else class="text-xs font-bold text-amber-600">成本待核</span>
           </template>
         </el-table-column>
         <el-table-column label="库存快照" width="120" align="center">
@@ -655,7 +651,8 @@
                 <div class="font-bold text-lg" :class="row.change_qty > 0 ? 'text-blue-600' : 'text-red-500'">
                   {{ row.change_qty > 0 ? '+' : '' }}{{ row.change_qty }}
                 </div>
-                <div v-if="row.unit_cost" class="font-mono text-[10px] text-slate-400 mt-1">¥{{ row.unit_cost.toFixed(2) }}</div>
+                <div v-if="Number(row.unit_cost) > 0" class="font-mono text-[10px] text-slate-400 mt-1">¥{{ Number(row.unit_cost).toFixed(2) }}</div>
+                <div v-else class="text-[10px] text-amber-600 font-bold mt-1">成本待核</div>
               </div>
             </div>
             <div v-if="row.remark || row.related_no" class="text-[11px] text-slate-500 mt-2 border-t border-slate-100 pt-2">
@@ -742,7 +739,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
-import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit } from '@element-plus/icons-vue'
+import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit, Box } from '@element-plus/icons-vue'
 import request from '../utils/request'
 import { downloadExcel } from '../utils/export'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -761,6 +758,7 @@ const productList = ref([])
 const categories = ref([])
 const selectedCategoryId = ref('')
 const onlySpecial = ref(false)
+const onlyInStock = ref(false)
 const searchQuery = ref('')
 const productFormRef = ref(null)
 
@@ -804,6 +802,7 @@ const handleMobileCommand = (cmd) => {
 
 const handleMobileMenuCommand = (cmd) => {
   if (cmd === 'recalculate') handleRecalculateCosts()
+  if (cmd === 'stockFilter') toggleInStock()
   if (cmd === 'category') openCategoryManage()
   if (cmd === 'export') handleExport()
 }
@@ -830,7 +829,6 @@ const productForm = reactive({
   remark: '',
   category_id: null,
   margin_rate: 0.15,
-  support_cloud: false,
   no_commission: false,
   special_price: 0,
   special_range: [],
@@ -877,6 +875,7 @@ const fetchProducts = async () => {
         keyword: searchQuery.value,
         category_id: selectedCategoryId.value,
         only_special: onlySpecial.value ? 1 : 0,
+        stock_filter: onlyInStock.value ? 'available' : '',
         all: 1,
         page: currentPage.value,
         page_size: pageSize.value
@@ -957,8 +956,8 @@ const handleSearch = () => {
 const handleRecalculateCosts = async () => {
   try {
     await ElMessageBox.confirm(
-      '此操作将扫描所有历史采购流水，根据真实的入库价格重新计算每个商品的平均成本。这通常用于修复因算法升级前导致的数据偏差。是否继续？',
-      '重构历史成本',
+      '此操作将按成本基准重放采购、销售、盘点和撤销流水。遇到零成本入库或库存数量不一致时，该商品会跳过并说明原因，避免写入不可信成本。是否继续？',
+      '重算商品成本',
       {
         confirmButtonText: '立即重构',
         cancelButtonText: '取消',
@@ -975,7 +974,12 @@ const handleRecalculateCosts = async () => {
     }
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('重构失败：' + (error.response?.data?.msg || error.message))
+      const responseData = error.response?.data
+      const failed = responseData?.data?.failed || []
+      const failedSummary = failed.slice(0, 3).map(item => `商品#${item.product_id}: ${item.error}`).join('；')
+      const message = [responseData?.msg || error.message, failedSummary].filter(Boolean).join('；')
+      ElMessage.warning(message || '成本重算失败')
+      fetchProducts()
     }
   } finally {
     loading.value = false
@@ -994,6 +998,12 @@ const toggleSpecial = () => {
   fetchProducts()
 }
 
+const toggleInStock = () => {
+  onlyInStock.value = !onlyInStock.value
+  currentPage.value = 1
+  fetchProducts()
+}
+
 const openAddDialog = () => {
   isEdit.value = false
   currentEditId.value = null
@@ -1001,7 +1011,6 @@ const openAddDialog = () => {
   productForm.remark = ''
   productForm.category_id = null
   productForm.margin_rate = 0.15
-  productForm.support_cloud = false
   productForm.no_commission = false
   productForm.special_price = 0
   productForm.special_range = []
@@ -1016,8 +1025,7 @@ const handleEdit = (row) => {
   productForm.remark = row.remark
   productForm.category_id = row.category_id
   productForm.margin_rate = row.margin_rate
-  productForm.avg_cost = row.avg_cost || row.latest_cost || 0
-  productForm.support_cloud = row.support_cloud || false
+  productForm.avg_cost = Number(row.avg_cost) || 0
   productForm.no_commission = row.no_commission || false
   productForm.special_price = row.special_price || 0
   if (row.special_price_start && row.special_price_end) {
@@ -1036,7 +1044,7 @@ const handleEdit = (row) => {
 const transferVisible = ref(false)
 const transferring = ref(false)
 const transferForm = reactive({
-  action: 'main_to_store',
+  action: 'store_to_sample',
   quantity: 1,
   productId: null
 })
@@ -1044,8 +1052,9 @@ const transferForm = reactive({
 const stocktakeVisible = ref(false)
 const stocktaking = ref(false)
 const stocktakeForm = reactive({
-  warehouse_type: 1,
+  warehouse_type: 3,
   actual_stock: 0,
+  expected_stock: 0,
   stocktake_type: 1,
   remark: '',
   productId: null
@@ -1055,12 +1064,13 @@ const handleCommand = (command, row) => {
   if (command === 'transfer') {
     transferForm.productId = row.id
     transferForm.quantity = 1
-    transferForm.action = 'main_to_store'
+    transferForm.action = 'store_to_sample'
     transferVisible.value = true
   } else if (command === 'stocktake') {
     stocktakeForm.productId = row.id
-    stocktakeForm.warehouse_type = 1
-    stocktakeForm.actual_stock = row.main_stock
+    stocktakeForm.warehouse_type = 3
+    stocktakeForm.actual_stock = row.cloud_stock || 0
+    stocktakeForm.expected_stock = row.cloud_stock || 0
     stocktakeForm.stocktake_type = 1
     stocktakeForm.remark = ''
     stocktakeVisible.value = true
@@ -1070,6 +1080,14 @@ const handleCommand = (command, row) => {
     logsVisible.value = true
     fetchLogs()
   }
+}
+
+const syncStocktakeExpectedStock = () => {
+  const product = products.value.find(item => item.id === stocktakeForm.productId)
+  if (!product) return
+  const stock = Number(stocktakeForm.warehouse_type === 2 ? product.store_stock : product.cloud_stock) || 0
+  stocktakeForm.expected_stock = stock
+  stocktakeForm.actual_stock = stock
 }
 
 // 流水相关
@@ -1139,11 +1157,16 @@ const submitTransfer = async () => {
 }
 
 const submitStocktake = async () => {
+  if (Number(stocktakeForm.actual_stock) !== Number(stocktakeForm.expected_stock) && !stocktakeForm.remark.trim()) {
+    ElMessage.warning('盘点数量有差异时请填写差异原因')
+    return
+  }
   stocktaking.value = true
   try {
     const res = await request.post(`/api/products/${stocktakeForm.productId}/stocktake`, {
       warehouse_type: stocktakeForm.warehouse_type,
       actual_stock: stocktakeForm.actual_stock,
+      expected_stock: stocktakeForm.expected_stock,
       stocktake_type: stocktakeForm.stocktake_type,
       remark: stocktakeForm.remark
     })

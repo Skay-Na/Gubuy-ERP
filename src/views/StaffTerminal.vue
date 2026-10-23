@@ -149,6 +149,10 @@
               </div>
             </div>
 
+            <div class="flex items-center gap-1 cursor-pointer text-slate-600 hover:text-blue-600 transition-colors" @click="openInventoryPage">
+              <el-icon size="18" class="md:size-[20px]"><Box /></el-icon>
+              <span class="text-xs md:text-sm font-bold">库管</span>
+            </div>
             <div class="flex items-center gap-1 cursor-pointer text-slate-600 hover:text-blue-600 transition-colors" @click="openOrdersDrawer">
               <el-icon size="18" class="md:size-[20px]"><List /></el-icon>
               <span class="text-xs md:text-sm font-bold">订单</span>
@@ -183,14 +187,6 @@
             <el-icon size="16"><Plus /></el-icon>
             <span class="text-[10px] font-black whitespace-nowrap hidden md:inline">新增商品</span>
             <span class="text-[10px] font-black whitespace-nowrap md:hidden">新增</span>
-          </div>
-          <div
-            class="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all cursor-pointer select-none"
-            :class="inventoryMode ? 'bg-blue-600 border-blue-600 text-white shadow-sm shadow-blue-200' : 'bg-slate-50 border-slate-100 text-slate-500'"
-            @click="toggleInventoryMode"
-          >
-            <el-icon size="16"><Box /></el-icon>
-            <span class="text-[10px] font-black whitespace-nowrap">{{ inventoryMode ? '退出库存' : '库存' }}</span>
           </div>
           <div
             class="flex items-center gap-1.5 px-3 py-2 rounded-xl border transition-all cursor-pointer select-none"
@@ -272,7 +268,7 @@
           <div
             v-for="row in productList"
             :key="row.id"
-            v-memo="[row.id, row.store_stock, row.main_stock, row.cloud_stock, row.sample_stock, row.special_price, isSpecialActive(row), inventoryMode]"
+            v-memo="[row.id, row.store_stock, row.cloud_stock, row.sample_stock, row.special_price, isSpecialActive(row), inventoryMode, blindStocktakeMode]"
             class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
             :class="isSpecialActive(row) ? 'special-offer-card border-red-200' : ''"
             @click="inventoryMode ? undefined : addToCart(row)"
@@ -286,10 +282,14 @@
             <div class="flex-1 min-w-0">
               <div class="font-bold text-slate-800 text-sm line-clamp-2 leading-tight h-9 mb-1">{{ row.name }}</div>
               <div class="flex flex-wrap gap-1 mb-2">
-                <el-tag :type="row.store_stock > 0 ? 'success' : 'danger'" size="small" class="!px-1.5 !h-5 !text-[10px]">店:{{ row.store_stock }}</el-tag>
-                <el-tag :type="row.main_stock > 0 ? 'primary' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">仓:{{ row.main_stock }}</el-tag>
-                <el-tag v-if="inventoryMode || row.support_cloud" :type="row.cloud_stock > 0 ? 'warning' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">云:{{ row.cloud_stock || 0 }}</el-tag>
-                <el-tag v-if="inventoryMode" type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">样:{{ row.sample_stock || 0 }}</el-tag>
+                <el-tag v-if="!inventoryMode && getProductCost(row) <= 0" type="danger" size="small" class="!px-1.5 !h-5 !text-[10px]">成本待维护</el-tag>
+                <el-tag v-if="blindStocktakeMode || row.store_stock == null" type="warning" size="small" class="!px-1.5 !h-5 !text-[10px]">库存盘点中</el-tag>
+                <template v-else>
+                  <el-tag :type="row.store_stock > 0 ? 'success' : 'danger'" size="small" class="!px-1.5 !h-5 !text-[10px]">店:{{ row.store_stock }}</el-tag>
+                  <el-tag v-if="inventoryMode" :type="row.cloud_stock > 0 ? 'warning' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">云仓实物:{{ row.cloud_stock || 0 }}</el-tag>
+                  <el-tag v-else type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">云仓不限量</el-tag>
+                  <el-tag v-if="inventoryMode" type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">样:{{ row.sample_stock || 0 }}</el-tag>
+                </template>
               </div>
             </div>
             <div v-if="inventoryMode" class="grid grid-cols-2 gap-2 mt-auto pt-2 border-t border-slate-50">
@@ -310,7 +310,8 @@
                   </div>
                 </div>
                 <div v-else class="flex flex-col">
-                  <span class="font-black text-slate-800 text-lg leading-none">¥{{ calculateMinPrice(row).toFixed(0) }}</span>
+                  <span v-if="getProductCost(row) > 0" class="font-black text-slate-800 text-lg leading-none">¥{{ calculateMinPrice(row).toFixed(0) }}</span>
+                  <span v-else class="text-xs text-amber-600 font-bold">先维护商品成本</span>
                 </div>
               </div>
               <div class="bg-blue-600 text-white p-1.5 rounded-lg">
@@ -501,7 +502,7 @@
               <div class="space-y-4 pt-2">
                 <div>
                   <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">发货/提货方式</div>
-                  <div class="grid grid-cols-3 gap-2">
+                  <div class="grid grid-cols-2 gap-2">
                     <div
                       class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
                       :class="deliveryMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
@@ -512,19 +513,11 @@
                     </div>
                     <div
                       class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                      :class="deliveryMethod === 2 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                      @click="deliveryMethod = 2"
-                    >
-                      <el-icon size="18" class="mb-1"><Box /></el-icon>
-                      <span class="text-[11px] font-bold">主仓发货</span>
-                    </div>
-                    <div
-                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                      :class="deliveryMethod === 3 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                      @click="deliveryMethod = 3"
+                      :class="deliveryMethod === 4 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="deliveryMethod = 4"
                     >
                       <el-icon size="18" class="mb-1"><Cloudy /></el-icon>
-                      <span class="text-[11px] font-bold">云仓代发</span>
+                      <span class="text-[11px] font-bold">云仓发货</span>
                     </div>
                   </div>
                 </div>
@@ -679,7 +672,7 @@
 
         <el-form label-position="top">
           <el-form-item label="操作仓库">
-            <el-radio-group v-model="inventoryForm.warehouse_type" class="!w-full grid grid-cols-3 gap-2" @change="syncStocktakeActualStock">
+            <el-radio-group v-model="inventoryForm.warehouse_type" class="!w-full grid grid-cols-2 gap-2" @change="syncStocktakeActualStock">
               <el-radio-button v-for="item in warehouseOptions" :key="item.value" :value="item.value" class="!w-full">
                 {{ item.label }}
               </el-radio-button>
@@ -716,7 +709,7 @@
         </el-form>
 
         <el-button type="primary" size="large" class="w-full !h-12 !rounded-xl !font-bold" :loading="inventorySubmitting" @click="submitInventoryAction">
-          {{ inventoryAction === 'stocktake' ? '确认盘库' : '提交入库申请' }}
+          {{ inventoryAction === 'stocktake' ? '确认盘库' : '确认入库' }}
         </el-button>
       </div>
     </el-drawer>
@@ -956,6 +949,10 @@
             format="YYYY-MM-DD"
           />
         </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">本次送货费用 (支出)</label>
+          <el-input-number v-model="selectedDeliveryFee" :min="0" :precision="2" size="large" class="!w-full" controls-position="right" />
+        </div>
       </div>
       <template #footer>
         <div class="flex gap-2">
@@ -996,6 +993,10 @@
             class="!w-full"
             format="YYYY-MM-DD"
           />
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">本次安装费用 (支出)</label>
+          <el-input-number v-model="selectedInstallationFee" :min="0" :precision="2" size="large" class="!w-full" controls-position="right" />
         </div>
       </div>
       <template #footer>
@@ -1158,13 +1159,6 @@
             clearable
           />
         </el-form-item>
-        <el-form-item label="支持云仓" prop="support_cloud">
-          <el-switch
-            v-model="staffProductForm.support_cloud"
-            active-text="支持"
-            inactive-text="不支持"
-          />
-        </el-form-item>
       </el-form>
       <template #footer>
         <div class="flex gap-3">
@@ -1218,11 +1212,14 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Wallet, Close, Lightning, Menu, Calendar, Refresh , Document, Star, Money} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import dayjs from 'dayjs'
 import StaffPhotoOrder from '../components/employee/StaffPhotoOrder.vue'
+
+const router = useRouter()
 
 // --- 响应式识别逻辑 ---
 const isMobile = ref(false)
@@ -1270,6 +1267,7 @@ const resetTerminalSession = () => {
   photoOrderDraftId.value = null
   photoOrderVisible.value = false
   inventoryMode.value = false
+  blindStocktakeMode.value = false
   inventoryActionVisible.value = false
   inventoryProduct.value = null
   todayAttendance.value = null
@@ -1392,11 +1390,13 @@ const resetOrderFilters = () => {
 const deliveryDialogVisible = ref(false)
 const deliveryTargetItem = ref(null)
 const selectedDeliveryTime = ref(null)
+const selectedDeliveryFee = ref(0)
 const installDialogVisible = ref(false)
 const installTargetItem = ref(null)
 const selectedInstallerId = ref(null)
 const selectedDeliveryPersonId = ref(null)
 const selectedInstallTime = ref(null)
+const selectedInstallationFee = ref(0)
 const detailDialogVisible = ref(false)
 const currentDetailOrder = ref(null)
 const mobileDeliveryDate = computed({
@@ -1470,6 +1470,7 @@ const handleStaffDeliver = (item) => {
   deliveryTargetItem.value = item
   selectedDeliveryPersonId.value = null
   selectedDeliveryTime.value = new Date()
+  selectedDeliveryFee.value = Number(item.delivery_fee) || 0
   if (employees.value.length === 0) fetchEmployees()
   deliveryDialogVisible.value = true
 }
@@ -1480,7 +1481,7 @@ const confirmStaffDeliver = async () => {
     const res = await request.put(`/api/order-items/${deliveryTargetItem.value.id}/deliver`, {
       delivery_person_id: selectedDeliveryPersonId.value,
       delivery_time: selectedDeliveryTime.value,
-      delivery_fee: 0
+      delivery_fee: selectedDeliveryFee.value
     })
     if (res.data.code === 200) {
       ElMessage.success('送货确认成功')
@@ -1496,6 +1497,7 @@ const handleStaffInstall = (item) => {
   installTargetItem.value = item
   selectedInstallerId.value = null
   selectedInstallTime.value = new Date()
+  selectedInstallationFee.value = Number(item.installation_fee) || 0
   if (employees.value.length === 0) fetchEmployees()
   installDialogVisible.value = true
 }
@@ -1506,7 +1508,7 @@ const confirmStaffInstall = async () => {
     const res = await request.put(`/api/order-items/${installTargetItem.value.id}/install`, {
       installer_id: selectedInstallerId.value,
       install_time: selectedInstallTime.value,
-      installation_fee: 0
+      installation_fee: selectedInstallationFee.value
     })
     if (res.data.code === 200) {
       ElMessage.success('安装确认成功')
@@ -1627,19 +1629,20 @@ const onlySpecial = ref(false)
 const categoryDialogVisible = ref(false)
 const categorySearchQuery = ref('')
 const inventoryMode = ref(false)
+const blindStocktakeMode = ref(false)
 const inventoryActionVisible = ref(false)
 const inventoryProduct = ref(null)
 const inventoryAction = ref('stocktake')
 const inventorySubmitting = ref(false)
 const inventoryForm = ref({
-  warehouse_type: 1,
+  warehouse_type: 2,
   actual_stock: 0,
+  expected_stock: 0,
   stocktake_type: 1,
   increase_quantity: 1,
   remark: ''
 })
 const warehouseOptions = [
-  { label: '主仓', value: 1, field: 'main_stock' },
   { label: '门店', value: 2, field: 'store_stock' },
   { label: '云仓', value: 3, field: 'cloud_stock' }
 ]
@@ -1660,8 +1663,7 @@ const staffProductSubmitting = ref(false)
 const staffProductForm = ref({
   name: '',
   remark: '',
-  category_id: null,
-  support_cloud: false
+  category_id: null
 })
 const staffProductRules = {
   name: [
@@ -1686,7 +1688,7 @@ const referrerName = ref('')
 const referralFee = ref(0)
 const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
-const deliveryMethod = ref(2)
+const deliveryMethod = ref(4)
 
 const currentWarehouse = computed(() => warehouseOptions.find(item => item.value === inventoryForm.value.warehouse_type) || warehouseOptions[0])
 const currentWarehouseName = computed(() => currentWarehouse.value.label)
@@ -1694,7 +1696,6 @@ const currentWarehouseStock = computed(() => Number(inventoryProduct.value?.[cur
 const inventorySummary = computed(() => {
   if (!inventoryProduct.value) return []
   return [
-    { label: '主仓', value: Number(inventoryProduct.value.main_stock) || 0 },
     { label: '门店', value: Number(inventoryProduct.value.store_stock) || 0 },
     { label: '云仓', value: Number(inventoryProduct.value.cloud_stock) || 0 },
     { label: '样机', value: Number(inventoryProduct.value.sample_stock) || 0 }
@@ -1702,24 +1703,36 @@ const inventorySummary = computed(() => {
 })
 
 const toggleInventoryMode = () => {
+  if (blindStocktakeMode.value) {
+    ElMessage.warning('当前有进行中的盲盘单，请在库管页按纸单清点')
+    return
+  }
   inventoryMode.value = !inventoryMode.value
   inventoryActionVisible.value = false
   if (inventoryMode.value) onlySpecial.value = false
   fetchProducts()
 }
 
+const openInventoryPage = () => router.push('/terminal/inventory')
+
 const syncStocktakeActualStock = () => {
   if (inventoryAction.value === 'stocktake') {
     inventoryForm.value.actual_stock = currentWarehouseStock.value
+    inventoryForm.value.expected_stock = currentWarehouseStock.value
   }
 }
 
 const openInventoryAction = (product, action) => {
+  if (blindStocktakeMode.value) {
+    ElMessage.warning('盲盘期间请从当前盘库单录入结果')
+    return
+  }
   inventoryProduct.value = product
   inventoryAction.value = action
   inventoryForm.value = {
-    warehouse_type: 1,
-    actual_stock: Number(product.main_stock) || 0,
+    warehouse_type: 2,
+    actual_stock: Number(product.store_stock) || 0,
+    expected_stock: Number(product.store_stock) || 0,
     stocktake_type: 1,
     increase_quantity: 1,
     remark: ''
@@ -1736,8 +1749,7 @@ const resetStaffProductForm = () => {
   staffProductForm.value = {
     name: '',
     remark: '',
-    category_id: null,
-    support_cloud: false
+    category_id: null
   }
   if (staffProductFormRef.value) {
     nextTick(() => {
@@ -1776,7 +1788,6 @@ const submitStaffProduct = async () => {
       remark: staffProductForm.value.remark.trim(),
       category_id: staffProductForm.value.category_id,
       margin_rate: 0.15,
-      support_cloud: staffProductForm.value.support_cloud,
       special_price: 0,
       special_price_start: null,
       special_price_end: null
@@ -1837,10 +1848,12 @@ const calculateMinPrice = (product) => {
   if (isSpecialActive(product)) {
     return product.special_price
   }
-  const cost = Number(product.avg_cost || product.latest_cost) || 0
+  const cost = getProductCost(product)
   const rate = Number(product.margin_rate) || 0
   return cost / (1 - rate)
 }
+
+const getProductCost = (product) => Number(product.avg_cost) > 0 ? Number(product.avg_cost) : Number(product.latest_cost) || 0
 
 const fetchProducts = async () => {
   loading.value = true
@@ -1854,6 +1867,19 @@ const fetchProducts = async () => {
       }
     })
     if (res.data.code === 200) {
+      blindStocktakeMode.value = Boolean(res.data.blind_stocktake_mode)
+      if (blindStocktakeMode.value) {
+        inventoryMode.value = false
+        inventoryActionVisible.value = false
+        cart.value = cart.value.map((item) => {
+          const safeItem = { ...item }
+          delete safeItem.main_stock
+          delete safeItem.store_stock
+          delete safeItem.sample_stock
+          delete safeItem.cloud_stock
+          return safeItem
+        })
+      }
       productList.value = res.data.data
     }
   } catch (error) {
@@ -1910,22 +1936,28 @@ const submitInventoryAction = async () => {
         remark: extraRemark
       })
       if (res.data.code !== 200) {
-        ElMessage.error(res.data.msg || '入库申请提交失败')
+        ElMessage.error(res.data.msg || '入库失败')
         return
       }
-      ElMessage.success('入库申请已提交，待管理员确认')
+      ElMessage.success(res.data.msg || '入库完成，已记录库存流水')
     } else {
+      if (actualStock !== Number(inventoryForm.value.expected_stock) && !extraRemark) {
+        ElMessage.warning('盘点数量有差异时请填写差异原因')
+        return
+      }
       const res = await request.post(`/api/products/${inventoryProduct.value.id}/stocktake`, {
         warehouse_type: inventoryForm.value.warehouse_type,
         actual_stock: actualStock,
+        expected_stock: inventoryForm.value.expected_stock,
         stocktake_type: inventoryForm.value.stocktake_type,
         remark
       })
       if (res.data.code !== 200) {
         ElMessage.error(res.data.msg || '盘库操作失败')
         return
+      } else {
+        ElMessage.success('盘库完成')
       }
-      ElMessage.success('盘库完成')
     }
     await fetchProducts()
     inventoryActionVisible.value = false
@@ -1937,6 +1969,10 @@ const submitInventoryAction = async () => {
 }
 
 const addToCart = (product) => {
+  if (getProductCost(product) <= 0) {
+    ElMessage.warning('该商品尚未建立有效成本，请先维护商品成本后再开单')
+    return
+  }
   const minPrice = calculateMinPrice(product)
   const existing = cart.value.find(item => item.id === product.id)
   if (existing) {
@@ -1951,7 +1987,7 @@ const addToCart = (product) => {
       price: Math.ceil(minPrice),
       quantity: 1,
       store_stock: product.store_stock,
-      main_stock: product.main_stock,
+      cloud_stock: product.cloud_stock,
       isGift: false
     })
     ElMessage.success(`已加入购物车`)
@@ -1983,7 +2019,7 @@ const applyPhotoOrder = async (draft) => {
   orderType.value = 1
   paymentMethod.value = draft.is_subsidy ? 3 : 1
   mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
-  deliveryMethod.value = 2
+  deliveryMethod.value = 4
   referrerName.value = ''
   referralFee.value = 0
   cart.value = draft.items.map(item => ({
@@ -1994,7 +2030,7 @@ const applyPhotoOrder = async (draft) => {
     price: item.unit_price,
     quantity: item.quantity,
     store_stock: item.product.store_stock,
-    main_stock: item.product.main_stock,
+    cloud_stock: item.product.cloud_stock,
     isGift: false
   }))
   customerName.value = draft.customer.name
@@ -2225,7 +2261,7 @@ const handleCheckout = async () => {
       isBossCustomer.value = false
       paymentMethod.value = 1
       mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
-      deliveryMethod.value = 2
+      deliveryMethod.value = 4
       drawerVisible.value = false
       fetchProducts()
     }

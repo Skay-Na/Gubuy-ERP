@@ -45,19 +45,10 @@
                 <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
               </el-select>
               <el-select
-                v-model="selectedOrderStatus"
-                clearable
-                placeholder="订单状态"
-                class="!w-full shadow-sm col-span-3"
-                @change="fetchOrders"
-              >
-                <el-option v-for="option in orderStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
-              </el-select>
-              <el-select
                 v-model="selectedPaymentStatus"
                 clearable
                 placeholder="支付状态"
-                class="!w-full shadow-sm col-span-4"
+                class="!w-full shadow-sm col-span-5"
                 @change="fetchOrders"
               >
                 <el-option v-for="option in paymentStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
@@ -66,7 +57,7 @@
                 v-model="selectedSubsidyStatus"
                 clearable
                 placeholder="国补状态"
-                class="!w-full shadow-sm col-span-4"
+                class="!w-full shadow-sm col-span-5"
                 @change="fetchOrders"
               >
                 <el-option v-for="option in subsidyStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
@@ -121,7 +112,7 @@
     <el-card shadow="never" class="!rounded-2xl border-slate-100 shadow-sm overflow-hidden" body-class="!p-0">
       <div class="hidden md:flex items-center justify-between px-5 py-3 border-b border-slate-100 bg-white">
         <span class="text-sm font-bold text-slate-700">{{ activeMobileTabLabel }} <span class="font-normal text-slate-400">· {{ orders.length }} 单</span></span>
-        <span class="text-xs text-slate-400">点击详情展开商品、账务与履约操作</span>
+        <span class="text-xs text-slate-400">{{ activeTab === 'archive' ? '已取消订单自动归档至此，可点击详情查看' : activeTab === 'deleted_employee_todo' ? '员工档案已删除，订单仍有收款、国补或履约事项待跟进' : '点击详情展开商品、账务与履约操作' }}</span>
       </div>
       <!-- PC View -->
       <el-table 
@@ -135,6 +126,9 @@
         :row-style="{ height: '64px' }"
         :row-class-name="({row}) => row.order_status === 2 ? 'opacity-50 grayscale' : ''"
       >
+        <template #empty>
+          <el-empty :description="activeTab === 'archive' ? '暂无已归档订单' : activeTab === 'deleted_employee_todo' ? '暂无已删除员工待跟进订单' : '暂无订单'" />
+        </template>
         <el-table-column type="expand" width="36">
           <template #default="{ row }">
             <div class="min-w-0 p-4 bg-slate-50/50">
@@ -171,9 +165,12 @@
                 <el-table-column label="成本核算" min-width="170" align="right">
                   <template #default="scope">
                     <div class="flex flex-col text-[11px] leading-tight">
-                      <span class="font-bold text-blue-600">货品成本 ¥{{ getItemProductCost(scope.row).toFixed(2) }}</span>
-                      <span class="text-slate-400">单件成本 ¥{{ getItemUnitCost(scope.row).toFixed(2) }}</span>
-                      <span class="text-emerald-600">毛利 ¥{{ getItemGrossProfit(scope.row).toFixed(2) }}</span>
+                      <template v-if="getItemProductCost(scope.row) !== null">
+                        <span class="font-bold text-blue-600">货品成本 ¥{{ getItemProductCost(scope.row).toFixed(2) }}</span>
+                        <span class="text-slate-400">单件成本 ¥{{ getItemUnitCost(scope.row).toFixed(2) }}</span>
+                        <span class="text-emerald-600">毛利 ¥{{ getItemGrossProfit(scope.row).toFixed(2) }}</span>
+                      </template>
+                      <span v-else class="font-bold text-amber-600">成本待核</span>
                     </div>
                   </template>
                 </el-table-column>
@@ -182,9 +179,15 @@
                     <div v-if="scope.row.is_delivered" class="flex flex-col text-[11px] leading-tight">
                       <span class="text-blue-600 font-bold">🚚 已送货</span>
                       <span class="text-slate-500">送货: {{ scope.row.delivery_person?.name || '-' }} <el-tag v-if="scope.row.delivery_person?.is_outsourced" size="small" type="warning" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
-                      <span class="text-slate-400">运费: ¥{{ scope.row.delivery_fee.toFixed(2) }}</span>
+                      <span class="text-slate-400">运费: ¥{{ (scope.row.delivery_fee || 0).toFixed(2) }}</span>
                     </div>
-                    <span v-else class="text-slate-400">⏳ 待送货</span>
+                    <div v-else class="text-slate-400">⏳ 待送货</div>
+                    <div v-if="row.order_status !== 2" class="flex items-center gap-1 text-[11px]">
+                      <span v-if="!scope.row.is_delivered" class="text-slate-400">费用: ¥{{ (scope.row.delivery_fee || 0).toFixed(2) }}</span>
+                      <el-button text type="primary" size="small" class="!px-1" @click="openDeliveryFeeDialog(scope.row, row)">
+                        {{ scope.row.delivery_fee > 0 ? '调整费用' : '填写费用' }}
+                      </el-button>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="安装状态" min-width="160">
@@ -192,9 +195,15 @@
                     <div v-if="scope.row.is_installed" class="flex flex-col text-[11px] leading-tight">
                       <span class="text-green-600 font-bold">✅ 已完成安装</span>
                       <span class="text-slate-500">师傅: {{ scope.row.installer?.name || '-' }} <el-tag v-if="scope.row.installer?.is_outsourced" size="small" type="success" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
-                      <span class="text-slate-400">费用: ¥{{ scope.row.installation_fee.toFixed(2) }}</span>
+                      <span class="text-slate-400">费用: ¥{{ (scope.row.installation_fee || 0).toFixed(2) }}</span>
                     </div>
-                    <span v-else class="text-slate-400">⏳ 待安装</span>
+                    <div v-else class="text-slate-400">⏳ 待安装</div>
+                    <div v-if="row.order_status !== 2" class="flex items-center gap-1 text-[11px]">
+                      <span v-if="!scope.row.is_installed" class="text-slate-400">费用: ¥{{ (scope.row.installation_fee || 0).toFixed(2) }}</span>
+                      <el-button text type="primary" size="small" class="!px-1" @click="openInstallationFeeDialog(scope.row, row)">
+                        {{ scope.row.installation_fee > 0 ? '调整费用' : '填写费用' }}
+                      </el-button>
+                    </div>
                   </template>
                 </el-table-column>
                 <el-table-column label="履约操作" width="130" align="center" v-if="row.order_status !== 2">
@@ -241,7 +250,8 @@
                 <!-- 成本核算 -->
                 <el-descriptions title="成本核算" :column="1" border size="small" class="bg-white p-3 rounded-xl shadow-sm">
                   <el-descriptions-item label="货品成本">
-                    <span class="font-bold text-blue-600">¥{{ getOrderProductCost(row).toFixed(2) }}</span>
+                    <span v-if="getOrderProductCost(row) !== null" class="font-bold text-blue-600">¥{{ getOrderProductCost(row).toFixed(2) }}</span>
+                    <span v-else class="font-bold text-amber-600">成本待核</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="履约成本">
                     <span class="font-bold text-orange-600">¥{{ getOrderFulfillmentCost(row).toFixed(2) }}</span>
@@ -252,8 +262,11 @@
                     <span class="text-slate-400 text-[10px] ml-1">渠道+换新</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="综合毛利">
-                    <span :class="getOrderGrossProfit(row) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ getOrderGrossProfit(row).toFixed(2) }}</span>
-                    <span class="text-slate-400 text-[10px] ml-1">毛利率 {{ getOrderGrossMargin(row).toFixed(1) }}%</span>
+                    <template v-if="getOrderGrossProfit(row) !== null">
+                      <span :class="getOrderGrossProfit(row) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ getOrderGrossProfit(row).toFixed(2) }}</span>
+                      <span v-if="getOrderGrossMargin(row) !== null" class="text-slate-400 text-[10px] ml-1">毛利率 {{ getOrderGrossMargin(row).toFixed(1) }}%</span>
+                    </template>
+                    <span v-else class="font-bold text-amber-600">成本待核，暂不计算毛利</span>
                   </el-descriptions-item>
                 </el-descriptions>
 
@@ -427,7 +440,7 @@
             </div>
           </div>
         </article>
-        <el-empty v-if="!loading && orders.length === 0" description="暂无订单" />
+        <el-empty v-if="!loading && orders.length === 0" :description="activeTab === 'archive' ? '暂无已归档订单' : activeTab === 'deleted_employee_todo' ? '暂无已删除员工待跟进订单' : '暂无订单'" />
       </div>
     </el-card>
 
@@ -494,6 +507,24 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="deliveryFeeDialogVisible" title="调整商品送货费" width="400px" destroy-on-close class="!rounded-2xl">
+      <div v-if="deliveryFeeTarget" class="space-y-4">
+        <div class="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          <div>订单号：{{ deliveryFeeTarget.orderNo }}</div>
+          <div class="mt-1">商品：{{ deliveryFeeTarget.productName }}</div>
+          <div class="mt-1 text-xs text-slate-400">保存后会自动更新订单送货费合计</div>
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">实际送货费用 (支出)</label>
+          <el-input-number v-model="editingDeliveryFee" :min="0" :precision="2" class="!w-full" controls-position="right" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="deliveryFeeDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="deliveryFeeSaving" @click="confirmUpdateDeliveryFee">保存费用</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 确认安装弹窗 -->
     <el-dialog v-model="installDialogVisible" title="确认安装完成" width="400px" destroy-on-close class="!rounded-2xl">
       <div class="space-y-4">
@@ -532,6 +563,24 @@
       <template #footer>
         <el-button @click="installDialogVisible = false">取消</el-button>
         <el-button type="primary" @click="confirmInstall" :disabled="!selectedInstallerId">确认提交</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="installationFeeDialogVisible" title="调整商品安装费" width="400px" destroy-on-close class="!rounded-2xl">
+      <div v-if="installationFeeTarget" class="space-y-4">
+        <div class="rounded-xl bg-slate-50 p-3 text-sm text-slate-600">
+          <div>订单号：{{ installationFeeTarget.orderNo }}</div>
+          <div class="mt-1">商品：{{ installationFeeTarget.productName }}</div>
+          <div class="mt-1 text-xs text-slate-400">保存后会自动更新订单安装费合计</div>
+        </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">实际安装费用 (支出)</label>
+          <el-input-number v-model="editingInstallationFee" :min="0" :precision="2" class="!w-full" controls-position="right" />
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="installationFeeDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="installationFeeSaving" @click="confirmUpdateInstallationFee">保存费用</el-button>
       </template>
     </el-dialog>
 
@@ -656,12 +705,6 @@
           </el-select>
         </div>
         <div>
-          <label class="block text-sm font-bold text-slate-700 mb-2">订单状态</label>
-          <el-select v-model="selectedOrderStatus" clearable placeholder="全部订单状态" class="!w-full">
-            <el-option v-for="option in orderStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
-          </el-select>
-        </div>
-        <div>
           <label class="block text-sm font-bold text-slate-700 mb-2">配送与安装</label>
           <el-select v-model="selectedFulfillmentStatus" clearable placeholder="全部配送与安装" class="!w-full">
             <el-option v-for="option in fulfillmentStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
@@ -696,9 +739,14 @@
               <div class="min-w-0">
                 <div class="font-bold text-sm text-slate-800">{{ item.product?.name || '未知商品' }}</div>
                 <div class="text-xs text-slate-400">x{{ item.quantity }} · ¥{{ item.unit_price.toFixed(2) }}</div>
-                <div class="text-[10px] text-blue-500 mt-0.5">成本 ¥{{ getItemProductCost(item).toFixed(2) }} · 毛利 ¥{{ getItemGrossProfit(item).toFixed(2) }}</div>
+                <div v-if="getItemProductCost(item) !== null" class="text-[10px] text-blue-500 mt-0.5">成本 ¥{{ getItemProductCost(item).toFixed(2) }} · 毛利 ¥{{ getItemGrossProfit(item).toFixed(2) }}</div>
+                <div v-else class="text-[10px] text-amber-600 mt-0.5">成本待核，暂不计算毛利</div>
+                <div class="text-xs text-slate-500 mt-1">送货费 ¥{{ (item.delivery_fee || 0).toFixed(2) }}</div>
+                <div class="text-xs text-slate-500 mt-1">安装费 ¥{{ (item.installation_fee || 0).toFixed(2) }}</div>
               </div>
-              <div class="flex gap-1 items-center shrink-0">
+              <div class="flex flex-col items-end gap-1 shrink-0">
+                <el-button v-if="detailOrder.order_status !== 2" size="small" text type="primary" @click="openDeliveryFeeDialog(item, detailOrder)">送货费</el-button>
+                <el-button v-if="detailOrder.order_status !== 2" size="small" text type="primary" @click="openInstallationFeeDialog(item, detailOrder)">安装费</el-button>
                 <el-button v-if="!item.is_delivered && detailOrder.delivery_method !== 1" size="small" type="warning" class="!rounded-md" @click="handleDeliver(item)">送货</el-button>
                 <el-button v-if="item.is_delivered && !item.is_installed && detailOrder.delivery_method !== 1" size="small" type="primary" class="!rounded-md" @click="handleInstall(item)">安装</el-button>
                 <span v-if="item.is_installed" class="text-xs font-bold text-green-600">已装</span>
@@ -726,12 +774,16 @@
             </div>
             <div class="bg-white border border-slate-100 rounded-xl p-3">
               <div class="text-xs text-slate-400">货品成本</div>
-              <div class="font-black text-blue-600">¥{{ getOrderProductCost(detailOrder).toFixed(2) }}</div>
+              <div v-if="getOrderProductCost(detailOrder) !== null" class="font-black text-blue-600">¥{{ getOrderProductCost(detailOrder).toFixed(2) }}</div>
+              <div v-else class="font-black text-amber-600">成本待核</div>
             </div>
             <div class="bg-white border border-slate-100 rounded-xl p-3">
               <div class="text-xs text-slate-400">综合毛利</div>
-              <div :class="getOrderGrossProfit(detailOrder) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ getOrderGrossProfit(detailOrder).toFixed(2) }}</div>
-              <div class="text-[10px] text-slate-400">毛利率 {{ getOrderGrossMargin(detailOrder).toFixed(1) }}%</div>
+              <template v-if="getOrderGrossProfit(detailOrder) !== null">
+                <div :class="getOrderGrossProfit(detailOrder) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ getOrderGrossProfit(detailOrder).toFixed(2) }}</div>
+                <div v-if="getOrderGrossMargin(detailOrder) !== null" class="text-[10px] text-slate-400">毛利率 {{ getOrderGrossMargin(detailOrder).toFixed(1) }}%</div>
+              </template>
+              <div v-else class="font-black text-amber-600">成本待核</div>
             </div>
           </div>
         </div>
@@ -775,7 +827,6 @@ const selectedCategoryId = ref('')
 const selectedPaymentStatus = ref('')
 const selectedFulfillmentStatus = ref('')
 const selectedSubsidyStatus = ref('')
-const selectedOrderStatus = ref('')
 const receiptVisible = ref(false)
 const currentReceipt = ref(null)
 const filterDrawerVisible = ref(false)
@@ -790,6 +841,8 @@ const handleViewportResize = () => {
 
 const filterTabs = [
   { label: '全部订单', value: 'all' },
+  { label: '已归档', value: 'archive' },
+  { label: '已删除员工待跟进', value: 'deleted_employee_todo' },
   { label: '待处理', value: 'todo' },
   { label: '待收尾款', value: 'pending_balance' },
   { label: '待送货', value: 'pending_delivery' },
@@ -798,6 +851,8 @@ const filterTabs = [
 ]
 
 const mobileFilterTabs = [
+  { label: '已归档', value: 'archive' },
+  { label: '已删除员工待跟进', value: 'deleted_employee_todo' },
   { label: '待处理', value: 'todo' },
   { label: '待收款', value: 'pending_balance' },
   { label: '待送货', value: 'pending_delivery' },
@@ -818,12 +873,6 @@ const subsidyStatusOptions = [
   { label: '待提交', value: '1' },
   { label: '已提交', value: '2' },
   { label: '已回款', value: '3' },
-]
-
-const orderStatusOptions = [
-  { label: '全部订单状态', value: '' },
-  { label: '正常', value: '1' },
-  { label: '已取消', value: '2' },
 ]
 
 const fulfillmentStatusOptions = [
@@ -847,6 +896,11 @@ const mobileInstallTime = computed({
 })
 
 const selectTab = (val) => {
+  if (val === 'deleted_employee_todo') {
+    selectedPaymentStatus.value = ''
+    selectedFulfillmentStatus.value = ''
+    selectedSubsidyStatus.value = ''
+  }
   activeTab.value = val
   fetchOrders()
 }
@@ -866,7 +920,8 @@ const buildOrderQueryParams = () => {
     payment_status: selectedPaymentStatus.value,
     fulfillment_status: selectedFulfillmentStatus.value,
     subsidy_status: selectedSubsidyStatus.value,
-    order_status: selectedOrderStatus.value,
+    order_status: activeTab.value === 'archive' ? '2' : '1',
+    deleted_employee_followup: activeTab.value === 'deleted_employee_todo' ? '1' : '',
   }
   if (selectedMonth.value) {
     params.start_date = dayjs(selectedMonth.value).startOf('month').toISOString()
@@ -901,11 +956,15 @@ const fetchOrders = async () => {
 
     const res = await request.get('/api/orders', { params })
     if (res.data.code === 200) {
-      let rawData = res.data.data || []
+      let rawData = (res.data.data || []).filter(order => (
+        activeTab.value === 'archive' ? Number(order.order_status) === 2 : Number(order.order_status) !== 2
+      ))
       allOrders.value = rawData
       
       // 前端进行状态聚合筛选
-      if (activeTab.value === 'todo') {
+      if (activeTab.value === 'archive') {
+        rawData = rawData.filter(order => Number(order.order_status) === 2)
+      } else if (activeTab.value === 'todo') {
         rawData = rawData
           .filter(o => o.order_status === 1 && (
             o.payment_status === 1 ||
@@ -1006,11 +1065,17 @@ const openLinkedOrder = async orderNo => {
 	selectedPaymentStatus.value = ''
 	selectedFulfillmentStatus.value = ''
 	selectedSubsidyStatus.value = ''
-	selectedOrderStatus.value = ''
 	searchKeyword.value = normalizedOrderNo
 	await fetchOrders()
-	const target = allOrders.value.find(order => order.order_no === normalizedOrderNo)
+	let target = allOrders.value.find(order => order.order_no === normalizedOrderNo)
 	if (!target) {
+		activeTab.value = 'archive'
+		await fetchOrders()
+		target = allOrders.value.find(order => order.order_no === normalizedOrderNo)
+	}
+	if (!target) {
+		activeTab.value = 'all'
+		await fetchOrders()
 		ElMessage.warning(`未找到订单 ${normalizedOrderNo}`)
 		return false
 	}
@@ -1034,7 +1099,6 @@ const resetMobileFilters = () => {
   selectedPaymentStatus.value = ''
   selectedFulfillmentStatus.value = ''
   selectedSubsidyStatus.value = ''
-  selectedOrderStatus.value = ''
   filterDrawerVisible.value = false
   fetchOrders()
 }
@@ -1068,25 +1132,45 @@ const getPaymentBreakdownText = (breakdown) => {
   }
 }
 
-const getItemUnitCost = (item) => Number(item?.unit_cost ?? item?.product?.avg_cost ?? item?.product?.latest_cost ?? 0) || 0
-const getItemProductCost = (item) => getItemUnitCost(item) * Number(item?.quantity || 0)
+const getItemUnitCost = (item) => {
+  const value = Number(item?.unit_cost)
+  return Number.isFinite(value) && value > 0 ? value : null
+}
+const getItemProductCost = (item) => {
+  const unitCost = getItemUnitCost(item)
+  return unitCost === null ? null : unitCost * Number(item?.quantity || 0)
+}
 const getItemRevenue = (item) => Number(item?.unit_price || 0) * Number(item?.quantity || 0)
-const getItemGrossProfit = (item) => getItemRevenue(item) - getItemProductCost(item)
-const getOrderProductCost = (row) => (row?.order_items || []).reduce((sum, item) => sum + getItemProductCost(item), 0)
+const getItemGrossProfit = (item) => {
+  const cost = getItemProductCost(item)
+  return cost === null ? null : getItemRevenue(item) - cost
+}
+const getOrderProductCost = (row) => {
+  const items = row?.order_items || []
+  if (items.some(item => getItemProductCost(item) === null)) return null
+  return items.reduce((sum, item) => sum + getItemProductCost(item), 0)
+}
 const getOrderFulfillmentCost = (row) => (row?.order_items || []).reduce((sum, item) => {
   return sum + Number(item?.delivery_fee || 0) + Number(item?.installation_fee || 0)
 }, 0)
 const getOrderOtherCost = (row) => Number(row?.referral_fee || 0) + Number(row?.trade_in_amount || 0)
-const getOrderTotalCost = (row) => getOrderProductCost(row) + getOrderFulfillmentCost(row) + getOrderOtherCost(row)
-const getOrderGrossProfit = (row) => Number(row?.total_amount || 0) - getOrderTotalCost(row)
+const getOrderTotalCost = (row) => {
+  const productCost = getOrderProductCost(row)
+  return productCost === null ? null : productCost + getOrderFulfillmentCost(row) + getOrderOtherCost(row)
+}
+const getOrderGrossProfit = (row) => {
+  const totalCost = getOrderTotalCost(row)
+  return totalCost === null ? null : Number(row?.total_amount || 0) - totalCost
+}
 const getOrderGrossMargin = (row) => {
   const total = Number(row?.total_amount || 0)
-  if (total <= 0) return 0
-  return (getOrderGrossProfit(row) / total) * 100
+  const profit = getOrderGrossProfit(row)
+  if (profit === null || total <= 0) return null
+  return (profit / total) * 100
 }
 
 const getDeliveryMethodLabel = (method) => {
-  const map = { 1: '门店自提', 2: '主仓发货', 3: '云仓代发' }
+  const map = { 1: '门店自提', 2: '主仓发货（历史）', 3: '云仓代发（历史）', 4: '云仓发货' }
   return map[method] || '其他'
 }
 
@@ -1190,12 +1274,20 @@ const deliveryTargetItem = ref(null)
 const selectedDeliveryPersonId = ref(null)
 const selectedDeliveryTime = ref(null)
 const deliveryFee = ref(0)
+const deliveryFeeDialogVisible = ref(false)
+const deliveryFeeTarget = ref(null)
+const editingDeliveryFee = ref(0)
+const deliveryFeeSaving = ref(false)
 
 const installDialogVisible = ref(false)
 const installTargetItem = ref(null)
 const selectedInstallerId = ref(null)
 const selectedInstallTime = ref(null)
 const installationFee = ref(0)
+const installationFeeDialogVisible = ref(false)
+const installationFeeTarget = ref(null)
+const editingInstallationFee = ref(0)
+const installationFeeSaving = ref(false)
 const employees = ref([])
 
 const deliveryPersonOptions = computed(() => {
@@ -1227,7 +1319,7 @@ const handleDeliver = (item) => {
   deliveryTargetItem.value = item
   selectedDeliveryPersonId.value = null
   selectedDeliveryTime.value = new Date()
-  deliveryFee.value = 0
+  deliveryFee.value = Number(item.delivery_fee) || 0
   if (employees.value.length === 0) fetchEmployees()
   deliveryDialogVisible.value = true
 }
@@ -1248,11 +1340,47 @@ const confirmDeliver = async () => {
   } catch (error) { ElMessage.error('操作失败') }
 }
 
+const openDeliveryFeeDialog = (item, order) => {
+  deliveryFeeTarget.value = {
+    itemId: item.id,
+    orderId: order.id,
+    orderNo: order.order_no,
+    productName: item.product?.name || '未知商品'
+  }
+  editingDeliveryFee.value = Number(item.delivery_fee) || 0
+  deliveryFeeDialogVisible.value = true
+}
+
+const confirmUpdateDeliveryFee = async () => {
+  if (!deliveryFeeTarget.value || deliveryFeeSaving.value) return
+  deliveryFeeSaving.value = true
+  try {
+    const target = deliveryFeeTarget.value
+    const res = await request.put(`/api/order-items/${target.itemId}/delivery-fee`, {
+      delivery_fee: editingDeliveryFee.value
+    })
+    if (res.data.code === 200) {
+      ElMessage.success(res.data.msg || '送货费已更新')
+      deliveryFeeDialogVisible.value = false
+      await fetchOrders()
+      if (detailOrder.value?.id === target.orderId) {
+        detailOrder.value = allOrders.value.find(order => order.id === target.orderId) || detailOrder.value
+      }
+    } else {
+      ElMessage.error(res.data.msg || '更新送货费失败')
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '更新送货费失败')
+  } finally {
+    deliveryFeeSaving.value = false
+  }
+}
+
 const handleInstall = (item) => {
   installTargetItem.value = item
   selectedInstallerId.value = null
   selectedInstallTime.value = new Date()
-  installationFee.value = 0
+  installationFee.value = Number(item.installation_fee) || 0
   if (employees.value.length === 0) fetchEmployees()
   installDialogVisible.value = true
 }
@@ -1271,6 +1399,40 @@ const confirmInstall = async () => {
       fetchOrders()
     }
   } catch (error) { ElMessage.error(error.response?.data?.msg || '操作失败') }
+}
+
+const openInstallationFeeDialog = (item, order) => {
+  installationFeeTarget.value = {
+    itemId: item.id,
+    orderId: order.id,
+    orderNo: order.order_no,
+    productName: item.product?.name || '未知商品'
+  }
+  editingInstallationFee.value = Number(item.installation_fee) || 0
+  installationFeeDialogVisible.value = true
+}
+
+const confirmUpdateInstallationFee = async () => {
+  if (!installationFeeTarget.value || installationFeeSaving.value) return
+  installationFeeSaving.value = true
+  try {
+    const target = installationFeeTarget.value
+    const res = await request.put(`/api/order-items/${target.itemId}/installation-fee`, {
+      installation_fee: editingInstallationFee.value
+    })
+    if (res.data.code === 200) {
+      ElMessage.success(res.data.msg || '安装费已更新')
+      installationFeeDialogVisible.value = false
+      await fetchOrders()
+      if (detailOrder.value?.id === target.orderId) {
+        detailOrder.value = allOrders.value.find(order => order.id === target.orderId) || detailOrder.value
+      }
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '更新安装费失败')
+  } finally {
+    installationFeeSaving.value = false
+  }
 }
 
 

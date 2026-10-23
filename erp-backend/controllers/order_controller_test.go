@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"erp-backend/config"
 	"erp-backend/models"
 	"errors"
 	"fmt"
@@ -134,7 +135,7 @@ func TestApplyOrderFiltersPickupFulfillmentStatus(t *testing.T) {
 }
 
 func TestApplyOrderFiltersSubsidyAndOrderStatus(t *testing.T) {
-	sql := dryRunOrderFilterSQLWithParams(t, "", "2", "", "", "1")
+	sql := dryRunOrderFilterSQLWithParams(t, "", "2", "", "", "1", "")
 
 	for _, want := range []string{
 		"subsidy_status = ?",
@@ -142,6 +143,142 @@ func TestApplyOrderFiltersSubsidyAndOrderStatus(t *testing.T) {
 	} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("filter SQL missing %q:\n%s", want, sql)
+		}
+	}
+}
+
+func TestApplyOrderFiltersDeletedEmployeeFollowup(t *testing.T) {
+	sql := dryRunOrderFilterSQLWithParams(t, "", "", "", "", "1", "1")
+
+	for _, want := range []string{
+		"employee_id IN (SELECT id FROM employees WHERE deleted_at IS NOT NULL)",
+		"order_status = ?",
+		"payment_status = ?",
+		"subsidy_status IN (?, ?)",
+		"delivery_method <> ?",
+		"order_id FROM order_items WHERE is_delivered = ?",
+		"order_id FROM order_items WHERE is_delivered = ? AND is_installed = ?",
+		"is_delivered = ? AND is_installed = ?",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("deleted employee follow-up filter SQL missing %q:\n%s", want, sql)
+		}
+	}
+}
+
+func TestApplyOrderFiltersDoesNotLimitDeletedEmployeesByDefault(t *testing.T) {
+	sql := dryRunOrderFilterSQL(t, "张三")
+
+	if strings.Contains(sql, "deleted_at IS NOT NULL") {
+		t.Fatalf("default order query unexpectedly limits soft-deleted employees:\n%s", sql)
+	}
+}
+
+func TestApplyOrderFiltersDeletedEmployeeFollowupResults(t *testing.T) {
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	var deletedEmployee, activeEmployee models.Employee
+	var category models.Category
+	var product models.Product
+	var orderIDs []uint
+	t.Cleanup(func() {
+		if len(orderIDs) > 0 {
+			config.DB.Unscoped().Where("order_id IN ?", orderIDs).Delete(&models.OrderItem{})
+			config.DB.Unscoped().Where("id IN ?", orderIDs).Delete(&models.Order{})
+		}
+		if product.ID > 0 {
+			config.DB.Unscoped().Delete(&models.Product{}, product.ID)
+		}
+		if category.ID > 0 {
+			config.DB.Unscoped().Delete(&models.Category{}, category.ID)
+		}
+		if deletedEmployee.ID > 0 {
+			config.DB.Unscoped().Delete(&models.Employee{}, deletedEmployee.ID)
+		}
+		if activeEmployee.ID > 0 {
+			config.DB.Unscoped().Delete(&models.Employee{}, activeEmployee.ID)
+		}
+	})
+
+	deletedEmployee = models.Employee{Name: "筛选测试离职员工", EmpNo: "FILTER-DELETED-" + suffix, Role: "sales"}
+	if err := config.DB.Create(&deletedEmployee).Error; err != nil {
+		t.Fatalf("create deleted employee fixture: %v", err)
+	}
+	activeEmployee = models.Employee{Name: "筛选测试在职员工", EmpNo: "FILTER-ACTIVE-" + suffix, Role: "sales"}
+	if err := config.DB.Create(&activeEmployee).Error; err != nil {
+		t.Fatalf("create active employee fixture: %v", err)
+	}
+
+	category = models.Category{Name: "筛选测试分类-" + suffix}
+	if err := config.DB.Create(&category).Error; err != nil {
+		t.Fatalf("create category fixture: %v", err)
+	}
+	product = models.Product{Name: "筛选测试商品-" + suffix, CategoryID: category.ID}
+	if err := config.DB.Create(&product).Error; err != nil {
+		t.Fatalf("create product fixture: %v", err)
+	}
+
+	deletedEmployeeID := deletedEmployee.ID
+	activeEmployeeID := activeEmployee.ID
+	createOrder := func(employeeID *uint, orderStatus, paymentStatus, subsidyStatus, deliveryMethod int, label string) models.Order {
+		order := models.Order{
+			OrderNo:         "FILTER-" + suffix + "-" + label,
+			EmployeeID:      employeeID,
+			OrderStatus:     orderStatus,
+			PaymentStatus:   paymentStatus,
+			SubsidyStatus:   subsidyStatus,
+			DeliveryMethod:  deliveryMethod,
+			TotalAmount:     100,
+			ActualPayAmount: 100,
+		}
+		if err := config.DB.Create(&order).Error; err != nil {
+			t.Fatalf("create order fixture %q: %v", label, err)
+		}
+		orderIDs = append(orderIDs, order.ID)
+		return order
+	}
+	createItem := func(order models.Order, delivered, installed bool) {
+		item := models.OrderItem{OrderID: order.ID, ProductID: product.ID, UnitPrice: 100, UnitCost: 50, Quantity: 1, IsDelivered: delivered, IsInstalled: installed}
+		if err := config.DB.Create(&item).Error; err != nil {
+			t.Fatalf("create order item fixture for %q: %v", order.OrderNo, err)
+		}
+	}
+
+	if err := config.DB.Delete(&deletedEmployee).Error; err != nil {
+		t.Fatalf("soft-delete employee fixture: %v", err)
+	}
+	createOrder(&deletedEmployeeID, 1, 1, 0, 1, "deposit")
+	createOrder(&deletedEmployeeID, 1, 2, 2, 1, "subsidy")
+	deliveryOrder := createOrder(&deletedEmployeeID, 1, 2, 0, 2, "delivery")
+	createItem(deliveryOrder, false, false)
+	installOrder := createOrder(&deletedEmployeeID, 1, 2, 0, 4, "install")
+	createItem(installOrder, true, false)
+	completePickup := createOrder(&deletedEmployeeID, 1, 2, 0, 1, "complete")
+	createItem(completePickup, true, true)
+	createOrder(&activeEmployeeID, 1, 1, 0, 1, "active-employee")
+	createOrder(&deletedEmployeeID, 2, 1, 0, 1, "cancelled")
+	createOrder(nil, 1, 1, 0, 1, "missing-employee")
+
+	var got []models.Order
+	query := applyOrderFilters(config.DB.Model(&models.Order{}), "", "", "", "", "", "", "", "", "1")
+	if err := query.Find(&got).Error; err != nil {
+		t.Fatalf("query deleted employee follow-up orders: %v", err)
+	}
+	gotOrderNos := make(map[string]bool, len(got))
+	for _, order := range got {
+		gotOrderNos[order.OrderNo] = true
+	}
+	wantOrderNos := []string{
+		"FILTER-" + suffix + "-deposit",
+		"FILTER-" + suffix + "-subsidy",
+		"FILTER-" + suffix + "-delivery",
+		"FILTER-" + suffix + "-install",
+	}
+	if len(gotOrderNos) != len(wantOrderNos) {
+		t.Fatalf("got %d follow-up orders, want %d: %v", len(gotOrderNos), len(wantOrderNos), gotOrderNos)
+	}
+	for _, orderNo := range wantOrderNos {
+		if !gotOrderNos[orderNo] {
+			t.Errorf("follow-up filter omitted %q; got %v", orderNo, gotOrderNos)
 		}
 	}
 }
@@ -212,14 +349,14 @@ func TestOrderDeliveryToWarehouse(t *testing.T) {
 }
 
 func dryRunOrderFilterSQL(t *testing.T, keyword string) string {
-	return dryRunOrderFilterSQLWithParams(t, keyword, "", "", "", "")
+	return dryRunOrderFilterSQLWithParams(t, keyword, "", "", "", "", "")
 }
 
 func dryRunOrderFilterSQLWithStatus(t *testing.T, paymentStatus, fulfillmentStatus, orderStatus string) string {
-	return dryRunOrderFilterSQLWithParams(t, "", "", paymentStatus, fulfillmentStatus, orderStatus)
+	return dryRunOrderFilterSQLWithParams(t, "", "", paymentStatus, fulfillmentStatus, orderStatus, "")
 }
 
-func dryRunOrderFilterSQLWithParams(t *testing.T, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus string) string {
+func dryRunOrderFilterSQLWithParams(t *testing.T, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, deletedEmployeeFollowup string) string {
 	t.Helper()
 
 	db, err := gorm.Open(mysql.New(mysql.Config{
@@ -230,7 +367,7 @@ func dryRunOrderFilterSQLWithParams(t *testing.T, keyword, subsidyStatus, paymen
 		t.Fatalf("open dry-run db: %v", err)
 	}
 
-	query := applyOrderFilters(db.Model(&models.Order{}), keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, "", "", "")
+	query := applyOrderFilters(db.Model(&models.Order{}), keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, "", "", "", deletedEmployeeFollowup)
 	tx := query.Find(&[]models.Order{})
 	if tx.Error != nil {
 		t.Fatalf("build dry-run query: %v", tx.Error)

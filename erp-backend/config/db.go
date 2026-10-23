@@ -54,6 +54,9 @@ func InitDB() {
 	err = db.AutoMigrate(
 		&models.Account{},
 		&models.Employee{},
+		&models.EmployeeOffboarding{},
+		&models.EmployeeHandoverTask{},
+		&models.EmployeeOffboardingAlert{},
 		&models.MonthlyAttendance{},
 		&models.OrderDailyCounter{},
 		&models.Product{},
@@ -62,6 +65,9 @@ func InitDB() {
 		&models.Expense{},
 		&models.InboundRecord{},
 		&models.PendingInbound{},
+		&models.PendingStocktake{},
+		&models.StocktakeBatch{},
+		&models.StocktakeBatchItem{},
 		&models.StocktakeRecord{},
 		&models.TransferRecord{},
 		&models.InventoryLog{},
@@ -71,6 +77,7 @@ func InitDB() {
 		&models.AIProviderConfig{},
 		&models.AIAgentSession{},
 		&models.AIAgentMessage{},
+		&models.AIAgentAttachment{},
 		&models.AIAgentAction{},
 		&models.AIAgentMemory{},
 		&models.AIAgentMemoryState{},
@@ -84,14 +91,30 @@ func InitDB() {
 		&models.AgentWorkTask{},
 		&models.AgentWorkTaskStep{},
 		&models.AgentToolCallAudit{},
+		&models.AgentPlannerCall{},
+		&models.AgentSchedule{},
+		&models.AgentScheduleRun{},
 		&models.AgentReplenishmentDraft{},
 		&models.AgentActivity{},
 		&models.AdminUser{},
 		&models.DailyAttendance{},
 		&models.SubsidySettlement{},
+		&models.OperationHistory{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to auto migrate database: %v", err)
+	}
+	// Retire per-product cloud-fulfillment settings for existing products.
+	if err := db.Unscoped().Model(&models.Product{}).Where("support_cloud = ?", false).UpdateColumn("support_cloud", true).Error; err != nil {
+		log.Fatalf("Failed to enable cloud fulfillment for all products: %v", err)
+	}
+	// This legacy data migration rewrites every existing product's main stock.
+	// Keep it opt-in so deploying Agent Runtime changes cannot silently mutate
+	// business inventory. Run it only after a separate data review and backup.
+	if os.Getenv("ERP_MIGRATE_UNIFIED_CLOUD_INVENTORY") == "1" {
+		if err := migrateUnifiedInventory(db); err != nil {
+			log.Fatalf("Failed to migrate unified inventory: %v", err)
+		}
 	}
 
 	fmt.Println("Database migration completed")
@@ -99,6 +122,40 @@ func InitDB() {
 
 	// 初始化基础账户数据 (Seed)
 	seedAccounts(db)
+}
+
+// migrateUnifiedInventory removes the old, manually adjusted main warehouse balance
+// and enables cloud fulfillment for existing products. Historical inventory logs
+// and orders remain available for audit and refunds.
+func migrateUnifiedInventory(db *gorm.DB) error {
+	if err := db.Exec(`CREATE TABLE IF NOT EXISTS app_migrations (
+		version VARCHAR(100) PRIMARY KEY,
+		applied_at DATETIME NOT NULL
+	)`).Error; err != nil {
+		return err
+	}
+
+	const version = "20261011_unified_cloud_inventory"
+	return db.Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Table("app_migrations").Where("version = ?", version).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			return nil
+		}
+
+		if err := tx.Unscoped().Model(&models.Product{}).Where("id > ?", 0).Updates(map[string]interface{}{
+			"main_stock":    0,
+			"support_cloud": true,
+		}).Error; err != nil {
+			return err
+		}
+		return tx.Table("app_migrations").Create(map[string]interface{}{
+			"version":    version,
+			"applied_at": time.Now(),
+		}).Error
+	})
 }
 
 // seedAccounts 初始化基础资金账户（幂等，重复执行不会重复插入）

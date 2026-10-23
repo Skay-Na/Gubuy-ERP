@@ -1687,8 +1687,8 @@ func TestAudit_ReversalCancelOrder(t *testing.T) {
 	}
 	var p models.Product
 	config.DB.First(&p, productID)
-	if p.MainStock != 100 {
-		t.Fatalf("红冲后 main_stock 应为 100，实际 %d", p.MainStock)
+	if p.MainStock != 99 || p.CloudStock != 1 {
+		t.Fatalf("历史主仓订单红冲应将库存归入云仓，main=%d cloud=%d", p.MainStock, p.CloudStock)
 	}
 }
 

@@ -11,11 +11,12 @@ import (
 
 // MonthlyStatsResponse 月度统计响应
 type MonthlyStatsResponse struct {
-	Month       string  `json:"month"`
-	Revenue     float64 `json:"revenue"`
-	GrossProfit float64 `json:"gross_profit"`
-	OrderCount  int64   `json:"order_count"`
-	Expense     float64 `json:"expense"`
+	Month                  string  `json:"month"`
+	Revenue                float64 `json:"revenue"`
+	GrossProfit            float64 `json:"gross_profit"`
+	UncostedOrderItemCount int64   `json:"uncosted_order_item_count"`
+	OrderCount             int64   `json:"order_count"`
+	Expense                float64 `json:"expense"`
 }
 
 // GetMonthlyStats 获取指定月份聚合报表
@@ -62,6 +63,10 @@ func GetMonthlyStats(c *gin.Context) {
 		Where("orders.order_status = 1 AND orders.created_at >= ? AND orders.created_at <= ?", startTime, endTime).
 		Select("COALESCE(SUM(order_items.quantity * order_items.unit_cost), 0)").
 		Row().Scan(&totalItemCost)
+	config.DB.Table("order_items").
+		Joins("JOIN orders ON order_items.order_id = orders.id").
+		Where("orders.order_status = 1 AND orders.created_at >= ? AND orders.created_at <= ? AND order_items.unit_cost <= 0", startTime, endTime).
+		Count(&stats.UncostedOrderItemCount)
 
 	var totalFees float64
 	config.DB.Model(&models.Order{}).

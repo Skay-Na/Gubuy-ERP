@@ -41,7 +41,10 @@ func TestRetailReadService_ValidatesQueries(t *testing.T) {
 }
 
 func TestRetailReadService_IsolatedMySQLReplenishmentContext(t *testing.T) {
-	dsn := os.Getenv("ERP_AGENT_NATIVE_TEST_DSN")
+	dsn := os.Getenv("ERP_RETAIL_READ_TEST_DSN")
+	if dsn == "" {
+		dsn = os.Getenv("ERP_AGENT_NATIVE_TEST_DSN")
+	}
 	if dsn == "" {
 		t.Skip("set ERP_AGENT_NATIVE_TEST_DSN to an isolated test database")
 	}
@@ -69,7 +72,21 @@ func TestRetailReadService_IsolatedMySQLReplenishmentContext(t *testing.T) {
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}
+	previousOrder := models.Order{OrderNo: fmt.Sprintf("read-prev-test-%d", now.UnixNano()), OrderStatus: 1, CreatedAt: now.Add(-30 * time.Hour)}
+	if err := db.Create(&previousOrder).Error; err != nil {
+		t.Fatal(err)
+	}
+	previousItem := models.OrderItem{OrderID: previousOrder.ID, ProductID: product.ID, UnitPrice: 30, Quantity: 10}
+	if err := db.Create(&previousItem).Error; err != nil {
+		t.Fatal(err)
+	}
 	defer func() {
+		if err := db.Delete(&previousItem).Error; err != nil {
+			t.Error(err)
+		}
+		if err := db.Delete(&previousOrder).Error; err != nil {
+			t.Error(err)
+		}
 		if err := db.Delete(&item).Error; err != nil {
 			t.Error(err)
 		}
@@ -90,13 +107,29 @@ func TestRetailReadService_IsolatedMySQLReplenishmentContext(t *testing.T) {
 	for _, row := range rows {
 		if row.ProductID == product.ID {
 			found = true
-			if row.Available != 9 || row.Sales != 7 {
-				t.Fatalf("replenishment context = %+v, want available=9 sales=7", row)
+			if row.Available != 7 || row.Sales != 7 {
+				t.Fatalf("replenishment context = %+v, want available=7 sales=7 (main stock is retired)", row)
 			}
 		}
 	}
 	if !found {
 		t.Fatalf("product %d not found in replenishment context", product.ID)
+	}
+	trends, err := service.GetProductSalesTrend(context.Background(), now.Add(-24*time.Hour), now, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, trend := range trends {
+		if trend.ProductID == product.ID {
+			found = true
+			if trend.CurrentUnits != 7 || trend.PreviousUnits != 10 || trend.DeltaUnits != -3 || trend.ChangePercent == nil || *trend.ChangePercent != -30 {
+				t.Fatalf("sales trend = %+v, want 7 current, 10 previous, -3 units, -30%%", trend)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("product %d not found in sales trend", product.ID)
 	}
 	products, err := service.SearchProductInventory(context.Background(), product.Name, 10)
 	if err != nil || len(products) != 1 || products[0].ID != product.ID {

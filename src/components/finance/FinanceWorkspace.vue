@@ -32,8 +32,10 @@ const formatCurrency = (value) => `¥${Number(value || 0).toLocaleString('zh-CN'
       </article>
       <article class="hero-metric profit">
         <div class="hero-label"><el-icon><Money /></el-icon> {{ periodLabel }}经营净利润</div>
-        <strong :class="summary.net_profit >= 0 ? 'positive' : 'negative'">{{ summary.net_profit >= 0 ? '+' : '' }}{{ formatCurrency(summary.net_profit) }}</strong>
-        <span>毛利 {{ formatCurrency(summary.gross_profit) }} · 经营费用 {{ formatCurrency(summary.operating_expense) }}</span>
+        <strong v-if="!summary.cost_incomplete" :class="summary.net_profit >= 0 ? 'positive' : 'negative'">{{ summary.net_profit >= 0 ? '+' : '' }}{{ formatCurrency(summary.net_profit) }}</strong>
+        <strong v-else class="negative">待核算</strong>
+        <span v-if="summary.cost_incomplete">{{ summary.uncosted_order_item_count || 0 }} 条订单明细成本待核，暂不展示毛利</span>
+        <span v-else>毛利 {{ formatCurrency(summary.gross_profit) }} · 经营费用 {{ formatCurrency(summary.operating_expense) }}</span>
       </article>
       <article class="hero-metric attention">
         <div class="hero-label"><el-icon><WarningFilled /></el-icon> 待处理事项</div>

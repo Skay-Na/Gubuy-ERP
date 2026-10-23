@@ -30,6 +30,8 @@ FROM alpine:latest
 
 # 安装必要库、mysql 客户端及时间数据，并创建非特权用户
 RUN apk --no-cache add ca-certificates mariadb-client tzdata && \
+    (command -v mariadb-dump >/dev/null 2>&1 || command -v mysqldump >/dev/null 2>&1) && \
+    (command -v mariadb >/dev/null 2>&1 || command -v mysql >/dev/null 2>&1) && \
     adduser -D -g '' appuser
 
 WORKDIR /home/appuser

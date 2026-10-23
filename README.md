@@ -12,12 +12,29 @@
 
 ## 本地开发
 
+安装前端依赖，并准备好根目录 `.env`（`JWT_SECRET` 至少 32 字节）。macOS 首次使用还需安装数据库客户端：
+
+```bash
+npm install
+brew install mariadb
+./dev.sh start
+./dev.sh status
+./dev.sh stop
+./dev.sh restart
+```
+
+`./dev.sh`（等同于 `./dev.sh start`）与 `npm run dev:stack` 是同一启动入口：Docker 只运行本机 MySQL（默认 `127.0.0.1:3307`），Go/Air 在本机 `8081` 运行，Vite 在 `5173` 运行并代理 API 到 `8081`。Vue 和 Go 修改均会自动重载。脚本会检查 SQL 客户端，停止本地打包版 app，避免多个后端同时执行后台任务。
+
+`start` 会先检查依赖和端口；macOS 上 Docker Desktop 未运行时会自动打开并等待引擎就绪，然后启动 MySQL、Go/Air 和 Vite。Docker Desktop 需预先安装。等待 Docker 的默认上限为 180 秒（`DEV_DOCKER_STARTUP_TIMEOUT`），整体启动默认上限为 600 秒（`DEV_TOTAL_STARTUP_TIMEOUT`）。`status` 会检查 Docker 引擎、开发进程、Go API、Vite、API 代理和 MySQL。`stop` 停止 Go/Air 与 Vite，MySQL 容器及数据卷保留；`restart` 仅重启 Go/Air 与 Vite。日志保存在 `logs/dev-stack/dev.log`。需要前台运行时使用 `./dev.sh foreground`，按 Ctrl+C 停止。可在 `.env` 设置 `DEV_API_PORT`、`DEV_VITE_PORT`；设置 `DEV_OPEN_BROWSER=0` 可禁止启动时自动打开浏览器。
+
 ### 前端
 
 ```bash
 npm install
 npm run dev
 ```
+
+单独运行前端时，默认代理到本机 Go API `8081`，需另行启动后端；`8080` 是 Docker 打包版 app 的端口。
 
 ### 后端
 
@@ -32,6 +49,8 @@ npm run dev
 - `AI_API_KEY`、`AI_MODEL`：启用图片识别时配置。模型需支持图片输入和 JSON 输出。
 - `AI_API_URL`：可选的兼容 Chat Completions 接口地址。
 - `AI_CONFIG_SECRET`：可选，至少 24 位，用于加密系统设置里保存的服务商 API Key；未配置时使用安全的 `JWT_SECRET`。恢复数据库备份时需保留相同的加密密钥。
+
+系统设置里的 SQL 备份和恢复还需要在后端运行环境安装 MariaDB 或 MySQL 客户端命令（`mariadb-dump`/`mysqldump` 与 `mariadb`/`mysql`）。Docker 镜像会安装并检查这些命令；本地直接运行 Go 后端时需自行安装客户端。
 
 ## Docker 部署
 
@@ -53,9 +72,8 @@ docker compose up -d --build
 - 系统设置可分别保存 DeepSeek、MiniMax、小米 MiMo、千问的密钥与图片模型，并选择当前服务商。未启用服务商时沿用 `AI_API_KEY`、`AI_MODEL` 与 `AI_API_URL` 环境变量。密钥在后端加密存储，设置接口不会回传原文。
 - 用 `scripts/update_router.sh` 更新旧软路由部署时，如果现有容器没有安全的加密密钥，脚本会在远端 `/mnt/opt/docker/install/.erp-ai-config-secret` 生成并持久保存一个独立密钥，通过 `.erp-ai-config-secret.compose.yml` 注入 app 容器。备份或迁移数据库时须一并保留这两个文件；以后手动重建 app 时使用 `docker compose -f docker-compose.yml -f .erp-ai-config-secret.compose.yml up -d app`。已有安全密钥的容器继续使用原密钥。
 - 软路由上的 app 容器若需要独立 DNS，可在同一目录放置 `.erp-app-dns.compose.yml`；更新脚本会自动带上它。手动重建时也须追加 `-f .erp-app-dns.compose.yml`。
-- 管理后台右下角的 ERP Agent 支持多轮对话，按权限读取客户订单、员工身份与订单业绩、月度提成、未收尾款、库存和利润，并可按模块提供系统操作指引；每次任务最多执行三个只读查询步骤。员工提成沿用员工管理的月度报表规则。订单、支出由 Agent 生成可编辑草稿，管理员确认后才保存，草稿 24 小时过期且只能提交一次。
-- Agent 打开时展示低库存、未收尾款和待处理国补数量；拍照订单及支出截图可从对话框快捷入口进入原有图片导入预览流程。Agent 会话与草稿存于数据库，页面刷新后可恢复。当前 Agent 仅向管理员开放。
-- AI 店长工作台位于 `/admin/ai-manager`。设置 `AGENT_RUNTIME_ENABLED=1` 会启动统一持久任务 Worker，扫描和任务执行从数据库恢复；该开关优先于旧 `AGENT_MONITOR_ENABLED`，避免两个扫描 Worker 并行。当前每日扫描仍使用 24 小时间隔，周期配置的持久化管理尚未实现。草案不会提交采购订单、联系供应商或支付货款；阶段状态与迁移限制见 `AGENT-RUNTIME-UNIFICATION-REPORT.md`。
+- AI 店长工作台位于 `/admin/ai-manager`，聊天入口嵌入工作台，不再显示全局悬浮球。Agent 支持多轮对话，按权限读取客户订单、员工身份与订单业绩、月度提成、未收尾款、库存和利润，并可按模块提供系统操作指引；员工提成沿用员工管理的月度报表规则。订单、支出由 Agent 生成可编辑草稿，管理员确认后才保存，草稿 24 小时过期且只能提交一次。当前 Agent 仅向管理员开放。
+- AI 店长和仪表盘不再展示低库存/潜在缺货提醒，也不运行库存扫描或补货建议；库存数量查询和开单时的库存校验继续保留。旧监测/计划表和历史记录保留，不自动清理或执行。设置 `AGENT_RUNTIME_ENABLED=1` 仅启动持久任务 Worker，不启动库存监测或长期库存检查计划。
 - 演示商品默认不自动写入空数据库。仅在隔离演示环境设置 `ERP_SEED_DEMO_DATA=1` 时启用演示商品初始化。
 
 ## R3S / Docker 升级建议

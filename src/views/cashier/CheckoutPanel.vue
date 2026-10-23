@@ -29,7 +29,7 @@
           </div>
           
           <div class="flex justify-between items-center mt-2">
-            <div class="text-xs text-slate-600">数量 (店:{{ item.store_stock }} | 仓:{{ item.main_stock }})</div>
+            <div class="text-xs text-slate-600">实物库存 (门店:{{ item.store_stock == null ? '盘点中' : item.store_stock }} | 云仓:{{ item.cloud_stock == null ? '盘点中' : item.cloud_stock || 0 }})</div>
             <el-input-number v-model="item.quantity" :min="1" size="small" class="!w-32 pos-input-number" />
           </div>
           
@@ -202,7 +202,7 @@
           <div class="bg-white p-3 rounded-xl border border-slate-100 shadow-sm space-y-4">
             <div>
               <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">发货/提货方式</div>
-              <div class="grid grid-cols-3 gap-2">
+              <div class="grid grid-cols-2 gap-2">
                 <div 
                   class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
                   :class="deliveryMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
@@ -213,19 +213,12 @@
                 </div>
                 <div 
                   class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                  :class="deliveryMethod === 2 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                  @click="deliveryMethod = 2"
-                >
-                  <el-icon size="20" class="mb-1"><Box /></el-icon>
-                  <span class="text-xs font-bold">主仓发货</span>
-                </div>
-                <div 
-                  class="flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                  :class="deliveryMethod === 3 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                  @click="deliveryMethod = 3"
+                  :class="deliveryMethod === 4 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                  @click="deliveryMethod = 4"
                 >
                   <el-icon size="20" class="mb-1"><Cloudy /></el-icon>
-                  <span class="text-xs font-bold">云仓代发</span>
+                  <span class="text-xs font-bold">云仓发货</span>
+                  <span class="mt-0.5 text-[9px] opacity-70">实物优先，不限量代发</span>
                 </div>
               </div>
             </div>
@@ -373,7 +366,7 @@
             </div>
             
             <div class="flex justify-between items-center mt-2">
-              <div class="text-xs text-slate-600">数量 (店:{{ item.store_stock }} | 仓:{{ item.main_stock }})</div>
+              <div class="text-xs text-slate-600">实物库存 (门店:{{ item.store_stock == null ? '盘点中' : item.store_stock }} | 云仓:{{ item.cloud_stock == null ? '盘点中' : item.cloud_stock || 0 }})</div>
               <el-input-number v-model="item.quantity" :min="1" size="small" class="!w-28 pos-input-number" />
             </div>
             
@@ -425,7 +418,7 @@
         <!-- 发货方式 -->
         <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm space-y-3">
           <div class="text-xs text-slate-400 uppercase font-bold tracking-wider">发货/提货方式</div>
-          <div class="grid grid-cols-3 gap-2">
+          <div class="grid grid-cols-2 gap-2">
             <div class="flex flex-col items-center justify-center py-3 rounded-xl border-2 transition-all cursor-pointer"
                  :class="deliveryMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-500'"
                  @click="deliveryMethod = 1">
@@ -433,16 +426,11 @@
               <span class="text-[11px] font-bold">门店自提</span>
             </div>
             <div class="flex flex-col items-center justify-center py-3 rounded-xl border-2 transition-all cursor-pointer"
-                 :class="deliveryMethod === 2 ? 'border-blue-500 bg-blue-50/30 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-500'"
-                 @click="deliveryMethod = 2">
-              <el-icon size="20" class="mb-1"><Box /></el-icon>
-              <span class="text-[11px] font-bold">主仓发货</span>
-            </div>
-            <div class="flex flex-col items-center justify-center py-3 rounded-xl border-2 transition-all cursor-pointer"
-                 :class="deliveryMethod === 3 ? 'border-blue-500 bg-blue-50/30 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-500'"
-                 @click="deliveryMethod = 3">
+                 :class="deliveryMethod === 4 ? 'border-blue-500 bg-blue-50/30 text-blue-600' : 'border-slate-100 bg-slate-50 text-slate-500'"
+                 @click="deliveryMethod = 4">
               <el-icon size="20" class="mb-1"><Cloudy /></el-icon>
-              <span class="text-[11px] font-bold">云仓代发</span>
+              <span class="text-[11px] font-bold">云仓发货</span>
+              <span class="mt-0.5 text-[9px] opacity-70">实物优先，不限量代发</span>
             </div>
           </div>
         </div>
@@ -612,7 +600,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { Delete, Promotion, Wallet, User, Warning, Files, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Refresh, Document, Star , Close, Setting, Money } from '@element-plus/icons-vue'
+import { Delete, Promotion, Wallet, User, Warning, Files, Shop, Cloudy, CreditCard, OfficeBuilding, Refresh, Document, Star , Close, Setting, Money } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../../utils/request'
 import { buildReceiptFromCheckout } from '../../utils/receipt'
@@ -661,7 +649,7 @@ const referralFee = ref(0)
 const orderType = ref(1)
 const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
-const deliveryMethod = ref(2) // 1-门店自提, 2-主仓发货, 3-云仓代发
+const deliveryMethod = ref(4) // 1-门店自提, 4-优先从云仓发货
 const wipeZeroAmount = ref(0) // 手动抹零金额
 
 const originalTotal = computed(() => {
@@ -719,10 +707,7 @@ const hasPriceViolation = computed(() => {
 })
 
 const getStockWarning = (item) => {
-  if (deliveryMethod.value === 1 && item.quantity > item.store_stock) return `门店库存不足 (仅剩 ${item.store_stock})`
-  if (deliveryMethod.value === 2 && item.quantity > item.main_stock) return `主仓库存不足 (仅剩 ${item.main_stock})`
-  if (deliveryMethod.value === 3 && !item.support_cloud) return `该商品不支持云仓代发`
-  if (deliveryMethod.value === 3 && item.quantity > item.cloud_stock) return `云仓代发库存不足 (仅剩 ${item.cloud_stock})`
+  if (deliveryMethod.value === 1 && item.store_stock != null && item.quantity > item.store_stock) return `门店库存不足 (仅剩 ${item.store_stock})`
   return ''
 }
 
@@ -932,7 +917,7 @@ const handleCheckout = async () => {
       orderType.value = 1
       paymentMethod.value = 1
       mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
-      deliveryMethod.value = 2
+      deliveryMethod.value = 4
       
       emit('checkout-success', receipt)
     } else {

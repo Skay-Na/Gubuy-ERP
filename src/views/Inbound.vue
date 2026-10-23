@@ -45,7 +45,7 @@
           <div class="mt-2 max-h-[55vh] space-y-1 overflow-y-auto">
             <button v-for="row in mobileStockRows" :key="row.id" class="mobile-stock-row" @click="preFillForm(row); mobileManualEntryOpen = true">
               <span class="min-w-0 text-left"><b class="block break-all text-sm leading-5 text-slate-800">{{ row.name }}</b><small>{{ row.remark || '无备注' }}</small></span>
-              <span class="flex shrink-0 gap-1 text-[10px]"><i>主 {{ row.main_stock }}</i><i>店 {{ row.store_stock }}</i><i>云 {{ row.cloud_stock || 0 }}</i></span>
+              <span class="flex shrink-0 gap-1 text-[10px]"><i>店 {{ row.store_stock }}</i><i>云 {{ row.cloud_stock || 0 }}</i></span>
             </button>
             <el-empty v-if="!mobileStockRows.length" description="没有匹配的商品" :image-size="62" />
           </div>
@@ -106,10 +106,9 @@
               </div>
 
               <el-form-item label="入库仓库" prop="warehouse_type">
-                <div class="grid grid-cols-3 gap-3 w-full">
+                <div class="grid grid-cols-2 gap-3 w-full">
                   <div
                     v-for="item in [
-                      { label: '主仓', value: 1, icon: 'OfficeBuilding' },
                       { label: '门店', value: 2, icon: 'Shop' },
                       { label: '云仓', value: 3, icon: 'Cloudy' }
                     ]"
@@ -128,26 +127,17 @@
                 </div>
               </el-form-item>
 
-              <el-form-item label="结算方式" prop="settlement_type">
-                <el-radio-group v-model="form.settlement_type">
-                  <el-radio value="cash_purchase">现款采购</el-radio>
-                  <el-radio value="sale_settlement">卖后结算</el-radio>
-                </el-radio-group>
-              </el-form-item>
-
-
-              <el-form-item v-if="form.settlement_type === 'cash_purchase'" label="付款账户" prop="account_id">
-                <el-select v-model="form.account_id" placeholder="选择付款账户" class="w-full">
-                  <el-option v-for="acc in accounts" :key="acc.id" :label="acc.name" :value="acc.id" />
-                </el-select>
+              <el-form-item label="成本规则">
+                <div class="w-full rounded-xl border border-blue-100 bg-blue-50/60 p-3 text-sm text-blue-800">
+                  入库只记录库存和成本，不扣资金账户；商品售出后按订单成本快照计算利润。
+                </div>
               </el-form-item>
 
               <div class="mt-8 p-4 bg-blue-50/50 rounded-2xl border border-blue-100 mb-6">
                 <div class="flex justify-between items-center">
-                  <span class="text-sm text-blue-700 font-medium">{{ form.settlement_type === 'sale_settlement' ? '销售后计入成本:' : '预计总支出:' }}</span>
+                  <span class="text-sm text-blue-700 font-medium">本批库存成本</span>
                   <span class="text-xl font-bold text-blue-700">¥ {{ totalCost.toFixed(2) }}</span>
                 </div>
-				<p v-if="form.settlement_type === 'sale_settlement'" class="mt-2 text-xs text-amber-700">本次只增加库存，不扣资金账户；商品卖出后才计入成本。</p>
               </div>
 
               <el-button
@@ -197,9 +187,6 @@
                 <template #default="scope">
                   <div class="flex flex-col gap-1 text-[10px]">
                     <div class="flex justify-between border-b border-slate-50">
-                      <span>主:</span> <span class="font-bold">{{ scope.row.main_stock }}</span>
-                    </div>
-                    <div class="flex justify-between border-b border-slate-50">
                       <span>店:</span> <span class="font-bold">{{ scope.row.store_stock }}</span>
                     </div>
                   </div>
@@ -223,7 +210,7 @@
                 <div class="flex-1 min-w-0 mr-4">
                   <div class="font-bold text-slate-800 text-sm truncate">{{ row.name }}</div>
                   <div class="text-[10px] text-slate-400 mt-1">
-                    备注: {{ row.remark || '-' }} | 主:{{ row.main_stock }} 店:{{ row.store_stock }}
+                    备注: {{ row.remark || '-' }} | 店:{{ row.store_stock }} 云:{{ row.cloud_stock || 0 }}
                   </div>
                 </div>
                 <el-button type="primary" plain size="small" @click="preFillForm(row)" class="!rounded-lg">填入</el-button>
@@ -234,7 +221,7 @@
            
               <el-tab-pane :label="`待审核入库${pendingInbounds.length ? `（${pendingInbounds.length}）` : ''}`" name="pending">
                 <div v-if="pendingInbounds.length" class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-800">
-                  有 {{ pendingInbounds.length }} 条员工入库申请等待你填写成本和付款账户。
+                  有 {{ pendingInbounds.length }} 条员工入库申请等待你确认成本；通过后只更新库存，不扣资金账户。
                 </div>
                 <el-empty v-if="!pendingInbounds.length" description="暂无待审核入库申请" :image-size="80" />
                 <el-table v-else :data="pendingInbounds" stripe style="width: 100%" header-cell-class-name="bg-slate-50 text-slate-600 font-bold">
@@ -270,11 +257,7 @@
           <el-form-item label="入库单价" prop="unit_cost">
             <el-input-number v-model="approveForm.unit_cost" :min="0" :precision="2" class="!w-full" controls-position="right" />
           </el-form-item>
-          <el-form-item label="付款账户" prop="account_id">
-            <el-select v-model="approveForm.account_id" class="w-full" placeholder="请选择付款账户">
-              <el-option v-for="acc in accounts" :key="acc.id" :label="acc.name" :value="acc.id" />
-            </el-select>
-          </el-form-item>
+          <el-alert title="这里只登记库存成本，不会扣除任何资金账户。商品售出后，订单成本快照用于利润核算。" type="info" :closable="false" show-icon />
         </el-form>
         <template #footer>
           <div class="dialog-footer">
@@ -289,12 +272,11 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { Download, Search, OfficeBuilding, Shop, Cloudy } from '@element-plus/icons-vue'
+import { Download, Search, Shop, Cloudy } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 
 const allProducts = ref([])
-const accounts = ref([])
 const searchKeyword = ref('')
 const submitting = ref(false)
 const formRef = ref(null)
@@ -310,23 +292,17 @@ const approveFormRef = ref(null)
 const currentPendingRow = ref(null)
 const approveSubmitting = ref(false)
 
-const approveForm = ref({
-  unit_cost: 0,
-  account_id: null
-})
+const approveForm = ref({ unit_cost: 0 })
 
 const approveRules = {
-  unit_cost: [{ required: true, message: '请输入入库单价', trigger: 'blur' }],
-  account_id: [{ required: true, message: '请选择付款账户', trigger: 'change' }]
+  unit_cost: [{ required: true, message: '请输入入库单价', trigger: 'blur' }]
 }
 
 const form = ref({
   product_id: null,
   quantity: 1,
   unit_cost: undefined,
-  warehouse_type: 1,
-  settlement_type: 'sale_settlement',
-  account_id: null
+  warehouse_type: 3
 })
 
 const rules = {
@@ -367,37 +343,18 @@ const fetchProducts = async () => {
   }
 }
 
-const fetchAccounts = async () => {
-  try {
-    const response = await request.get('/api/accounts')
-    if (response.data.code === 200) {
-      accounts.value = response.data.data
-    }
-  } catch (error) {
-    console.error('Fetch accounts error:', error)
-  }
-}
-
 const submitInbound = async () => {
   if (!formRef.value) return
 
   await formRef.value.validate(async (valid) => {
     if (valid) {
-		if (form.value.settlement_type === 'cash_purchase' && !form.value.account_id) {
-			ElMessage.error('现款采购请选择付款账户')
-			return
-		}
-
       submitting.value = true
       try {
         const response = await request.post('/api/inbounds', {
           product_id: form.value.product_id,
           quantity: form.value.quantity,
           unit_cost: form.value.unit_cost,
-          warehouse_type: form.value.warehouse_type,
-          settlement_type: form.value.settlement_type,
-
-          account_id: form.value.settlement_type === 'cash_purchase' ? form.value.account_id : null
+          warehouse_type: form.value.warehouse_type
         })
      
         if (response.data.code === 200) {
@@ -422,9 +379,7 @@ const resetForm = () => {
     product_id: null,
     quantity: 1,
     unit_cost: undefined,
-    warehouse_type: 1,
-    settlement_type: 'sale_settlement',
-    account_id: null
+    warehouse_type: 3
   }
   if (formRef.value) formRef.value.resetFields()
 }
@@ -453,7 +408,6 @@ const fetchPendingInbounds = async () => {
 const openApproveDialog = (row) => {
   currentPendingRow.value = row
   approveForm.value.unit_cost = row.product?.latest_cost || 0
-  approveForm.value.account_id = null
   approveDialogVisible.value = true
 }
 
@@ -464,8 +418,7 @@ const submitApprove = async () => {
       approveSubmitting.value = true
       try {
         const response = await request.post(`/api/pending-inbounds/${currentPendingRow.value.id}/approve`, {
-          unit_cost: approveForm.value.unit_cost,
-          account_id: approveForm.value.account_id
+          unit_cost: approveForm.value.unit_cost
         })
         if (response.data.code === 200) {
           ElMessage.success('申请已通过并入库')
@@ -486,8 +439,16 @@ const submitApprove = async () => {
 
 const rejectPending = async (row) => {
   try {
-    await ElMessageBox.confirm('确定要拒绝该申请吗？', '提示', { type: 'warning' })
-    const response = await request.post(`/api/pending-inbounds/${row.id}/reject`)
+    const { value: reason } = await ElMessageBox.prompt('请填写拒绝原因，员工可在库管页查看。', '拒绝入库申请', {
+      confirmButtonText: '确认拒绝',
+      cancelButtonText: '取消',
+      inputPlaceholder: '例如：当前库存充足，请先核对门店库存',
+      inputPattern: /\S+/,
+      inputErrorMessage: '拒绝原因不能为空',
+      inputType: 'textarea',
+      inputValidator: (value) => (value || '').trim().length <= 255 || '拒绝原因最多 255 个字'
+    })
+    const response = await request.post(`/api/pending-inbounds/${row.id}/reject`, { reason: reason.trim() })
     if (response.data.code === 200) {
       ElMessage.success('已拒绝申请')
       fetchPendingInbounds()
@@ -502,7 +463,6 @@ const rejectPending = async (row) => {
 onMounted(() => {
   window.addEventListener('resize', syncViewport)
   fetchProducts()
-  fetchAccounts()
   fetchPendingInbounds()
 })
 

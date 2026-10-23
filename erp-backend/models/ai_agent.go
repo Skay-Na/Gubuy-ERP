@@ -13,19 +13,47 @@ type AIAgentSession struct {
 }
 
 type AIAgentMessage struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	SessionID uint      `gorm:"index;not null" json:"session_id"`
-	Role      string    `gorm:"type:varchar(16);not null" json:"role"`
-	Content   string    `gorm:"type:text;not null" json:"content"`
-	Sources   string    `gorm:"type:text" json:"sources"`
-	Evidence  string    `gorm:"type:mediumtext" json:"evidence,omitempty"`
-	Task      string    `gorm:"type:text" json:"task,omitempty"`
-	Trace     string    `gorm:"type:mediumtext" json:"-"`
-	Status    string    `gorm:"type:varchar(24)" json:"status,omitempty"`
-	ActionID  *uint     `gorm:"index" json:"action_id,omitempty"`
-	TaskID    *uint     `gorm:"index" json:"task_id,omitempty"`
-	RunID     string    `gorm:"type:char(36);index" json:"run_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                uint                    `gorm:"primaryKey" json:"id"`
+	SessionID         uint                    `gorm:"index;not null" json:"session_id"`
+	Role              string                  `gorm:"type:varchar(16);not null" json:"role"`
+	Content           string                  `gorm:"type:text;not null" json:"content"`
+	Sources           string                  `gorm:"type:text" json:"sources"`
+	Evidence          string                  `gorm:"type:mediumtext" json:"evidence,omitempty"`
+	Task              string                  `gorm:"type:text" json:"task,omitempty"`
+	Trace             string                  `gorm:"type:mediumtext" json:"-"`
+	Status            string                  `gorm:"type:varchar(24)" json:"status,omitempty"`
+	ActionID          *uint                   `gorm:"index" json:"action_id,omitempty"`
+	TaskID            *uint                   `gorm:"index" json:"task_id,omitempty"`
+	RunID             string                  `gorm:"type:char(36);index" json:"run_id,omitempty"`
+	CreatedAt         time.Time               `json:"created_at"`
+	Attachments       []AIAgentAttachmentInfo `gorm:"-" json:"attachments,omitempty"`
+	AttachmentContext string                  `gorm:"-" json:"-"`
+}
+
+// AIAgentAttachment keeps uploaded sources with the user message that introduced them.
+type AIAgentAttachment struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	SessionID     uint      `gorm:"index;not null" json:"-"`
+	MessageID     uint      `gorm:"index;not null" json:"message_id"`
+	Owner         string    `gorm:"type:varchar(100);index;not null" json:"-"`
+	Name          string    `gorm:"type:varchar(255);not null" json:"name"`
+	RelativePath  string    `gorm:"type:varchar(1024)" json:"relative_path,omitempty"`
+	MediaType     string    `gorm:"type:varchar(120);not null" json:"media_type"`
+	Size          int64     `gorm:"not null" json:"size"`
+	Data          []byte    `gorm:"type:longblob;not null" json:"-"`
+	ExtractedText string    `gorm:"type:longtext" json:"-"`
+	Truncated     bool      `gorm:"not null;default:false" json:"truncated,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+// AIAgentAttachmentInfo is the metadata exposed by chat history without source bytes.
+type AIAgentAttachmentInfo struct {
+	ID           uint   `json:"id,omitempty"`
+	Name         string `json:"name"`
+	RelativePath string `json:"relative_path,omitempty"`
+	MediaType    string `json:"media_type"`
+	Size         int64  `json:"size"`
+	Truncated    bool   `json:"truncated,omitempty"`
 }
 
 // AIAgentRun is a compact, structured index for one user request and its trace.

@@ -55,8 +55,11 @@ func AssessLowStock(o StockObservation) LowStockAssessment {
 }
 
 type MonitorService struct {
-	DB  *gorm.DB
-	Now func() time.Time
+	DB             *gorm.DB
+	Now            func() time.Time
+	Planner        AgentPlanner
+	LeaseDuration  time.Duration
+	OnRuntimeEvent func(RuntimeEvent)
 }
 
 func (s MonitorService) now() time.Time {
@@ -132,7 +135,7 @@ func (s MonitorService) Scan(ctx context.Context) (int, error) {
 			Severity:    "medium",
 			ProductID:   observation.ProductID,
 			MetricsJSON: string(metrics),
-			Evidence:    "近30天有效订单销量和当前主仓、门店、云仓库存；样机不计入可售库存",
+			Evidence:    "近30天有效订单销量和当前门店、云仓库存；样机不计入可售库存",
 			Status:      "open",
 			DetectedAt:  now,
 		}
@@ -143,14 +146,10 @@ func (s MonitorService) Scan(ctx context.Context) (int, error) {
 				return result.Error
 			}
 			inserted = true
-			return tx.Create(&models.AgentWorkTask{
-				TenantID: SingleTenant, SignalID: &signal.ID, Kind: "replenishment",
-				CreatedBy: "system_monitor",
-				Status:    "CREATED", Step: "assess",
-			}).Error
+			return nil
 		})
 		if err != nil {
-			return count, fmt.Errorf("save signal and task: %w", err)
+			return count, fmt.Errorf("save signal: %w", err)
 		}
 		if inserted {
 			count++
@@ -196,6 +195,10 @@ func (s MonitorService) resolveRecoveredStock(ctx context.Context, productID uin
 // ProcessPending claims persisted work. A stale lease can be reclaimed after
 // a process restart; unique TaskID on drafts prevents duplicate suggestions.
 func (s MonitorService) ProcessPending(ctx context.Context) (int, error) {
+	return s.processPending(ctx, 0)
+}
+
+func (s MonitorService) processPending(ctx context.Context, onlyTaskID uint) (int, error) {
 	if s.DB == nil {
 		return 0, errors.New("database unavailable")
 	}
@@ -204,45 +207,144 @@ func (s MonitorService) ProcessPending(ctx context.Context) (int, error) {
 	}
 	now := s.now()
 	var tasks []models.AgentWorkTask
-	err := s.DB.WithContext(ctx).Where(
+	query := s.DB.WithContext(ctx).Where(
 		"tenant_id = ? AND attempts < ? AND (status IN (?, ?) OR (status = ? AND lease_until < ?))",
 		SingleTenant, 3, "CREATED", "FAILED", "RUNNING", now,
-	).Order("id").Limit(100).Find(&tasks).Error
+	).Where("kind NOT IN ?", []string{"replenishment", "replenishment_analysis", "schedule_inventory_check"}).
+		Where("created_by NOT IN ?", []string{"system_monitor", "system_scheduler"})
+	if onlyTaskID != 0 {
+		query = query.Where("id = ?", onlyTaskID)
+	}
+	err := query.Order("id").Limit(100).Find(&tasks).Error
 	if err != nil {
 		return 0, fmt.Errorf("read tasks: %w", err)
 	}
 	completed := 0
 	for _, task := range tasks {
-		lease := now.Add(2 * time.Minute)
-		claimed := s.DB.WithContext(ctx).Model(&models.AgentWorkTask{}).
-			Where("id = ? AND tenant_id = ? AND attempts < ? AND (status IN (?, ?) OR (status = ? AND lease_until < ?))",
-				task.ID, SingleTenant, 3, "CREATED", "FAILED", "RUNNING", now).
-			Updates(map[string]any{"status": "RUNNING", "step": "draft", "attempts": gorm.Expr("attempts + 1"), "lease_until": lease})
-		if claimed.Error != nil {
-			return completed, fmt.Errorf("claim task: %w", claimed.Error)
+		leaseDuration := s.LeaseDuration
+		if leaseDuration <= 0 {
+			leaseDuration = 2 * time.Minute
 		}
-		if claimed.RowsAffected == 0 {
+		lease := now.Add(leaseDuration)
+		claimed := false
+		err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			result := tx.Model(&models.AgentWorkTask{}).
+				Where("id = ? AND tenant_id = ? AND attempts < ? AND (status IN (?, ?) OR (status = ? AND lease_until < ?))",
+					task.ID, SingleTenant, 3, "CREATED", "FAILED", "RUNNING", now).
+				Updates(map[string]any{"status": "RUNNING", "step": "planner", "attempts": gorm.Expr("attempts + 1"), "lease_until": lease, "lease_version": gorm.Expr("lease_version + 1")})
+			if result.Error != nil {
+				return result.Error
+			}
+			if result.RowsAffected == 0 {
+				return nil
+			}
+			claimed = true
+			if task.Status == "RUNNING" {
+				if err := tx.Create(&models.AgentActivity{TenantID: SingleTenant, TaskID: task.ID,
+					Event: "lease_reclaimed", Detail: "过期 Worker 租约被重新认领；新租约版本已生效"}).Error; err != nil {
+					return err
+				}
+			}
+			if task.Kind == "schedule_inventory_check" {
+				if err := tx.Model(&models.AgentScheduleRun{}).
+					Where("linked_task_id = ? AND status IN ?", task.ID, []string{"QUEUED", "FAILED", "RUNNING"}).
+					Updates(map[string]any{"status": "RUNNING", "actual_started_at": now, "finished_at": nil,
+						"error": "", "retry_count": gorm.Expr("retry_count + 1"), "lease_until": lease,
+						"lease_version": gorm.Expr("lease_version + 1")}).Error; err != nil {
+					return fmt.Errorf("start scheduled run: %w", err)
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			return completed, fmt.Errorf("claim task: %w", err)
+		}
+		if !claimed {
 			continue
 		}
-		if err := NewRuntimeExecutor(s.DB).ExecutePersistedTask(ctx, task, now); errors.Is(err, ErrTaskCancelled) {
+		task.LeaseVersion++
+		runtime := NewRuntimeExecutor(s.DB)
+		runtime.Planner = s.Planner
+		runtime.Now = s.now
+		runtime.Monitor.Now = s.now
+		runtime.Monitor.Planner = s.Planner
+		runtime.OnEvent = s.OnRuntimeEvent
+		taskCtx, stopTaskContext := watchTaskLease(ctx, s.DB, task, s.now)
+		var executeErr error
+		switch task.Kind {
+		case "agent_analysis", "schedule_inventory_check":
+			executeErr = runtime.ExecutePlannerTask(taskCtx, task, now)
+		case "replenishment_analysis":
+			if s.Planner != nil {
+				executeErr = runtime.ExecutePlannerTask(taskCtx, task, now)
+			} else {
+				executeErr = runtime.ExecutePersistedTask(taskCtx, task, now)
+			}
+		default:
+			executeErr = runtime.ExecutePersistedTask(taskCtx, task, now)
+		}
+		stopTaskContext()
+		if errors.Is(executeErr, ErrTaskCancelled) {
 			continue
-		} else if err != nil {
-			s.DB.WithContext(ctx).Model(&models.AgentWorkTask{}).Where("id = ? AND status = ?", task.ID, "RUNNING").
-				Updates(map[string]any{"status": "FAILED", "error_code": "draft_failed", "lease_until": nil})
-			return completed, fmt.Errorf("task %d: %w", task.ID, err)
+		} else if executeErr != nil {
+			failureCtx, cancelFailure := context.WithTimeout(context.Background(), 3*time.Second)
+			recorded, err := s.recordTaskFailure(failureCtx, task, truncateRunes(executeErr.Error(), 40), s.now())
+			cancelFailure()
+			if err != nil {
+				return completed, fmt.Errorf("record task failure: %w", err)
+			}
+			if !recorded {
+				continue
+			}
+			return completed, fmt.Errorf("task %d: %w", task.ID, executeErr)
 		}
 		completed++
 	}
 	return completed, nil
 }
 
-func (s MonitorService) createDraft(ctx context.Context, task models.AgentWorkTask) error {
+func (s MonitorService) recordTaskFailure(ctx context.Context, task models.AgentWorkTask, errorCode string, now time.Time) (bool, error) {
+	recorded := false
+	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		updated := tx.Model(&models.AgentWorkTask{}).
+			Where("id = ? AND status = ? AND lease_version = ?", task.ID, "RUNNING", task.LeaseVersion).
+			Updates(map[string]any{"status": "FAILED", "error_code": errorCode, "lease_until": nil})
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected == 0 {
+			return nil
+		}
+		recorded = true
+		if err := tx.Model(&models.AgentScheduleRun{}).Where("linked_task_id = ? AND status = ?", task.ID, "RUNNING").
+			Updates(map[string]any{"status": "FAILED", "finished_at": now, "error": errorCode, "lease_until": nil}).Error; err != nil {
+			return err
+		}
+		if task.ChatMessageID != nil {
+			if err := tx.Model(&models.AIAgentMessage{}).Where("id = ?", *task.ChatMessageID).
+				Updates(map[string]any{"status": "incomplete", "content": "Agent 任务执行失败，请在工作台查看真实执行状态。"}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Create(&models.AgentActivity{TenantID: SingleTenant, TaskID: task.ID,
+			Event: "task_failed", Detail: "Agent 任务失败；错误分类已记录，未将失败显示为成功"}).Error
+	})
+	return recorded, err
+}
+
+func (s MonitorService) createDraft(ctx context.Context, task models.AgentWorkTask, leaseVersion uint64) error {
 	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current models.AgentWorkTask
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND tenant_id = ?", task.ID, SingleTenant).First(&current).Error; err != nil {
+			return err
+		}
+		if err := validateTaskLease(current, models.AgentWorkTask{LeaseVersion: leaseVersion}, s.now()); err != nil {
+			return err
+		}
 		var existing models.AgentReplenishmentDraft
 		if err := tx.Where("task_id = ? AND tenant_id = ?", task.ID, SingleTenant).First(&existing).Error; err == nil {
-			return tx.Model(&models.AgentWorkTask{}).
-				Where("id = ? AND tenant_id = ? AND status = ?", task.ID, SingleTenant, "RUNNING").
-				Updates(map[string]any{"status": "SUCCEEDED", "step": "draft_ready", "lease_until": nil, "error_code": ""}).Error
+			return nil
 		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
@@ -264,11 +366,10 @@ func (s MonitorService) createDraft(ctx context.Context, task models.AgentWorkTa
 		if err := json.Unmarshal([]byte(signal.MetricsJSON), &metrics); err != nil {
 			return err
 		}
-		currentStock := product.MainStock + product.StoreStock + product.CloudStock
+		currentStock := product.StoreStock + product.CloudStock
 		assessment := AssessLowStock(StockObservation{
 			ProductID: product.ID, Available: currentStock, Sales30Days: metrics.Sales30Days,
 		})
-		status := "SUCCEEDED"
 		step := "draft_ready"
 		detail := "已生成内部补货草案；供应商、交付周期和在途采购数据缺失，未提交采购订单"
 		if !assessment.Eligible {
@@ -289,13 +390,17 @@ func (s MonitorService) createDraft(ctx context.Context, task models.AgentWorkTa
 				return err
 			}
 		}
-		if err := tx.Create(&models.AgentActivity{
-			TenantID: SingleTenant, TaskID: task.ID, Event: step, Detail: detail,
-		}).Error; err != nil {
+		var activityCount int64
+		if err := tx.Model(&models.AgentActivity{}).Where("task_id = ? AND event = ?", task.ID, step).Count(&activityCount).Error; err != nil {
 			return err
 		}
-		return tx.Model(&models.AgentWorkTask{}).
-			Where("id = ? AND tenant_id = ? AND status = ?", task.ID, SingleTenant, "RUNNING").
-			Updates(map[string]any{"status": status, "step": step, "lease_until": nil, "error_code": ""}).Error
+		if activityCount == 0 {
+			if err := tx.Create(&models.AgentActivity{
+				TenantID: SingleTenant, TaskID: task.ID, Event: step, Detail: detail,
+			}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }

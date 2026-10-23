@@ -95,8 +95,8 @@ onMounted(load)
       </button>
     </div>
     <div v-if="current" class="provider-form">
-      <el-alert v-if="current.has_key && !current.key_usable" type="warning" :closable="false" title="已保存的 Key 无法用当前服务端加密密钥解密；请重新输入 API Key 后保存。" />
-      <label>API Key <span>{{ current.has_key ? '已配置；留空则保持原 Key' : '必填' }}</span>
+      <el-alert v-if="current.has_key && !current.key_usable" type="warning" :closable="false" title="已保存的 Key 无法用当前服务端加密密钥解密；请重新输入 API Key，并点击“保存配置”或“保存并启用”。若仍保留原加密密钥，也可以恢复原值以继续使用旧 Key。" />
+      <label>API Key <span>{{ current.has_key ? (current.key_usable ? '已配置；留空则保持原 Key' : '旧 Key 无法解密；请重新输入') : '必填' }}</span>
         <el-input v-model="form.api_key" type="password" show-password autocomplete="new-password" placeholder="在此输入服务商 API Key" />
       </label>
       <label>图片识别模型 <span>需要支持图片输入；可修改为账号可用的模型</span><el-input v-model="form.model" maxlength="100" /></label>

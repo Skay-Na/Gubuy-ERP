@@ -54,9 +54,10 @@
               type="primary" 
               plain
               class="!rounded-xl font-bold"
+              :loading="backupDownloading"
               @click="handleDownloadBackup"
             >
-              立即下载备份
+              {{ backupDownloading ? '正在生成备份…' : '立即下载备份' }}
             </el-button>
           </div>
 
@@ -85,10 +86,10 @@
           <div class="flex flex-col gap-4 p-6 bg-amber-50/60 rounded-2xl border border-amber-100 mt-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p class="font-bold text-slate-800">历史零成本修复</p>
-              <p class="text-xs text-slate-600 mt-1">补录旧员工增加库存的成本，并可同步修复受影响订单的成本快照；不会改变库存数量或账户余额。</p>
+              <p class="text-xs text-slate-600 mt-1">仅展示存在有效零成本订单的商品及相关历史入库记录，支持逐笔修复订单成本快照。</p>
             </div>
             <el-button type="warning" plain class="!rounded-xl font-bold shrink-0" @click="openHistoricalCostRepair">
-              查看待修复记录
+              查看待修复商品
             </el-button>
           </div>
         </el-card>
@@ -183,45 +184,66 @@
       </div>
     </el-dialog>
 
-    <el-dialog v-model="historicalRepairVisible" title="历史零成本修复" width="900px" destroy-on-close>
+    <el-dialog v-model="historicalRepairVisible" title="历史成本修复" width="1000px" destroy-on-close @closed="resetHistoricalRepairSearch">
       <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-        仅展示“增加库存且成本为 0”的历史记录。<b>没有受影响订单的记录也可以直接修复库存成本。</b>修复会回写该条入库成本、重算商品成本；存在 0 成本订单时才可选择同步修复订单。库存数量、付款账户余额不会变化。
+        仅展示关联有效零成本订单的商品档案、入库流水和订单明细。订单成本必须按订单逐笔核对，只会更新选中的订单明细及该订单对应的销售流水。修复库存成本不会批量改写历史订单，也不会改变库存数量或账户余额。补录金额超过核验参考 5 倍时需再次输入金额确认。
       </div>
-      <el-table :data="historicalRepairCandidates" v-loading="historicalRepairLoading" max-height="460" class="w-full">
-        <el-table-column label="商品 / 历史流水" min-width="210">
+      <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <el-input
+          v-model="historicalRepairSearchQuery"
+          clearable
+          :prefix-icon="Search"
+          placeholder="搜索商品名称、编码、订单号或时间"
+          class="sm:max-w-md"
+        />
+        <span class="shrink-0 text-xs text-slate-500">显示 {{ filteredHistoricalRepairCandidates.length }} / {{ orderBackedHistoricalRepairCandidates.length }} 条</span>
+      </div>
+      <el-table :data="filteredHistoricalRepairCandidates" v-loading="historicalRepairLoading" max-height="460" class="w-full">
+        <el-table-column label="商品 / 修复对象" min-width="210">
           <template #default="{ row }">
             <p class="font-bold text-slate-800">{{ row.product?.name || `商品 #${row.product_id}` }}</p>
-            <p class="mt-1 text-xs text-slate-400">{{ formatDate(row.created_at) }} · {{ row.log_type === 'stocktake' ? '旧库存调整' : '采购入库' }}</p>
+            <p class="mt-1 text-xs text-slate-400">
+              <template v-if="row.candidate_type === 'product'">{{ formatDate(row.created_at) }} · 商品档案（无有效入库成本）</template>
+              <template v-else-if="row.candidate_type === 'order_item'">{{ formatDate(row.created_at) }} · 订单 {{ row.order_no || '单号缺失' }} · 成交 ¥{{ Number(row.order_unit_price || 0).toFixed(2) }} · 成本待核</template>
+              <template v-else>{{ formatDate(row.created_at) }} · {{ row.log_type === 'stocktake' ? '库存盘点增加' : '采购入库' }}</template>
+            </p>
           </template>
         </el-table-column>
-        <el-table-column label="数量" width="70" align="center"><template #default="{ row }">+{{ row.change_qty }}</template></el-table-column>
-        <el-table-column label="受影响订单" width="100" align="center"><template #default="{ row }"><span :class="row.zero_cost_order_count ? 'font-bold text-red-600' : 'text-slate-400'">{{ row.zero_cost_order_count }} 条</span></template></el-table-column>
-        <el-table-column label="补录单价" width="150"><template #default="{ row }"><el-input-number v-model="repairUnitCosts[row.id]" :min="0.01" :precision="2" controls-position="right" class="!w-full" /></template></el-table-column>
-        <el-table-column label="同步订单成本" width="120" align="center"><template #default="{ row }"><el-checkbox v-if="row.zero_cost_order_count" v-model="repairOrderCosts[row.id]">修复订单</el-checkbox><span v-else class="text-xs text-slate-400">无需修订单</span></template></el-table-column>
-        <el-table-column label="操作" width="120" fixed="right"><template #default="{ row }"><el-button type="primary" link :loading="historicalRepairSubmittingId === row.id" @click="submitHistoricalCostRepair(row)">{{ row.zero_cost_order_count ? '确认修复' : '修复库存成本' }}</el-button></template></el-table-column>
+        <el-table-column label="数量" width="100" align="center"><template #default="{ row }"><span v-if="row.candidate_type === 'product'">库存 {{ row.stock_qty || 0 }}</span><span v-else-if="row.candidate_type === 'order_item'">×{{ row.order_quantity }}</span><span v-else>+{{ row.change_qty }}</span></template></el-table-column>
+        <el-table-column label="零成本订单" width="120" align="center"><template #default="{ row }"><span v-if="row.candidate_type === 'order_item'" class="font-bold text-red-600">当前订单明细</span><span v-else :class="row.zero_cost_order_count ? 'font-bold text-amber-700' : 'text-slate-400'">{{ row.zero_cost_order_count }} 条待核</span></template></el-table-column>
+        <el-table-column label="补录单价" width="175"><template #default="{ row }"><el-input-number v-model="repairUnitCosts[historicalRepairCandidateKey(row)]" :min="0.01" :precision="2" controls-position="right" class="!w-full" /><p v-if="row.cost_reference > 0" class="mt-1 text-[11px] text-slate-500">核验参考 ¥{{ Number(row.cost_reference).toFixed(2) }}</p></template></el-table-column>
+        <el-table-column label="修复范围" min-width="135" align="center"><template #default="{ row }"><span v-if="row.candidate_type === 'order_item'" class="text-xs text-blue-700">本订单 + 对应流水</span><span v-else class="text-xs text-slate-500">仅当前成本记录</span></template></el-table-column>
+        <el-table-column label="操作" width="130" fixed="right"><template #default="{ row }"><el-button type="primary" link :loading="historicalRepairSubmittingId === historicalRepairCandidateKey(row)" @click="submitHistoricalCostRepair(row)">{{ row.candidate_type === 'product' ? '设置商品成本' : row.candidate_type === 'order_item' ? '修复此订单' : '修复库存成本' }}</el-button></template></el-table-column>
       </el-table>
-      <el-empty v-if="!historicalRepairLoading && historicalRepairCandidates.length === 0" description="没有需要修复的历史零成本记录" :image-size="80" />
+      <el-empty v-if="!historicalRepairLoading && orderBackedHistoricalRepairCandidates.length === 0" description="没有关联有效待核订单的商品或记录" :image-size="80" />
+      <el-empty v-else-if="!historicalRepairLoading && filteredHistoricalRepairCandidates.length === 0" description="没有找到匹配的有效订单商品" :image-size="80" />
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref } from 'vue'
-import { Setting, Monitor, Lock, Warning, Delete, Download } from '@element-plus/icons-vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
+import { Setting, Monitor, Lock, Warning, Delete, Download, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 import AIProviderSettings from '../components/settings/AIProviderSettings.vue'
 
 const showResetConfirm = ref(false)
+const route = useRoute()
 const confirmText = ref('')
 const resetting = ref(false)
+const backupDownloading = ref(false)
 const restoring = ref(false)
 const historicalRepairVisible = ref(false)
 const historicalRepairLoading = ref(false)
 const historicalRepairCandidates = ref([])
+const historicalRepairSearchQuery = ref('')
 const historicalRepairSubmittingId = ref(null)
 const repairUnitCosts = ref({})
-const repairOrderCosts = ref({})
+const historicalCostOutlierMultiplier = 5
+
+const historicalRepairCandidateKey = (row) => row.candidate_id || `log:${row.id}`
 
 const resolveFilename = (headers) => {
   const disposition = headers['content-disposition'] || headers['Content-Disposition']
@@ -247,16 +269,35 @@ const downloadBlob = (blob, filename) => {
   window.URL.revokeObjectURL(url)
 }
 
+const getRequestErrorMessage = async (error, fallback) => {
+  const responseData = error.response?.data
+  if (responseData instanceof Blob) {
+    try {
+      const payload = JSON.parse(await responseData.text())
+      return payload.msg || fallback
+    } catch {
+      return fallback
+    }
+  }
+
+  return responseData?.msg || fallback
+}
+
 const handleDownloadBackup = async () => {
+  if (backupDownloading.value) return
+
+  backupDownloading.value = true
   try {
     const res = await request.get('/api/system/backup', {
       responseType: 'blob',
-      timeout: 120000
+      timeout: 135000
     })
     downloadBlob(res.data, resolveFilename(res.headers))
     ElMessage.success('备份下载成功')
   } catch (error) {
-    ElMessage.error(error.response?.data?.msg || '备份下载失败，请稍后重试')
+    ElMessage.error({ message: await getRequestErrorMessage(error, '备份下载失败，请稍后重试'), grouping: true })
+  } finally {
+    backupDownloading.value = false
   }
 }
 
@@ -290,7 +331,7 @@ const handleRestoreUpload = async ({ file }) => {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
-      timeout: 300000
+      timeout: 660000
     })
     restoring.value = false
 
@@ -333,6 +374,53 @@ const handleFactoryReset = async () => {
   }
 }
 const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN') : '-'
+const isHistoricalCostOutlier = (unitCost, costReference) => costReference > 0 && unitCost > costReference * historicalCostOutlierMultiplier
+
+const historicalRepairCandidateSearchText = (row) => {
+  const candidateLabel = row.candidate_type === 'product'
+    ? '商品档案'
+    : row.candidate_type === 'order_item'
+      ? '订单明细'
+      : row.log_type === 'stocktake'
+        ? '库存盘点增加 盘点'
+        : '采购入库'
+
+  return [
+    row.product?.name,
+    row.product?.remark,
+    row.product_id,
+    row.order_no,
+    row.related_no,
+    row.candidate_id,
+    row.candidate_type,
+    candidateLabel,
+    row.log_type,
+    row.created_at,
+    formatDate(row.created_at),
+    row.change_qty,
+    row.order_quantity,
+    row.order_unit_price,
+    row.cost_reference
+  ].filter(value => value !== null && value !== undefined).join(' ').toLocaleLowerCase()
+}
+
+const orderBackedHistoricalRepairCandidates = computed(() =>
+  historicalRepairCandidates.value.filter(row => Number(row.zero_cost_order_count) > 0)
+)
+
+const filteredHistoricalRepairCandidates = computed(() => {
+  const terms = historicalRepairSearchQuery.value.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean)
+  if (terms.length === 0) return orderBackedHistoricalRepairCandidates.value
+
+  return orderBackedHistoricalRepairCandidates.value.filter(row => {
+    const searchText = historicalRepairCandidateSearchText(row)
+    return terms.every(term => searchText.includes(term))
+  })
+})
+
+const resetHistoricalRepairSearch = () => {
+  historicalRepairSearchQuery.value = ''
+}
 
 const openHistoricalCostRepair = async () => {
   historicalRepairVisible.value = true
@@ -341,8 +429,7 @@ const openHistoricalCostRepair = async () => {
     const res = await request.get('/api/system/historical-cost-repair/candidates')
     if (res.data.code === 200) {
       historicalRepairCandidates.value = res.data.data || []
-      repairUnitCosts.value = Object.fromEntries(historicalRepairCandidates.value.map(row => [row.id, undefined]))
-      repairOrderCosts.value = Object.fromEntries(historicalRepairCandidates.value.map(row => [row.id, Number(row.zero_cost_order_count) > 0]))
+      repairUnitCosts.value = Object.fromEntries(historicalRepairCandidates.value.map(row => [historicalRepairCandidateKey(row), undefined]))
       return
     }
     ElMessage.error(res.data.msg || '读取待修复记录失败')
@@ -354,35 +441,76 @@ const openHistoricalCostRepair = async () => {
 }
 
 const submitHistoricalCostRepair = async (row) => {
-  const unitCost = Number(repairUnitCosts.value[row.id])
+  const candidateKey = historicalRepairCandidateKey(row)
+  const isProductCandidate = row.candidate_type === 'product'
+  const isOrderItemCandidate = row.candidate_type === 'order_item'
+  const unitCost = Number(repairUnitCosts.value[candidateKey])
   if (!(unitCost > 0)) {
-    ElMessage.warning('请先填写大于 0 的实际入库单价')
+    ElMessage.warning('请先填写大于 0 的成本单价')
     return
   }
-  const repairOrders = Boolean(repairOrderCosts.value[row.id])
+  const costReference = Number(row.cost_reference) || 0
+  let outlierConfirm = ''
+
+  if (isHistoricalCostOutlier(unitCost, costReference)) {
+    const repairScope = isProductCandidate
+      ? '本次只设置商品档案平均成本；'
+      : isOrderItemCandidate
+        ? `本次只修复订单 ${row.order_no || ''} 的这一条明细及对应销售流水；`
+        : '本次只修复当前库存流水；'
+    try {
+      const { value } = await ElMessageBox.prompt(
+        `补录单价 ¥${unitCost.toFixed(2)} 已超过核验参考 ¥${costReference.toFixed(2)} 的 ${historicalCostOutlierMultiplier} 倍。请先核对商品成本凭证；${repairScope}库存数量和账户余额不变。确认该金额无误后，再输入 ¥${unitCost.toFixed(2)} 继续。`,
+        '检测到异常高成本',
+        {
+          confirmButtonText: '确认金额无误',
+          cancelButtonText: '取消',
+          inputPlaceholder: unitCost.toFixed(2),
+          inputPattern: /^\d+(\.\d{1,2})?$/,
+          inputErrorMessage: '请输入有效金额，最多两位小数',
+          type: 'warning'
+        }
+      )
+      if (Number(value).toFixed(2) !== unitCost.toFixed(2)) {
+        ElMessage.warning('输入金额与待修复单价不一致，已取消修复')
+        return
+      }
+      outlierConfirm = unitCost.toFixed(2)
+    } catch {
+      return
+    }
+  }
+
   try {
-    await ElMessageBox.confirm(
-      repairOrders
-        ? `将修复该条库存流水，并把 ${row.zero_cost_order_count} 条零成本订单明细更新为 ¥${unitCost.toFixed(2)}。库存和账户余额不会变化。`
-        : `将只修复该条库存流水成本为 ¥${unitCost.toFixed(2)}，不会改订单成本、库存或账户余额。`,
-      '确认历史成本修复',
-      { confirmButtonText: '确认修复', cancelButtonText: '取消', type: 'warning' }
-    )
+    if (!outlierConfirm) {
+      await ElMessageBox.confirm(
+        isProductCandidate
+          ? `将把商品档案的平均成本设为 ¥${unitCost.toFixed(2)}，并建立当前库存成本基准；不会更改最新进价、订单成本、库存数量或账户余额。`
+          : isOrderItemCandidate
+            ? `将把订单 ${row.order_no || ''} 中该商品的 ${row.order_quantity} 件明细成本设为 ¥${unitCost.toFixed(2)}，并同步该订单对应的销售流水。其他订单、库存数量和账户余额不会变化。`
+            : `将只修复该条库存流水成本为 ¥${unitCost.toFixed(2)}，不会批量修改订单、库存数量或账户余额。`,
+        '确认历史成本修复',
+        { confirmButtonText: '确认修复', cancelButtonText: '取消', type: 'warning' }
+      )
+    }
   } catch {
     return
   }
 
-  historicalRepairSubmittingId.value = row.id
+  historicalRepairSubmittingId.value = candidateKey
   try {
     const res = await request.post('/api/system/historical-cost-repair', {
-      log_id: row.id,
+      candidate_type: row.candidate_type,
+      ...(isProductCandidate ? { product_id: row.product_id } : isOrderItemCandidate ? { order_item_id: row.order_item_id } : { log_id: row.id }),
       unit_cost: unitCost,
-      repair_order_costs: repairOrders,
-      remark: '系统设置 - 历史零成本修复',
+      outlier_confirm: outlierConfirm,
+      remark: isProductCandidate ? '系统设置 - 商品档案成本基准修复' : isOrderItemCandidate ? `系统设置 - 订单 ${row.order_no || ''} 逐笔成本修复` : '系统设置 - 历史库存成本修复',
       confirm: 'REPAIR'
     })
     if (res.data.code === 200) {
-      ElMessage.success(`修复完成：订单成本 ${res.data.data?.repaired_order_count || 0} 条，销售流水 ${res.data.data?.repaired_sale_count || 0} 条`)
+      ElMessage.success(isOrderItemCandidate
+        ? `订单明细已修复；同步销售流水 ${res.data.data?.repaired_sale_count || 0} 条`
+        : '成本记录已修复')
       await openHistoricalCostRepair()
       return
     }
@@ -393,6 +521,12 @@ const submitHistoricalCostRepair = async (row) => {
     historicalRepairSubmittingId.value = null
   }
 }
+
+onMounted(() => {
+  if (route.query.open === 'historical-cost-repair') {
+    openHistoricalCostRepair()
+  }
+})
 </script>
 
 <style scoped>

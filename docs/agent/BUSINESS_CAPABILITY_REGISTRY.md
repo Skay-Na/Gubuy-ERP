@@ -6,7 +6,7 @@
 
 ## AgentNative 能力
 
-规则监测和任务处理由 `agentnative.MonitorService` 提供。管理工作台 Controller 当前直接查询 AgentNative 模型；`ReviewDraft` 是新增的内部草案审核服务。AgentNative 服务尚未以同一份可枚举的 Tool Registry 暴露给聊天 Agent；现有的 `agentToolRegistry` 元数据也尚未单一化到通用工具包。
+低库存监测、补货草案审核和周期库存检查已停用。相关页面/API/Planner 工具及后台启动入口已关闭；历史模型仅保留以兼容数据库和备份。持久 Worker 跳过旧的系统监测任务。
 
 ## 本阶段边界
 
@@ -14,9 +14,8 @@
 |---|---|
 | 商品与库存只读查询 | `inventory` 工具已使用共享服务的商品库存查询；尚无完整商品状态、库存流水服务 |
 | 销售区间与趋势分析 | 旧 Agent 通过既有查询规划和数据目录读取；补货上下文销量与 Monitor 已共用 `RetailReadService`，没有统一 `sales.get_product_sales` Tool |
-| 监测信号查询 | 工作台 API 支持，聊天工具注册表未暴露 |
-| 创建/获取补货草案 | Monitor Worker 可创建；聊天 Agent 未通过统一 Tool Registry 调用 |
-| 任务/目标读取 | 工作台 API 支持，旧 Agent Registry 未暴露 |
-| 审核内部补货建议 | 管理员 HTTP API 调用共享 MonitorService；需重新校验库存快照 |
+| 商品与库存只读查询 | Agent 可按用户明确的问题查询实际库存数量 |
+| 主动缺货提醒/补货建议 | 已停用，不注册为聊天工具或后台任务 |
+| 订单/支出草稿确认 | 保留现有用户确认与业务服务写入流程 |
 
 所有写能力都必须由服务端校验参数和权限。模型输出不是授权凭证。注册表元数据不能替代真正的统一执行入口；统一入口改造仍是后续工作。

@@ -34,7 +34,8 @@ export const parsePaymentBreakdown = (breakdown) => {
 export const deliveryMethodLabel = (method) => ({
   1: '门店自提',
   2: '主仓发货',
-  3: '云仓代发'
+  3: '云仓代发',
+  4: '云仓发货'
 }[Number(method)] || '其他')
 
 const formatDateTime = (value) => {

@@ -82,7 +82,7 @@
         <div 
           v-for="row in productList" 
           :key="row.id" 
-          v-memo="[row.id, row.store_stock, row.main_stock, row.cloud_stock, row.special_price, isSpecialActive(row)]"
+          v-memo="[row.id, row.store_stock, row.cloud_stock, row.avg_cost, row.latest_cost, row.special_price, isSpecialActive(row)]"
           class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
           :class="isSpecialActive(row) ? 'special-offer-card border-red-200' : ''"
           @click="handleAddToCart(row)"
@@ -100,14 +100,12 @@
               {{ row.name }}
             </div>
             <div class="flex flex-wrap gap-1 mb-2">
+            <el-tag v-if="getProductCost(row) <= 0" type="danger" size="small" class="!px-1.5 !h-5 !text-[10px]">成本待维护</el-tag>
               <el-tag :type="row.store_stock > 0 ? 'success' : 'danger'" size="small" class="!px-1.5 !h-5 !text-[10px]">
                 店:{{ row.store_stock }}
               </el-tag>
-              <el-tag :type="row.main_stock > 0 ? 'primary' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">
-                仓:{{ row.main_stock }}
-              </el-tag>
-              <el-tag v-if="row.support_cloud" :type="row.cloud_stock > 0 ? 'warning' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">
-                云:{{ row.cloud_stock }}
+              <el-tag type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">
+                云仓不限量
               </el-tag>
             </div>
           </div>
@@ -127,10 +125,11 @@
                 </div>
               </div>
               <div v-else class="flex flex-col">
-                <span class="font-bold text-slate-800 text-base leading-none">
+                <span v-if="getProductCost(row) > 0" class="font-bold text-slate-800 text-base leading-none">
                   <span class="text-xs">¥</span>{{ calculateMinPrice(row).toFixed(0) }}
                 </span>
-                <span class="text-[9px] text-slate-400 mt-0.5">成本: ¥{{ (row.avg_cost || row.latest_cost).toFixed(1) }}</span>
+                <span v-else class="text-xs text-amber-600 font-bold">先维护商品成本</span>
+                <span v-if="getProductCost(row) > 0" class="text-[9px] text-slate-400 mt-0.5">成本参考: ¥{{ getProductCost(row).toFixed(1) }}</span>
               </div>
             </div>
             <div class="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm shadow-blue-200 group-hover:scale-110 transition-transform">
@@ -204,24 +203,29 @@ const isSpecialActive = (product) => {
   return now >= start && now <= end
 }
 
+const getProductCost = (product) => Number(product.avg_cost) > 0 ? Number(product.avg_cost) : Number(product.latest_cost) || 0
+
 const calculateMinPrice = (product) => {
   if (isSpecialActive(product)) {
     return product.special_price
   }
-  const cost = Number(product.avg_cost || product.latest_cost) || 0
+  const cost = getProductCost(product)
   const rate = Number(product.margin_rate) || 0
   return cost / (1 - rate)
 }
 
 const handleAddToCart = (product) => {
+  if (getProductCost(product) <= 0) {
+    ElMessage.warning('该商品尚未建立有效成本，请先维护商品成本后再开单')
+    return
+  }
   const minPrice = calculateMinPrice(product)
   const item = {
     id: product.id,
     name: product.name,
     category_name: product.category?.name || product.Category?.name || '',
     store_stock: product.store_stock || 0,
-    main_stock: product.main_stock || 0,
-    support_cloud: product.support_cloud,
+    cloud_stock: product.cloud_stock || 0,
     minPrice: minPrice,
     price: Math.ceil(minPrice),
     quantity: 1,

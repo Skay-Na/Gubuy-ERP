@@ -32,12 +32,13 @@ func TestMonitorWorkflowIsolatedMySQL(t *testing.T) {
 	if err := db.AutoMigrate(
 		&models.Product{}, &models.Order{}, &models.OrderItem{},
 		&models.AgentSignal{}, &models.AgentGoal{}, &models.AgentWorkTask{}, &models.AgentWorkTaskStep{}, &models.AgentToolCallAudit{},
+		&models.AgentPlannerCall{}, &models.AgentSchedule{}, &models.AgentScheduleRun{},
 		&models.AgentReplenishmentDraft{}, &models.AgentActivity{},
 	); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.Local)
-	product := models.Product{Name: "test item", MainStock: 1, LatestCost: 20}
+	product := models.Product{Name: "test item", CloudStock: 1, LatestCost: 20}
 	if err := db.Create(&product).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -136,8 +137,8 @@ func TestMonitorWorkflowIsolatedMySQL(t *testing.T) {
 	if err := db.First(&current, product.ID).Error; err != nil {
 		t.Fatal(err)
 	}
-	if current.MainStock != 1 {
-		t.Fatalf("monitor changed stock: %d", current.MainStock)
+	if current.CloudStock != 1 {
+		t.Fatalf("monitor changed cloud stock: %d", current.CloudStock)
 	}
 
 	// Simulate process restart after a persisted claim and an expired lease.
@@ -161,7 +162,7 @@ func TestMonitorWorkflowIsolatedMySQL(t *testing.T) {
 	if count, err := service.ProcessPending(ctx); err != nil || count != 1 {
 		t.Fatalf("resume expired lease: count=%d err=%v", count, err)
 	}
-	if err := db.Model(&product).Update("main_stock", 20).Error; err != nil {
+	if err := db.Model(&product).Update("cloud_stock", 20).Error; err != nil {
 		t.Fatal(err)
 	}
 	if count, err := service.Scan(ctx); err != nil || count != 0 {

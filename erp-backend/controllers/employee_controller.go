@@ -27,7 +27,18 @@ import (
 // @Router /api/employees [get]
 func GetEmployees(c *gin.Context) {
 	var employees []models.Employee
-	if err := config.DB.Find(&employees).Error; err != nil {
+	query := config.DB.Model(&models.Employee{})
+	includeDeparted := c.Query("include_departed") == "true"
+	if includeDeparted && strings.HasPrefix(c.GetString("username"), "emp_") {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "msg": "员工端不能查看离职员工档案"})
+		return
+	}
+	if !includeDeparted {
+		today := time.Now().In(time.Local).Format("2006-01-02")
+		query = query.Where("employment_status = '' OR employment_status = ? OR (employment_status = ? AND (last_working_date IS NULL OR last_working_date >= ?))",
+			models.EmployeeStatusActive, models.EmployeeStatusOffboarding, today)
+	}
+	if err := query.Find(&employees).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,
 			"msg":  "获取员工列表失败: " + err.Error(),
@@ -199,6 +210,15 @@ func UpdateEmployee(c *gin.Context) {
 // @Router /api/employees/{id} [delete]
 func DeleteEmployee(c *gin.Context) {
 	id := c.Param("id")
+	var employee models.Employee
+	if err := config.DB.First(&employee, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "员工不存在"})
+		return
+	}
+	if employee.EmploymentStatus == models.EmployeeStatusOffboarding || employee.EmploymentStatus == models.EmployeeStatusDeparted {
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "离职交接中的员工需保留档案，不能删除"})
+		return
+	}
 	if err := config.DB.Delete(&models.Employee{}, id).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,
@@ -275,14 +295,30 @@ func effectiveAttendanceEndDate(startMonth time.Time) time.Time {
 	return today
 }
 
-func countAbsentDays(employeeID uint, startMonth time.Time) int {
+func countAbsentDays(employee models.Employee, startMonth time.Time) int {
+	employeeID := employee.ID
+	firstDay := startMonth
+	employmentStart := employee.CreatedAt
+	if employee.EntryDate != nil {
+		employmentStart = *employee.EntryDate
+	}
+	employmentStart = time.Date(employmentStart.Year(), employmentStart.Month(), employmentStart.Day(), 0, 0, 0, 0, time.Local)
+	if employmentStart.After(firstDay) {
+		firstDay = employmentStart
+	}
 	endDate := effectiveAttendanceEndDate(startMonth)
-	if endDate.Before(startMonth) {
+	if employee.LastWorkingDate != nil && employee.LastWorkingDate.Before(endDate) {
+		endDate = time.Date(employee.LastWorkingDate.Year(), employee.LastWorkingDate.Month(), employee.LastWorkingDate.Day(), 0, 0, 0, 0, time.Local)
+	}
+	if employee.DeletedAt.Valid && employee.DeletedAt.Time.Before(endDate) {
+		endDate = time.Date(employee.DeletedAt.Time.Year(), employee.DeletedAt.Time.Month(), employee.DeletedAt.Time.Day(), 0, 0, 0, 0, time.Local)
+	}
+	if endDate.Before(firstDay) {
 		return 0
 	}
 
 	var logs []models.DailyAttendance
-	if err := config.DB.Where("employee_id = ? AND date >= ? AND date <= ?", employeeID, startMonth.Format("2006-01-02"), endDate.Format("2006-01-02")).Find(&logs).Error; err != nil {
+	if err := config.DB.Where("employee_id = ? AND date >= ? AND date <= ?", employeeID, firstDay.Format("2006-01-02"), endDate.Format("2006-01-02")).Find(&logs).Error; err != nil {
 		return 0
 	}
 
@@ -294,7 +330,7 @@ func countAbsentDays(employeeID uint, startMonth time.Time) int {
 	}
 
 	absentDays := 0
-	for day := startMonth; !day.After(endDate); day = day.AddDate(0, 0, 1) {
+	for day := firstDay; !day.After(endDate); day = day.AddDate(0, 0, 1) {
 		if !checkedIn[day.Format("2006-01-02")] {
 			absentDays++
 		}
@@ -467,12 +503,7 @@ func chamberEligibleEmployeeIDs(employees []models.Employee, orderDate time.Time
 		if employee.IsOutsourced || employee.Role == "admin" || employee.Name == "老板" {
 			continue
 		}
-		start := employee.CreatedAt
-		if employee.EntryDate != nil {
-			start = *employee.EntryDate
-		}
-		if start.After(orderDate) ||
-			(employee.DeletedAt.Valid && !employee.DeletedAt.Time.After(orderDate)) {
+		if !employee.WasEmployedAt(orderDate) {
 			continue
 		}
 		ids = append(ids, employee.ID)
@@ -485,7 +516,11 @@ func employeeWorkedDuringMonth(employee models.Employee, startMonth, endMonth ti
 	if employee.EntryDate != nil {
 		start = *employee.EntryDate
 	}
-	return start.Before(endMonth) && (!employee.DeletedAt.Valid || employee.DeletedAt.Time.After(startMonth))
+	if !start.Before(endMonth) {
+		return false
+	}
+	end := employee.EmploymentEndDate()
+	return end == nil || !time.Date(end.Year(), end.Month(), end.Day(), 0, 0, 0, 0, time.Local).Before(startMonth)
 }
 
 func addOrderToCommissionReport(order models.Order, reportMap map[uint]*CommissionReportItem) {
@@ -594,8 +629,12 @@ func GetCommissionReport(c *gin.Context) {
 // @Router /api/employees/simple [get]
 func GetEmployeesSimple(c *gin.Context) {
 	var employees []models.Employee
+	today := time.Now().In(time.Local).Format("2006-01-02")
 	// 我们只查询 id, name, emp_no, is_outsourced, outsourced_type 这几列，排除底薪和密码
-	if err := config.DB.Select("id, name, emp_no, is_outsourced, outsourced_type").Find(&employees).Error; err != nil {
+	if err := config.DB.Select("id, name, emp_no, is_outsourced, outsourced_type").
+		Where("employment_status = '' OR employment_status = ? OR (employment_status = ? AND (last_working_date IS NULL OR last_working_date >= ?))",
+			models.EmployeeStatusActive, models.EmployeeStatusOffboarding, today).
+		Find(&employees).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,
 			"msg":  "获取员工列表失败: " + err.Error(),
@@ -630,6 +669,10 @@ func VerifyPin(c *gin.Context) {
 	var employee models.Employee
 	if err := config.DB.First(&employee, req.EmployeeID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "员工不存在"})
+		return
+	}
+	if !employee.CanUseEmployeeAccess(time.Now()) {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "msg": "员工已离职，不能登录终端"})
 		return
 	}
 
@@ -881,7 +924,7 @@ func ExportEmployees(c *gin.Context) {
 		return
 	}
 
-	headers := []string{"员工ID", "工号", "姓名", "电话", "基本底薪", "提成比例", "是否外包", "入职日期"}
+	headers := []string{"员工ID", "工号", "姓名", "电话", "基本底薪", "提成比例", "是否外包", "入职日期", "任职状态", "最后工作日"}
 	var data [][]interface{}
 	for _, e := range employees {
 		isOut := "否"
@@ -892,6 +935,22 @@ func ExportEmployees(c *gin.Context) {
 		if e.EntryDate != nil {
 			entry = e.EntryDate.Format("2006-01-02")
 		}
+		status := e.EmploymentStatus
+		if status == "" {
+			status = models.EmployeeStatusActive
+		}
+		statusLabel := map[string]string{
+			models.EmployeeStatusActive:      "在职",
+			models.EmployeeStatusOffboarding: "交接中",
+			models.EmployeeStatusDeparted:    "已离职",
+		}[status]
+		if statusLabel == "" {
+			statusLabel = status
+		}
+		lastWorkingDate := "-"
+		if e.LastWorkingDate != nil {
+			lastWorkingDate = e.LastWorkingDate.Format("2006-01-02")
+		}
 		row := []interface{}{
 			e.ID,
 			e.EmpNo,
@@ -901,6 +960,8 @@ func ExportEmployees(c *gin.Context) {
 			e.CommissionRate,
 			isOut,
 			entry,
+			statusLabel,
+			lastWorkingDate,
 		}
 		data = append(data, row)
 	}

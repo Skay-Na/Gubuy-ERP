@@ -58,19 +58,29 @@ function defaultLedgerFilters() {
 
 function periodFilters(value) {
   const now = new Date()
-  if (value === 'all') return { page: 1, page_size: 20 }
+  const baseFilters = {
+    ...ledgerFilters.value,
+    account_id: ledgerFilters.value.account_id || '',
+    flow_type: ledgerFilters.value.flow_type || '',
+    source_type: ledgerFilters.value.source_type || '',
+    keyword: ledgerFilters.value.keyword || '',
+    page: 1,
+    page_size: ledgerFilters.value.page_size || 20
+  }
+  delete baseFilters.start_date
+  delete baseFilters.end_date
+  if (value === 'all') return baseFilters
   if (value === 'custom') {
     return {
+      ...baseFilters,
       start_date: customDateRange.value?.[0],
-      end_date: customDateRange.value?.[1],
-      page: 1,
-      page_size: 20
+      end_date: customDateRange.value?.[1]
     }
   }
   let start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   if (value === 'month') start = new Date(now.getFullYear(), now.getMonth(), 1)
   if (value === 'year') start = new Date(now.getFullYear(), 0, 1)
-  return { start_date: formatDate(start), end_date: formatDate(now), page: 1, page_size: 20 }
+  return { ...baseFilters, start_date: formatDate(start), end_date: formatDate(now) }
 }
 
 async function changePeriod() {

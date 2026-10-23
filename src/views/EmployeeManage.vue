@@ -14,7 +14,7 @@
     </header>
 
     <div class="people-metrics">
-      <div><span>在职正式员工</span><strong>{{ formalCount }}</strong><small>参与薪资结算</small></div>
+      <div><span>在职正式员工</span><strong>{{ formalCount }}</strong><small>不含已离职档案</small></div>
       <div><span>外包合作人员</span><strong>{{ outsourcedCount }}</strong><small>独立管理</small></div>
       <div><span>员工底薪合计</span><strong>¥{{ formatMoney(baseSalaryTotal) }}</strong><small>不含提成与扣款</small></div>
     </div>
@@ -24,7 +24,8 @@
       <el-input v-model="employeeQuery" clearable :placeholder="activeTab === 'employees' ? '搜索姓名、工号或电话' : '搜索姓名或电话'" class="people-search" />
       <span class="people-count">{{ filteredEmployees.length }} 人</span>
     </div>
-    <EmployeeRoster :rows="filteredEmployees" :type="activeTab" :loading="loading" @edit="openDialog" @attendance="viewAttendance" @remove="handleDelete" />
+    <EmployeeRoster :rows="filteredEmployees" :type="activeTab" :loading="loading" @edit="openDialog" @attendance="viewAttendance" @remove="handleDelete" @offboard="openOffboarding" />
+    <EmployeeOffboardingDialog v-model="offboardingVisible" :employee="selectedOffboardingEmployee" :employees="employees" @updated="fetchEmployees" />
 
     <!-- Dialog -->
     <el-dialog
@@ -170,10 +171,13 @@ import dayjs from 'dayjs'
 import PayrollDetail from '../components/employee/PayrollDetail.vue'
 import PayrollWorkspace from '../components/employee/PayrollWorkspace.vue'
 import EmployeeRoster from '../components/employee/EmployeeRoster.vue'
+import EmployeeOffboardingDialog from '../components/employee/EmployeeOffboardingDialog.vue'
 
 const router = useRouter()
 
 const employees = ref([])
+const offboardingVisible = ref(false)
+const selectedOffboardingEmployee = ref(null)
 const loading = ref(false)
 const windowWidth = ref(window.innerWidth)
 const isMobile = computed(() => windowWidth.value < 768)
@@ -188,9 +192,9 @@ const handleExport = () => {
 
 const activeTab = ref('employees')
 const employeeQuery = ref('')
-const formalCount = computed(() => employees.value.filter(row => !row.is_outsourced).length)
+const formalCount = computed(() => employees.value.filter(row => !row.is_outsourced && row.employment_status !== 'departed').length)
 const outsourcedCount = computed(() => employees.value.filter(row => row.is_outsourced).length)
-const baseSalaryTotal = computed(() => employees.value.filter(row => !row.is_outsourced).reduce((total, row) => total + Number(row.base_salary || 0), 0))
+const baseSalaryTotal = computed(() => employees.value.filter(row => !row.is_outsourced && row.employment_status !== 'departed').reduce((total, row) => total + Number(row.base_salary || 0), 0))
 const filteredEmployees = computed(() => {
   const keyword = employeeQuery.value.trim().toLowerCase()
   return employees.value.filter(row => {
@@ -338,7 +342,7 @@ const updateLeaveDays = async (row, days) => {
 const fetchEmployees = async () => {
   loading.value = true
   try {
-    const res = await request.get('/api/employees')
+    const res = await request.get('/api/employees', { params: { include_departed: true } })
     if (res.data.code === 200) {
       employees.value = res.data.data
     }
@@ -347,6 +351,11 @@ const fetchEmployees = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const openOffboarding = row => {
+  selectedOffboardingEmployee.value = row
+  offboardingVisible.value = true
 }
 
 const openDialog = (row) => {

@@ -12,6 +12,11 @@ test('order history filters by one complete month', () => {
   assert.match(orderSource, /endOf\('month'\)\.toISOString\(\)/)
 })
 
+test('order history exposes deleted-employee follow-up filter to list and export queries', () => {
+  assert.match(orderSource, /label: '已删除员工待跟进', value: 'deleted_employee_todo'/)
+  assert.match(orderSource, /deleted_employee_followup: activeTab\.value === 'deleted_employee_todo' \? '1' : ''/)
+})
+
 test('payroll summary separates personal and chamber commissions', () => {
   assert.match(payrollSource, /total\.personalCommission[\s\S]*?row\.personal_commission/)
   assert.match(payrollSource, /total\.chamberCommission[\s\S]*?row\.chamber_commission/)

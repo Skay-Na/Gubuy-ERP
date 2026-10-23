@@ -113,6 +113,10 @@ var errAIEmptyContent = errors.New("模型未返回内容")
 var errAITruncated = errors.New("模型输出达到预算上限，回答未完成")
 
 func callAIChat(ctx context.Context, runtime aiProviderRuntime, system, user string, jsonMode bool) (content string, callErr error) {
+	return callAIChatContent(ctx, runtime, system, user, jsonMode)
+}
+
+func callAIChatContent(ctx context.Context, runtime aiProviderRuntime, system string, userContent any, jsonMode bool) (content string, callErr error) {
 	started := time.Now()
 	trace := agentTraceFrom(ctx)
 	call := agentCallTrace{Model: runtime.Model}
@@ -125,7 +129,7 @@ func callAIChat(ctx context.Context, runtime aiProviderRuntime, system, user str
 			trace.Calls = append(trace.Calls, call)
 		}
 	}()
-	payload := gin.H{"model": runtime.Model, "messages": []gin.H{{"role": "system", "content": system}, {"role": "user", "content": user}}}
+	payload := gin.H{"model": runtime.Model, "messages": []gin.H{{"role": "system", "content": system}, {"role": "user", "content": userContent}}}
 	if jsonMode && runtime.JSONMode {
 		payload["response_format"] = gin.H{"type": "json_object"}
 		payload["max_tokens"] = 4096
@@ -248,6 +252,12 @@ func answerProfit(period string) (string, error) {
 		Select("COALESCE(SUM(order_items.unit_cost * order_items.quantity), 0)").Scan(&cost).Error; err != nil {
 		return "", err
 	}
+	var uncostedOrderItems int64
+	if err := config.DB.Table("order_items").Joins("JOIN orders ON order_items.order_id = orders.id").
+		Where("orders.order_status = 1 AND orders.deleted_at IS NULL AND orders.created_at >= ? AND orders.created_at < ? AND order_items.unit_cost <= 0", start, end).
+		Count(&uncostedOrderItems).Error; err != nil {
+		return "", err
+	}
 	if err := config.DB.Model(&models.Order{}).Where(where, start, end).
 		Select("COALESCE(SUM(delivery_fee), 0) AS delivery_fee, COALESCE(SUM(installation_fee), 0) AS installation_fee, COALESCE(SUM(referral_fee), 0) AS referral_fee, COALESCE(SUM(commission_amount), 0) AS commission_amount, COALESCE(SUM(trade_in_amount), 0) AS trade_in_amount").Scan(&fees).Error; err != nil {
 		return "", err
@@ -257,5 +267,8 @@ func answerProfit(period string) (string, error) {
 		return "", err
 	}
 	gross := CalculateGrossProfit(revenue, cost, fees.DeliveryFee, fees.InstallationFee, fees.ReferralFee, fees.CommissionAmount, fees.TradeInAmount)
+	if uncostedOrderItems > 0 {
+		return fmt.Sprintf("%s（%s 至 %s）：\n营业额 ¥%.2f，订单 %d 笔。\n有 %d 条订单明细成本待核，销售毛利和经营净利润暂不提供；请先核对历史成本。", label, start.Format("2006-01-02"), end.Format("2006-01-02"), revenue, count, uncostedOrderItems), nil
+	}
 	return fmt.Sprintf("%s（%s 至 %s）：\n营业额 ¥%.2f，订单 %d 笔。\n销售毛利 ¥%.2f，经营费用 ¥%.2f，经营净利润 ¥%.2f。\n口径与财务总览一致：仅统计有效订单，净利润为毛利减经营费用。", label, start.Format("2006-01-02"), end.Format("2006-01-02"), revenue, count, gross, operating, CalculateNetProfit(gross, operating)), nil
 }

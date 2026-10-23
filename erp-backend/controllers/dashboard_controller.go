@@ -19,11 +19,12 @@ type ProductSaleStat struct {
 
 // EmployeeRankStat 员工销售排名
 type EmployeeRankStat struct {
-	EmployeeID  uint    `json:"employee_id"`
-	Name        string  `json:"name"`
-	OrderCount  int     `json:"order_count"`
-	Revenue     float64 `json:"revenue"`
-	GrossProfit float64 `json:"gross_profit"`
+	EmployeeID             uint    `json:"employee_id"`
+	Name                   string  `json:"name"`
+	OrderCount             int     `json:"order_count"`
+	Revenue                float64 `json:"revenue"`
+	GrossProfit            float64 `json:"gross_profit"`
+	UncostedOrderItemCount int64   `json:"uncosted_order_item_count"`
 }
 
 // CategorySaleStat 分类销售统计
@@ -41,21 +42,24 @@ type DailySaleTrend struct {
 
 // FinanceSummaryResponse 财务总览响应数据结构
 type FinanceSummaryResponse struct {
-	TodayRevenue        float64            `json:"today_revenue"`
-	TotalIncome         float64            `json:"total_income"`
-	TotalExpense        float64            `json:"total_expense"`
-	PendingSubsidy      float64            `json:"pending_subsidy"`
-	OrderCount          int64              `json:"order_count"`
-	PendingBalance      float64            `json:"pending_balance"`       // 待收尾款总额
-	PendingBalanceCount int64              `json:"pending_balance_count"` // 欠款订单数
-	Accounts            []models.Account   `json:"accounts"`              // 各账户余额
-	TopProducts         []ProductSaleStat  `json:"top_products"`          // 热销排行
-	GrossProfit         float64            `json:"gross_profit"`          // 销售毛利
-	OperatingExpense    float64            `json:"operating_expense"`     // 日常经营费用，不含货款与以旧换新
-	NetProfit           float64            `json:"net_profit"`            // 经营净利润
-	EmployeeRankings    []EmployeeRankStat `json:"employee_rankings"`
-	CategorySales       []CategorySaleStat `json:"category_sales"`
-	SalesTrend          []DailySaleTrend   `json:"sales_trend"`
+	TodayRevenue             float64            `json:"today_revenue"`
+	TotalIncome              float64            `json:"total_income"`
+	TotalExpense             float64            `json:"total_expense"`
+	PendingSubsidy           float64            `json:"pending_subsidy"`
+	OrderCount               int64              `json:"order_count"`
+	PendingBalance           float64            `json:"pending_balance"`       // 待收尾款总额
+	PendingBalanceCount      int64              `json:"pending_balance_count"` // 欠款订单数
+	Accounts                 []models.Account   `json:"accounts"`              // 各账户余额
+	TopProducts              []ProductSaleStat  `json:"top_products"`          // 热销排行
+	GrossProfit              float64            `json:"gross_profit"`          // 销售毛利
+	CostIncomplete           bool               `json:"cost_incomplete"`
+	UncostedOrderItems       int64              `json:"uncosted_order_item_count"`
+	PendingZeroCostSaleCount int64              `json:"pending_zero_cost_sale_count"`
+	OperatingExpense         float64            `json:"operating_expense"` // 日常经营费用，不含货款与以旧换新
+	NetProfit                float64            `json:"net_profit"`        // 经营净利润
+	EmployeeRankings         []EmployeeRankStat `json:"employee_rankings"`
+	CategorySales            []CategorySaleStat `json:"category_sales"`
+	SalesTrend               []DailySaleTrend   `json:"sales_trend"`
 }
 
 // CalculatePendingSubsidy 计算累计应回款扣除累计回款后的余额。
@@ -259,7 +263,33 @@ func GetFinanceSummary(c *gin.Context) {
 	if !endTime.IsZero() {
 		costDB = costDB.Where("orders.created_at <= ?", endTime)
 	}
-	costDB.Select("COALESCE(SUM(order_items.unit_cost * order_items.quantity), 0)").Scan(&totalCost)
+	if err := costDB.Select("COALESCE(SUM(order_items.unit_cost * order_items.quantity), 0)").Scan(&totalCost).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取订单成本失败"})
+		return
+	}
+	uncostedCostDB := config.DB.Table("order_items").
+		Joins("JOIN orders ON order_items.order_id = orders.id").
+		Where("orders.order_status = 1 AND order_items.unit_cost <= 0")
+	if !startTime.IsZero() {
+		uncostedCostDB = uncostedCostDB.Where("orders.created_at >= ?", startTime)
+	}
+	if !endTime.IsZero() {
+		uncostedCostDB = uncostedCostDB.Where("orders.created_at <= ?", endTime)
+	}
+	if err := uncostedCostDB.Count(&summary.UncostedOrderItems).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取待核订单成本数量失败"})
+		return
+	}
+	summary.CostIncomplete = summary.UncostedOrderItems > 0
+
+	// 看板重要事项是全量待处理提醒，不受当前经营统计期间筛选影响。
+	pendingZeroCostSalesDB := config.DB.Table("order_items").
+		Joins("JOIN orders ON order_items.order_id = orders.id").
+		Where("order_items.unit_cost <= 0 AND orders.order_status = ? AND orders.deleted_at IS NULL", 1)
+	if err := pendingZeroCostSalesDB.Count(&summary.PendingZeroCostSaleCount).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取零成本售出提醒失败"})
+		return
+	}
 
 	summary.GrossProfit = CalculateGrossProfit(
 		summary.TodayRevenue,
@@ -288,9 +318,9 @@ func GetFinanceSummary(c *gin.Context) {
 	bossRankExpr := "IF(orders.order_type = 2, '商会订单', IF(" + bossOrderExpr + ", '老板客户', employees.name))"
 	employeeRankIDExpr := "IF(orders.order_type = 2, 999999, IF(" + bossOrderExpr + ", 0, orders.employee_id))"
 	rankDB := config.DB.Table("orders").
-		Select(employeeRankIDExpr+" as employee_id, "+bossRankExpr+" as name, COUNT(orders.id) as order_count, SUM(orders.total_amount) as revenue, SUM(orders.total_amount - COALESCE(cost_tb.total_cost, 0) - orders.delivery_fee - orders.installation_fee - orders.referral_fee - orders.commission_amount) as gross_profit").
+		Select(employeeRankIDExpr+" as employee_id, "+bossRankExpr+" as name, COUNT(orders.id) as order_count, SUM(orders.total_amount) as revenue, SUM(orders.total_amount - COALESCE(cost_tb.total_cost, 0) - orders.delivery_fee - orders.installation_fee - orders.referral_fee - orders.commission_amount) as gross_profit, SUM(COALESCE(cost_tb.uncosted_count, 0)) as uncosted_order_item_count").
 		Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
-		Joins("LEFT JOIN (SELECT order_id, SUM(unit_cost * quantity) as total_cost FROM order_items GROUP BY order_id) as cost_tb ON cost_tb.order_id = orders.id").
+		Joins("LEFT JOIN (SELECT order_id, SUM(unit_cost * quantity) as total_cost, SUM(CASE WHEN unit_cost <= 0 THEN 1 ELSE 0 END) as uncosted_count FROM order_items GROUP BY order_id) as cost_tb ON cost_tb.order_id = orders.id").
 		Where("orders.order_status = 1").
 		Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR employees.is_outsourced = ?)", false)
 	if !startTime.IsZero() {

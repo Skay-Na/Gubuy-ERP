@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type CreateSubsidySettlementRequest struct {
@@ -44,7 +45,7 @@ func CreateSubsidySettlement(c *gin.Context) {
 
 	// 1. 增加账户余额 (使用行级锁)
 	var account models.Account
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&account, input.AccountID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, input.AccountID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "账户查询失败"})
 		return

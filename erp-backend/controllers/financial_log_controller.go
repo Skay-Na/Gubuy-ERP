@@ -82,7 +82,7 @@ func GetFinancialLogs(c *gin.Context) {
 	if keyword != "" {
 		likeKeyword := "%" + keyword + "%"
 		query = query.Where(
-			"category LIKE ? OR counterparty LIKE ? OR related_no LIKE ? OR remark LIKE ?",
+			"(category LIKE ? OR counterparty LIKE ? OR related_no LIKE ? OR remark LIKE ?)",
 			likeKeyword,
 			likeKeyword,
 			likeKeyword,
@@ -191,7 +191,7 @@ func ExportFinancialLogs(c *gin.Context) {
 	if keyword != "" {
 		likeKeyword := "%" + keyword + "%"
 		query = query.Where(
-			"category LIKE ? OR counterparty LIKE ? OR related_no LIKE ? OR remark LIKE ?",
+			"(category LIKE ? OR counterparty LIKE ? OR related_no LIKE ? OR remark LIKE ?)",
 			likeKeyword,
 			likeKeyword,
 			likeKeyword,

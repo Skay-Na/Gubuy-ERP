@@ -4,9 +4,13 @@
     <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
       <div>
         <h1 class="text-2xl font-black text-slate-900 tracking-tight">库存流水审计</h1>
-        <p class="text-xs text-slate-400 mt-1">追踪入库、出库、调拨及盘点历史</p>
+        <p class="text-xs text-slate-400 mt-1">追踪库存变动和员工操作人</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
+        <StocktakeBatchAdminManager />
+        <el-button type="warning" plain class="!rounded-xl h-10" @click="openPendingStocktakes">
+          待审核盘点<span v-if="pendingStocktakeCount" class="ml-1 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] text-white">{{ pendingStocktakeCount }}</span>
+        </el-button>
         <el-input 
           v-model="filters.keyword" 
           placeholder="搜索商品或备注..." 
@@ -31,6 +35,9 @@
           <el-option label="门店" :value="2" />
           <el-option label="云仓" :value="3" />
           <el-option label="样机" :value="4" />
+        </el-select>
+        <el-select v-model="filters.operator_id" placeholder="操作员工" clearable filterable class="!w-[calc(50%-4px)] md:!w-36" @change="handleFilter">
+          <el-option v-for="employee in employees" :key="employee.id" :label="employee.name" :value="employee.id" />
         </el-select>
         <el-button @click="resetFilters" class="!rounded-xl h-10">重置</el-button>
         <el-button type="success" plain @click="handleExport" class="!rounded-xl h-10 border-green-200">
@@ -58,6 +65,11 @@
               <span v-if="row.product?.remark" class="text-xs text-slate-500 truncate" :title="row.product.remark">{{ row.product.remark }}</span>
               <span class="text-slate-400 font-mono text-[11px]">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}</span>
             </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作人" width="110">
+          <template #default="{ row }">
+            <span :class="row.operator_name ? 'font-semibold text-slate-700' : 'text-slate-400'">{{ row.operator_name || '历史记录' }}</span>
           </template>
         </el-table-column>
         <el-table-column label="变动" width="135">
@@ -122,6 +134,7 @@
                 <el-tag size="small" :type="getLogTypeTag(row.log_type).type" effect="dark">{{ getLogTypeTag(row.log_type).label }}</el-tag>
                 <span class="text-[10px] text-slate-400">{{ getWarehouseName(row.warehouse_type) }}</span>
               </div>
+              <span class="mt-1 text-[11px] text-slate-500">操作人：{{ row.operator_name || '历史记录' }}</span>
             </div>
             <div class="text-right flex-shrink-0">
               <div class="font-black text-lg" :class="row.change_qty > 0 ? 'text-blue-600' : 'text-red-500'">
@@ -159,24 +172,71 @@
         </div>
         <el-empty v-if="!loading && logList.length === 0" description="暂无变动记录" class="md:col-span-2" />
       </div>
+      <div class="flex justify-end border-t border-slate-100 p-3">
+        <el-pagination
+          background
+          layout="prev, pager, next, total"
+          :current-page="page"
+          :page-size="pageSize"
+          :total="total"
+          @current-change="changePage"
+        />
+      </div>
     </el-card>
+
+    <el-dialog v-model="pendingStocktakesVisible" title="员工盘点差异审核" width="min(1050px, calc(100vw - 24px))" destroy-on-close>
+      <el-table v-loading="pendingStocktakesLoading" :data="pendingStocktakes" stripe max-height="65vh">
+        <el-table-column label="商品 / 仓库" min-width="180">
+          <template #default="{ row }">
+            <div class="font-bold text-slate-800">{{ row.product?.name || '商品已删除' }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ getWarehouseName(row.warehouse_type) }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作员工" width="110"><template #default="{ row }">{{ row.operator_name || '未知员工' }}</template></el-table-column>
+        <el-table-column label="账面 → 实盘" width="135" align="center"><template #default="{ row }">{{ row.expected_stock }} → {{ row.actual_stock }}</template></el-table-column>
+        <el-table-column label="差异" width="85" align="center"><template #default="{ row }"><span :class="row.difference < 0 ? 'text-red-600' : 'text-blue-600'" class="font-bold">{{ row.difference > 0 ? '+' : '' }}{{ row.difference }}</span></template></el-table-column>
+        <el-table-column label="差异原因" min-width="190"><template #default="{ row }">{{ row.remark }}</template></el-table-column>
+        <el-table-column label="申请时间" width="165"><template #default="{ row }">{{ formatDate(row.created_at) }}</template></el-table-column>
+        <el-table-column label="操作" width="145" fixed="right" align="center">
+          <template #default="{ row }">
+            <div v-if="row.status === 'pending'" class="flex justify-center gap-1">
+              <el-button link type="success" @click="approvePendingStocktake(row)">通过</el-button>
+              <el-button link type="danger" @click="rejectPendingStocktake(row)">驳回</el-button>
+            </div>
+            <el-tag v-else :type="row.status === 'approved' ? 'success' : 'info'">{{ row.status === 'approved' ? '已通过' : '已驳回' }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!pendingStocktakesLoading && pendingStocktakes.length === 0" description="暂无盘点审核申请" />
+      <template #footer><el-button @click="pendingStocktakesVisible = false">关闭</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, reactive } from 'vue'
 import { Search, Right, Download } from '@element-plus/icons-vue'
+import StocktakeBatchAdminManager from '../components/inventory/StocktakeBatchAdminManager.vue'
 import request from '../utils/request'
 import { downloadExcel } from '../utils/export'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const loading = ref(false)
 const logList = ref([])
+const employees = ref([])
+const page = ref(1)
+const pageSize = 50
+const total = ref(0)
+const pendingStocktakesVisible = ref(false)
+const pendingStocktakesLoading = ref(false)
+const pendingStocktakes = ref([])
+const pendingStocktakeCount = ref(0)
 const filters = reactive({
   keyword: '',
   log_type: '',
   warehouse_type: '',
-  product_id: ''
+  product_id: '',
+  operator_id: ''
 })
 
 const handleExport = () => {
@@ -187,10 +247,11 @@ const fetchLogs = async () => {
   loading.value = true
   try {
     const res = await request.get('/api/inventory/logs', {
-      params: filters
+      params: { ...filters, page: page.value, page_size: pageSize }
     })
     if (res.data.code === 200) {
-      logList.value = res.data.data
+      logList.value = res.data.data || []
+      total.value = Number(res.data.total) || 0
     }
   } catch (error) {
     ElMessage.error('获取库存流水失败')
@@ -199,15 +260,86 @@ const fetchLogs = async () => {
   }
 }
 
+const fetchPendingStocktakes = async () => {
+  pendingStocktakesLoading.value = true
+  try {
+    const res = await request.get('/api/pending-stocktakes', { params: { status: 'pending' } })
+    if (res.data.code === 200) {
+      pendingStocktakes.value = res.data.data || []
+      pendingStocktakeCount.value = pendingStocktakes.value.length
+    }
+  } catch {
+    ElMessage.error('获取盘点审核列表失败')
+  } finally {
+    pendingStocktakesLoading.value = false
+  }
+}
+
+const openPendingStocktakes = () => {
+  pendingStocktakesVisible.value = true
+  fetchPendingStocktakes()
+}
+
+const approvePendingStocktake = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确认通过「${row.product?.name || '该商品'}」的库存差异 ${row.difference > 0 ? '+' : ''}${row.difference}？`, '审核盘点差异', { type: 'warning', confirmButtonText: '通过并调整库存' })
+    const res = await request.post(`/api/pending-stocktakes/${row.id}/approve`)
+    if (res.data.code === 200) {
+      ElMessage.success('盘点差异已通过并应用')
+      await Promise.all([fetchPendingStocktakes(), fetchLogs()])
+    } else {
+      ElMessage.error(res.data.msg || '审核失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') {
+      const message = error.response?.data?.msg
+      if (error.response?.status === 409 && message?.includes('退回员工重新盘点')) {
+        ElMessage.warning(message)
+        await Promise.all([fetchPendingStocktakes(), fetchLogs()])
+      } else {
+        ElMessage.error(message || '审核失败')
+      }
+    }
+  }
+}
+
+const rejectPendingStocktake = async (row) => {
+  try {
+    const { value: reason } = await ElMessageBox.prompt('请填写驳回原因，员工可在申请状态中查看。', '驳回盘点差异', {
+      confirmButtonText: '确认驳回', cancelButtonText: '取消', inputType: 'textarea',
+      inputPattern: /\S+/, inputErrorMessage: '驳回原因不能为空',
+      inputValidator: (value) => (value || '').trim().length <= 255 || '驳回原因最多 255 个字'
+    })
+    const res = await request.post(`/api/pending-stocktakes/${row.id}/reject`, { review_remark: reason.trim() })
+    if (res.data.code === 200) {
+      ElMessage.success('已驳回盘点申请')
+      await fetchPendingStocktakes()
+    } else {
+      ElMessage.error(res.data.msg || '驳回失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error.response?.data?.msg || '驳回失败')
+  }
+}
+
+const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-'
+
 let searchTimer = null
 const handleKeywordInput = () => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    page.value = 1
     fetchLogs()
   }, 500)
 }
 
 const handleFilter = () => {
+  page.value = 1
+  fetchLogs()
+}
+
+const changePage = (nextPage) => {
+  page.value = nextPage
   fetchLogs()
 }
 
@@ -216,7 +348,18 @@ const resetFilters = () => {
   filters.log_type = ''
   filters.warehouse_type = ''
   filters.product_id = ''
+  filters.operator_id = ''
+  page.value = 1
   fetchLogs()
+}
+
+const fetchEmployees = async () => {
+  try {
+    const res = await request.get('/api/employees/simple')
+    if (res.data.code === 200) employees.value = (res.data.data || []).filter(employee => !employee.is_outsourced)
+  } catch {
+    ElMessage.error('获取员工列表失败')
+  }
 }
 
 const handleCancelInbound = async (row) => {
@@ -315,6 +458,8 @@ const getLogTypeTag = (type) => {
 
 onMounted(() => {
   fetchLogs()
+  fetchEmployees()
+  fetchPendingStocktakes()
 })
 </script>
 

@@ -5,22 +5,25 @@ import (
 	"erp-backend/models"
 	"fmt"
 	"net/http"
+	"sort"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // InboundRequest 入库请求体
 type InboundRequest struct {
 	ProductID      uint    `json:"product_id" binding:"required"`
 	Quantity       int     `json:"quantity" binding:"required,gt=0"`
-	UnitCost       float64 `json:"unit_cost" binding:"gte=0"`
+	UnitCost       float64 `json:"unit_cost" binding:"required,gt=0"`
 	AccountID      *uint   `json:"account_id"`
 	WarehouseType  int     `json:"warehouse_type" binding:"required,oneof=1 2 3"`
 	SettlementType string  `json:"settlement_type"`
 }
 
-// CreateInbound 处理商品入库，同步更新账户余额（支出）
+// CreateInbound records inventory quantity and cost basis without moving money.
 // @Summary 创建入库单
 // @Description 创建入库单
 // @Tags Inbounds
@@ -40,6 +43,10 @@ func CreateInbound(c *gin.Context) {
 		})
 		return
 	}
+	operator := InventoryOperatorFromContext(c)
+	if req.WarehouseType == 1 {
+		req.WarehouseType = 3
+	}
 	settlement, err := normalizeInboundSettlement(req.SettlementType, req.AccountID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
@@ -48,27 +55,31 @@ func CreateInbound(c *gin.Context) {
 
 	// 1. 开启事务
 	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "启动事务失败"})
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
 		}
 	}()
 
-	// 2. 现款采购验证账户和余额；卖后结算仅增加库存，不产生现金支出。
-	var account models.Account
-	totalCost := float64(req.Quantity) * req.UnitCost
-	if settlement.Type == SettlementTypeCashPurchase {
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&account, *settlement.AccountID).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "支付账户不存在"})
-			return
-		}
-		if account.Balance < totalCost {
-			tx.Rollback()
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": fmt.Sprintf("账户余额不足 (当前: ¥%.2f, 需支付: ¥%.2f)", account.Balance, totalCost)})
-			return
-		}
+	// Product rows are always locked before account rows across inventory flows.
+	var product models.Product
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, req.ProductID).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": fmt.Sprintf("商品 ID %d 不存在", req.ProductID)})
+		return
 	}
+	if err := ensureProductCostBaseline(tx, product); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "建立商品成本基准失败"})
+		return
+	}
+
+	// Procurement is an inventory/cost record, not a cash payment.
+	totalCost := float64(req.Quantity) * req.UnitCost
 
 	// 3. 计算并创建入库明细记录
 	inboundRecord := models.InboundRecord{
@@ -89,42 +100,13 @@ func CreateInbound(c *gin.Context) {
 		return
 	}
 
-	// 4. 更新对应的商品记录 (库存累加 + 最新进价覆盖)
-	var product models.Product
-	if err := tx.First(&product, req.ProductID).Error; err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 404,
-			"msg":  fmt.Sprintf("商品 ID %d 不存在", req.ProductID),
-		})
-		return
-	}
-
-	// 计算移动加权平均成本
-	currentTotalStock := product.MainStock + product.StoreStock + product.CloudStock
-
-	// 处理初始数据：如果 AvgCost 是 0，则假定现有库存的成本为 LatestCost
-	oldAvgCost := product.AvgCost
-	if oldAvgCost == 0 && product.LatestCost > 0 {
-		oldAvgCost = product.LatestCost
-	}
-
-	newAvgCost := req.UnitCost
-	if currentTotalStock > 0 {
-		newAvgCost = (float64(currentTotalStock)*oldAvgCost + float64(req.Quantity)*req.UnitCost) / float64(currentTotalStock+req.Quantity)
-	}
-
+	// 4. 更新对应的商品库存；成本统一从有效成本流水重算。
 	updates := map[string]interface{}{}
-	if req.WarehouseType == 1 {
-		updates["main_stock"] = product.MainStock + req.Quantity
-	} else if req.WarehouseType == 2 {
+	if req.WarehouseType == 2 {
 		updates["store_stock"] = product.StoreStock + req.Quantity
 	} else if req.WarehouseType == 3 {
 		updates["cloud_stock"] = product.CloudStock + req.Quantity
 	}
-	updates["latest_cost"] = req.UnitCost
-	updates["avg_cost"] = newAvgCost
-
 	if err := tx.Model(&product).Updates(updates).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{
@@ -134,40 +116,25 @@ func CreateInbound(c *gin.Context) {
 		return
 	}
 
-	if settlement.Type == SettlementTypeCashPurchase {
-		// 5. 更新账户余额（采购支出，减少余额）
-		if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance - ?", totalCost)).Error; err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "账户余额扣除失败"})
-			return
-		}
-
-		// 5.5 同步记录财务明细，修正仪表盘总支出不平的问题
-		var updatedAccount models.Account
-		tx.First(&updatedAccount, *settlement.AccountID)
-		if err := WriteFinancialLog(tx, *settlement.AccountID, 2, "采购货款", totalCost, updatedAccount.Balance, "", fmt.Sprintf("采购入库 商品 ID: %d, 入库数量: %d件, 成本价: ¥%.2f", req.ProductID, req.Quantity, req.UnitCost)); err != nil {
-			tx.Rollback()
-			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "财务流水写入失败"})
-			return
-		}
-	}
-
-	// 5.6 记录库存流水
+	// Record the inventory cost event; sale orders snapshot the resulting cost for profit.
 	beforeQty := 0
-	if req.WarehouseType == 1 {
-		beforeQty = product.MainStock
-	} else if req.WarehouseType == 2 {
+	if req.WarehouseType == 2 {
 		beforeQty = product.StoreStock
 	} else if req.WarehouseType == 3 {
 		beforeQty = product.CloudStock
 	}
 
-	if err := WriteInventoryLog(tx, req.ProductID, req.WarehouseType, "purchase", beforeQty, req.Quantity, req.UnitCost, fmt.Sprintf("%d", inboundRecord.ID), fmt.Sprintf("采购入库：数量 %d", req.Quantity)); err != nil {
+	if err := WriteInventoryLog(tx, req.ProductID, req.WarehouseType, "purchase", beforeQty, req.Quantity, req.UnitCost, fmt.Sprintf("%d", inboundRecord.ID), fmt.Sprintf("采购入库：数量 %d", req.Quantity), operator); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,
 			"msg":  "库存流水写入失败",
 		})
+		return
+	}
+	if err := RecalculateSingleProductCosts(tx, req.ProductID); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "成本重算失败：" + err.Error()})
 		return
 	}
 
@@ -182,7 +149,7 @@ func CreateInbound(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
-		"msg":  "采购入库成功，账户余额已更新",
+		"msg":  "商品入库成功，已记录库存成本，本次未扣资金账户",
 		"data": inboundRecord,
 	})
 }
@@ -201,6 +168,7 @@ func CreateInbound(c *gin.Context) {
 // @Router /api/inbounds/cancel-by-log/{log_id} [post]
 func CancelInboundByLog(c *gin.Context) {
 	logID := c.Param("log_id")
+	operator := InventoryOperatorFromContext(c)
 
 	tx := config.DB.Begin()
 	defer func() {
@@ -211,7 +179,7 @@ func CancelInboundByLog(c *gin.Context) {
 
 	// 1. 查询目标库存流水记录
 	var log models.InventoryLog
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&log, logID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&log, logID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
@@ -251,10 +219,14 @@ func CancelInboundByLog(c *gin.Context) {
 		})
 		return
 	}
+	warehouseType := log.WarehouseType
+	if warehouseType == 1 {
+		warehouseType = 3
+	}
 
 	// 查询商品主体信息
 	var product models.Product
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&product, inboundRecord.ProductID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, inboundRecord.ProductID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
@@ -262,14 +234,18 @@ func CancelInboundByLog(c *gin.Context) {
 		})
 		return
 	}
+	if err := ensureProductCostBaseline(tx, product); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "建立商品成本基准失败"})
+		return
+	}
+	refundedPayment := false
 
 	// 4. 校验对应仓库的当前可用库存是否充足
 	var currentStock int
-	if log.WarehouseType == 1 {
-		currentStock = product.MainStock
-	} else if log.WarehouseType == 2 {
+	if warehouseType == 2 {
 		currentStock = product.StoreStock
-	} else if log.WarehouseType == 3 {
+	} else if warehouseType == 3 {
 		currentStock = product.CloudStock
 	}
 
@@ -277,45 +253,49 @@ func CancelInboundByLog(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 400,
-			"msg":  fmt.Sprintf("可用库存不足，无法撤销此入库记录 (当前 %s 库存: %d件, 需扣减: %d件)", getWarehouseNameString(log.WarehouseType), currentStock, inboundRecord.Quantity),
+			"msg":  fmt.Sprintf("可用库存不足，无法撤销此入库记录 (当前 %s 库存: %d件, 需扣减: %d件)", getWarehouseNameString(warehouseType), currentStock, inboundRecord.Quantity),
 		})
 		return
 	}
 
 	// 5. 原路扣减库存
 	updates := map[string]interface{}{}
-	if log.WarehouseType == 1 {
-		updates["main_stock"] = product.MainStock - inboundRecord.Quantity
-	} else if log.WarehouseType == 2 {
+	if warehouseType == 2 {
 		updates["store_stock"] = product.StoreStock - inboundRecord.Quantity
-	} else if log.WarehouseType == 3 {
+	} else if warehouseType == 3 {
 		updates["cloud_stock"] = product.CloudStock - inboundRecord.Quantity
 	}
 
-	// 6. 原路退回采购款项到原账户
-	if inboundRecord.AccountID != nil {
+	// Refund only legacy records that explicitly represent a real cash purchase.
+	if inboundRecord.SettlementType == SettlementTypeCashPurchase && inboundRecord.AccountID != nil {
 		var account models.Account
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&account, *inboundRecord.AccountID).Error; err == nil {
-			// 退款
-			if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance + ?", inboundRecord.TotalCost)).Error; err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "账户退款余额增加失败"})
-				return
-			}
-
-			// 记录冲销财务日志
-			var updatedAccount models.Account
-			tx.First(&updatedAccount, *inboundRecord.AccountID)
-			if err := WriteFinancialLog(tx, *inboundRecord.AccountID, 1, "采购退货红冲", inboundRecord.TotalCost, updatedAccount.Balance, "", fmt.Sprintf("撤销采购入库：商品 ID: %d, 撤销数量: %d件, 原路退还货款: ¥%.2f", inboundRecord.ProductID, inboundRecord.Quantity, inboundRecord.TotalCost)); err != nil {
-				tx.Rollback()
-				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "采购红冲财务流水日志写入失败"})
-				return
-			}
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, *inboundRecord.AccountID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "原采购付款账户不存在，无法安全撤销"})
+			return
 		}
+		if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance + ?", inboundRecord.TotalCost)).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "账户退款余额增加失败"})
+			return
+		}
+
+		var updatedAccount models.Account
+		if err := tx.First(&updatedAccount, *inboundRecord.AccountID).Error; err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取退款后账户余额失败"})
+			return
+		}
+		if err := WriteFinancialLog(tx, *inboundRecord.AccountID, 1, "采购退货红冲", inboundRecord.TotalCost, updatedAccount.Balance, "", fmt.Sprintf("撤销采购入库：商品 ID: %d, 撤销数量: %d件, 原路退还货款: ¥%.2f", inboundRecord.ProductID, inboundRecord.Quantity, inboundRecord.TotalCost)); err != nil {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "采购红冲财务流水日志写入失败"})
+			return
+		}
+		refundedPayment = true
 	}
 
 	// 7. 写入退库库存审计流水
-	if err := WriteInventoryLog(tx, inboundRecord.ProductID, log.WarehouseType, "cancel", currentStock, -inboundRecord.Quantity, inboundRecord.UnitCost, log.RelatedNo, fmt.Sprintf("入库撤销(红冲)：原进价 ¥%.2f", inboundRecord.UnitCost)); err != nil {
+	if err := WriteInventoryLog(tx, inboundRecord.ProductID, warehouseType, "cancel", currentStock, -inboundRecord.Quantity, inboundRecord.UnitCost, log.RelatedNo, fmt.Sprintf("入库撤销(红冲)：原进价 ¥%.2f", inboundRecord.UnitCost), operator); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "采购红冲库存日志写入失败"})
 		return
@@ -354,9 +334,13 @@ func CancelInboundByLog(c *gin.Context) {
 		return
 	}
 
+	message := "入库已撤销，库存和成本已重新核算"
+	if refundedPayment {
+		message = "入库已撤销，旧采购款已退回原付款账户，库存和成本已重新核算"
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
-		"msg":  "入库流水红冲成功，货款已退回原付款账户，成本已重新校准！",
+		"msg":  message,
 	})
 }
 
@@ -374,48 +358,177 @@ func getWarehouseNameString(wType int) string {
 	}
 }
 
-// RecalculateSingleProductCosts 在事务中为指定商品重新核算移动加权平均成本及最新进价
+func productTotalStock(product models.Product) int {
+	return product.MainStock + product.StoreStock + product.CloudStock + product.SampleStock
+}
+
+// ensureProductCostBaseline records the current stock and known average as the
+// opening balance for future event-based recalculations. This avoids replaying
+// incomplete legacy logs over a cost that was already calibrated.
+func ensureProductCostBaseline(tx *gorm.DB, product models.Product) error {
+	var count int64
+	if err := tx.Model(&models.HistoricalCostRepair{}).
+		Where("product_id = ? AND cost_baseline = ?", product.ID, true).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count > 0 {
+		return nil
+	}
+	cost := product.AvgCost
+	if cost <= 0 {
+		cost = product.LatestCost
+	}
+	if cost <= 0 {
+		return nil
+	}
+	return tx.Create(&models.HistoricalCostRepair{
+		ProductID:        product.ID,
+		UnitCost:         cost,
+		PreviousUnitCost: product.AvgCost,
+		StockQty:         productTotalStock(product),
+		CostBaseline:     true,
+		Remark:           "自动建立库存成本期初基准",
+	}).Error
+}
+
+type productCostEvent struct {
+	createdAt time.Time
+	log       *models.InventoryLog
+	baseline  *models.HistoricalCostRepair
+}
+
+func addCostToStock(quantity int, averageCost float64, changeQty int, unitCost float64) (int, float64) {
+	newQuantity := quantity + changeQty
+	if quantity <= 0 {
+		return newQuantity, unitCost
+	}
+	return newQuantity, (float64(quantity)*averageCost + float64(changeQty)*unitCost) / float64(newQuantity)
+}
+
+// RecalculateSingleProductCosts replays the canonical inventory cost events
+// from the latest audited baseline. Transfers do not change total stock value.
 func RecalculateSingleProductCosts(tx *gorm.DB, productID uint) error {
 	var p models.Product
-	if err := tx.First(&p, productID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&p, productID).Error; err != nil {
 		return err
 	}
 
+	var latestBaseline models.HistoricalCostRepair
+	baselineErr := tx.Where("product_id = ? AND cost_baseline = ?", p.ID, true).
+		Order("created_at desc, id desc").First(&latestBaseline).Error
+	hasBaseline := baselineErr == nil
+	if baselineErr != nil && baselineErr != gorm.ErrRecordNotFound {
+		return baselineErr
+	}
+
 	var logs []models.InventoryLog
-	err := tx.Where("product_id = ? AND log_type IN ? AND change_qty > 0 AND unit_cost > 0", p.ID, []string{"purchase", "stocktake"}).Find(&logs).Error
+	err := tx.Where("product_id = ? AND log_type IN ?", p.ID, []string{"purchase", "purchase_void", "sale", "cancel", "stocktake"}).
+		Order("created_at asc, id asc").Find(&logs).Error
 	if err != nil {
 		return err
 	}
 
-	// 如果所有入库日志均被红冲撤销，归零成本参数
-	if len(logs) == 0 {
-		return tx.Model(&p).Updates(map[string]interface{}{
-			"avg_cost":    0.0,
-			"latest_cost": 0.0,
-		}).Error
+	var auditBaselines []models.HistoricalCostRepair
+	if hasBaseline {
+		auditBaselines = append(auditBaselines, latestBaseline)
 	}
+	events := make([]productCostEvent, 0, len(logs)+len(auditBaselines))
+	for i := range auditBaselines {
+		baseline := &auditBaselines[i]
+		events = append(events, productCostEvent{createdAt: baseline.CreatedAt, baseline: baseline})
+	}
+	for i := range logs {
+		log := &logs[i]
+		if log.ChangeQty == 0 {
+			continue
+		}
+		if hasBaseline && log.CreatedAt.Before(latestBaseline.CreatedAt) {
+			continue
+		}
+		events = append(events, productCostEvent{createdAt: log.CreatedAt, log: log})
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].createdAt.Equal(events[j].createdAt) {
+			// A baseline is written before the inventory event that follows it.
+			return events[i].baseline != nil && events[j].baseline == nil
+		}
+		return events[i].createdAt.Before(events[j].createdAt)
+	})
 
-	var totalQty int
-	var totalAmount float64
+	quantity := 0
+	averageCost := 0.0
+	if hasBaseline {
+		quantity = latestBaseline.StockQty
+		averageCost = latestBaseline.UnitCost
+	}
+	latestCost := p.LatestCost
+	var latestValidInboundCost float64
+	hasInboundHistory := false
+	hasActiveInbound := false
 	for _, log := range logs {
-		totalQty += log.ChangeQty
-		totalAmount += float64(log.ChangeQty) * log.UnitCost
+		if log.LogType == "purchase_void" {
+			hasInboundHistory = true
+			continue
+		}
+		if log.ChangeQty > 0 && (log.LogType == "purchase" || log.LogType == "stocktake") {
+			hasInboundHistory = true
+			hasActiveInbound = true
+			if log.UnitCost > 0 {
+				latestValidInboundCost = log.UnitCost
+			}
+		}
+	}
+	if latestValidInboundCost > 0 {
+		latestCost = latestValidInboundCost
+	} else if hasInboundHistory && !hasActiveInbound {
+		latestCost = 0
 	}
 
-	var latestLog models.InventoryLog
-	latestCost := 0.0
-	tx.Where("product_id = ? AND log_type IN ? AND change_qty > 0 AND unit_cost > 0", p.ID, []string{"purchase", "stocktake"}).Order("created_at desc").First(&latestLog)
-	if latestLog.ID > 0 {
-		latestCost = latestLog.UnitCost
+	for _, event := range events {
+		if event.baseline != nil {
+			quantity = event.baseline.StockQty
+			averageCost = event.baseline.UnitCost
+			continue
+		}
+		log := event.log
+		if log == nil || log.LogType == "purchase_void" || log.LogType == "transfer" || log.ChangeQty == 0 {
+			continue
+		}
+		switch {
+		case (log.LogType == "purchase" || log.LogType == "stocktake" || log.LogType == "cancel") && log.ChangeQty > 0:
+			if log.UnitCost <= 0 {
+				// Preserve unpriced inventory events without assigning an unknown value.
+				quantity += log.ChangeQty
+				continue
+			}
+			if quantity > 0 && averageCost <= 0 {
+				return fmt.Errorf("库存流水 #%d 增加库存前已有 %d 件无成本基准库存，请先补录成本", log.ID, quantity)
+			}
+			quantity, averageCost = addCostToStock(quantity, averageCost, log.ChangeQty, log.UnitCost)
+		case (log.LogType == "sale" || log.LogType == "stocktake" || log.LogType == "cancel") && log.ChangeQty < 0:
+			if quantity < -log.ChangeQty {
+				return fmt.Errorf("库存流水 #%d 扣减 %d 件时，成本历史仅有 %d 件；请先核对库存流水", log.ID, -log.ChangeQty, quantity)
+			}
+			quantity += log.ChangeQty
+		default:
+			return fmt.Errorf("库存流水 #%d 类型或数量异常：%s / %d", log.ID, log.LogType, log.ChangeQty)
+		}
 	}
 
-	avgCost := 0.0
-	if totalQty > 0 {
-		avgCost = totalAmount / float64(totalQty)
+	if len(events) == 0 {
+		if !hasInboundHistory {
+			return nil
+		}
+		averageCost = 0
+	}
+	currentStock := productTotalStock(p)
+	if quantity != currentStock {
+		return fmt.Errorf("成本流水推算库存为 %d 件，与商品当前库存 %d 件不一致；请先校准库存基准", quantity, currentStock)
 	}
 
 	return tx.Model(&p).Updates(map[string]interface{}{
-		"avg_cost":    avgCost,
+		"avg_cost":    averageCost,
 		"latest_cost": latestCost,
 	}).Error
 }
@@ -452,6 +565,10 @@ func UpdateInventoryLogPrice(c *gin.Context) {
 	}
 
 	tx := config.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "启动事务失败"})
+		return
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
@@ -459,7 +576,7 @@ func UpdateInventoryLogPrice(c *gin.Context) {
 	}()
 
 	var log models.InventoryLog
-	if err := tx.First(&log, logID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&log, logID).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "找不到该库存流水"})
 		return
@@ -487,10 +604,18 @@ func UpdateInventoryLogPrice(c *gin.Context) {
 		var inboundRecordID uint
 		if _, err := fmt.Sscanf(log.RelatedNo, "%d", &inboundRecordID); err == nil && inboundRecordID > 0 {
 			var inbound models.InboundRecord
-			if err := tx.First(&inbound, inboundRecordID).Error; err == nil {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&inbound, inboundRecordID).Error; err == nil {
 				inbound.UnitCost = req.NewPrice
 				inbound.TotalCost = float64(inbound.Quantity) * req.NewPrice
-				tx.Save(&inbound)
+				if err := tx.Save(&inbound).Error; err != nil {
+					tx.Rollback()
+					c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "同步更新入库单成本失败"})
+					return
+				}
+			} else if err != gorm.ErrRecordNotFound {
+				tx.Rollback()
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取关联入库单失败"})
+				return
 			}
 		}
 	}
@@ -498,7 +623,7 @@ func UpdateInventoryLogPrice(c *gin.Context) {
 	// 3. 重新核算商品的移动加权平均成本和最新价格
 	if err := RecalculateSingleProductCosts(tx, log.ProductID); err != nil {
 		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "成本重算失败"})
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "成本重算失败：" + err.Error()})
 		return
 	}
 
