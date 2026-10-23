@@ -70,7 +70,6 @@
             <template #default="{ row }">
               <div class="flex flex-wrap justify-center gap-1">
                 <el-button v-if="!blindStockMode" type="primary" plain size="small" @click="openStocktake(row)">盘点</el-button>
-                <el-button plain size="small" @click="openInboundApplication(row)">入库登记</el-button>
                 <el-button v-if="!blindStockMode" plain size="small" @click="openProductLogs(row)">流水</el-button>
               </div>
             </template>
@@ -93,10 +92,9 @@
                 <div class="font-black text-slate-700">{{ product.cloud_stock || 0 }}</div>
               </div>
             </div>
-            <div class="grid gap-2" :class="blindStockMode ? 'grid-cols-1' : 'grid-cols-3'">
-              <el-button v-if="!blindStockMode" type="primary" @click="openStocktake(product)">盘点</el-button>
-              <el-button @click="openInboundApplication(product)">入库登记</el-button>
-              <el-button v-if="!blindStockMode" @click="openProductLogs(product)">流水</el-button>
+            <div v-if="!blindStockMode" class="grid grid-cols-2 gap-2">
+              <el-button type="primary" @click="openStocktake(product)">盘点</el-button>
+              <el-button @click="openProductLogs(product)">流水</el-button>
             </div>
           </article>
           <el-empty v-if="!productsLoading && products.length === 0" description="没有找到商品" />
@@ -118,7 +116,7 @@
         <el-empty v-if="blindStockMode" description="盲盘期间暂不显示可能包含库存信息的申请明细" />
         <template v-else>
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div class="text-sm text-slate-500">此处保留旧版本申请；新出入库即时生效，记录请查看“库存流水”</div>
+          <div class="text-sm text-slate-500">此处保留历史入库申请和盘点审核记录；当前库存数量统一通过盘点调整，记录请查看“库存流水”</div>
           <div class="flex items-center gap-2">
             <el-select v-model="applicationStatus" clearable placeholder="全部状态" class="!w-32" @change="refreshApplications">
               <el-option label="待审核" value="pending" />
@@ -330,22 +328,6 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="inboundApplicationVisible" title="员工入库登记" width="min(440px, calc(100vw - 24px))" destroy-on-close>
-      <div v-if="inboundProduct" class="mb-4 rounded-xl bg-slate-50 p-3">
-        <div class="font-bold text-slate-800">{{ inboundProduct.name }}</div>
-        <div class="mt-1 text-xs text-slate-500">入库立即更新库存，并记录操作人和库存流水，无需审核</div>
-      </div>
-      <el-form label-position="top">
-        <el-form-item label="入库仓库"><el-radio-group v-model="inboundForm.warehouse_type"><el-radio-button :value="2">门店</el-radio-button><el-radio-button :value="3">云仓</el-radio-button></el-radio-group></el-form-item>
-        <el-form-item label="入库数量"><el-input-number v-model="inboundForm.quantity" :min="1" :precision="0" class="!w-full" /></el-form-item>
-        <el-form-item label="备注"><el-input v-model="inboundForm.remark" maxlength="200" show-word-limit placeholder="例如：门店已收货 2 台" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="inboundApplicationVisible = false">取消</el-button>
-        <el-button type="primary" :loading="inboundSubmitting" @click="submitInboundApplication">确认入库</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="productLogsVisible" :title="`${productLogProduct?.name || '商品'} · 库存流水`" width="min(820px, calc(100vw - 24px))" destroy-on-close>
       <el-table v-loading="productLogsLoading" :data="productLogs" stripe>
         <el-table-column label="时间" min-width="155"><template #default="{ row }">{{ formatDate(row.created_at) }}</template></el-table-column>
@@ -399,10 +381,6 @@ const applicationsLoading = ref(false)
 const applicationStatus = ref('')
 const stocktakeRequests = ref([])
 const stocktakeRequestsLoading = ref(false)
-const inboundApplicationVisible = ref(false)
-const inboundSubmitting = ref(false)
-const inboundProduct = ref(null)
-const inboundForm = reactive({ warehouse_type: 2, quantity: 1, remark: '' })
 const batchVisible = ref(false)
 const batchSubmitting = ref(false)
 const batchActuals = reactive({})
@@ -490,7 +468,6 @@ const handleBlindModeChange = (enabled) => {
     logTotal.value = 0
     products.value = products.value.map(hideProductStocks)
     if (selectedProduct.value) selectedProduct.value = hideProductStocks(selectedProduct.value)
-    if (inboundProduct.value) inboundProduct.value = hideProductStocks(inboundProduct.value)
     if (activeTab.value === 'logs') activeTab.value = 'stocktake'
     return
   }
@@ -715,43 +692,6 @@ const submitBatchStocktake = async () => {
     batchVisible.value = false
   } else {
     ElMessageBox.alert(`已提交 ${accepted} 件，失败 ${failed.length} 件：\n${failed.join('\n')}`, '批量盘点结果', { type: 'warning' })
-  }
-}
-
-const openInboundApplication = (product) => {
-  inboundProduct.value = product
-  inboundForm.warehouse_type = 2
-  inboundForm.quantity = 1
-  inboundForm.remark = ''
-  inboundApplicationVisible.value = true
-}
-
-const submitInboundApplication = async () => {
-  if (!inboundProduct.value || inboundSubmitting.value) return
-  const quantity = Number(inboundForm.quantity)
-  if (!Number.isInteger(quantity) || quantity < 1) {
-    ElMessage.warning('入库数量必须是大于 0 的整数')
-    return
-  }
-  inboundSubmitting.value = true
-  try {
-    const res = await request.post('/api/pending-inbounds', {
-      product_id: inboundProduct.value.id,
-      warehouse_type: inboundForm.warehouse_type,
-      quantity,
-      remark: inboundForm.remark.trim()
-    })
-    if (res.data.code !== 200) {
-      ElMessage.error(res.data.msg || '入库失败')
-      return
-    }
-    ElMessage.success(res.data.msg || '入库完成，已记录库存流水')
-    inboundApplicationVisible.value = false
-    await Promise.all([fetchProducts(), refreshApplications()])
-  } catch (error) {
-    ElMessage.error(error.response?.data?.msg || '入库失败')
-  } finally {
-    inboundSubmitting.value = false
   }
 }
 

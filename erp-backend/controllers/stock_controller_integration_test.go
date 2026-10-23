@@ -56,7 +56,6 @@ func callEmployeeInventory(t *testing.T, employee models.Employee, handler gin.H
 	router := gin.New()
 	router.Use(func(c *gin.Context) { c.Set("username", "emp_"+employee.EmpNo); c.Next() })
 	router.POST("/api/products/:id/stocktake", handler)
-	router.POST("/api/pending-inbounds", handler)
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
 	result := httptest.NewRecorder()
@@ -111,6 +110,25 @@ func assertInventoryApplied(t *testing.T, product models.Product, employee model
 	}
 }
 
+func TestEmployeeStocktakeCanRecordPositiveAdjustmentForEveryWarehouse(t *testing.T) {
+	for _, warehouse := range []int{1, 2, 3} {
+		t.Run(fmt.Sprintf("warehouse_%d", warehouse), func(t *testing.T) {
+			product, employee := inventoryFixture(t)
+			response := callEmployeeInventory(
+				t,
+				employee,
+				ProductStocktake,
+				fmt.Sprintf("/api/products/%d/stocktake", product.ID),
+				gin.H{"warehouse_type": warehouse, "actual_stock": 16, "expected_stock": 10, "stocktake_type": 2, "remark": "实物盘点确认库存增加"},
+			)
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+			}
+			assertInventoryApplied(t, product, employee, warehouse, 6)
+		})
+	}
+}
+
 func TestEmployeeHighValueOutboundWithoutApproval(t *testing.T) {
 	for _, warehouse := range []int{1, 2, 3} {
 		t.Run(fmt.Sprintf("warehouse_%d", warehouse), func(t *testing.T) {
@@ -139,7 +157,7 @@ func TestEmployeeStockConflictDoesNotApply(t *testing.T) {
 	}
 }
 
-func TestEmployeeInboundRollsBackWhenAuditFails(t *testing.T) {
+func TestEmployeeStocktakeRollsBackWhenAuditFails(t *testing.T) {
 	product, employee := inventoryFixture(t)
 	callback := "test:reject_inventory_audit"
 	if err := config.DB.Callback().Create().Before("gorm:create").Register(callback, func(tx *gorm.DB) {
@@ -150,7 +168,7 @@ func TestEmployeeInboundRollsBackWhenAuditFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { config.DB.Callback().Create().Remove(callback) })
-	response := callEmployeeInventory(t, employee, CreatePendingInbound, "/api/pending-inbounds", gin.H{"product_id": product.ID, "warehouse_type": 3, "quantity": 6, "remark": "入库回滚验证"})
+	response := callEmployeeInventory(t, employee, ProductStocktake, fmt.Sprintf("/api/products/%d/stocktake", product.ID), gin.H{"warehouse_type": 3, "actual_stock": 16, "expected_stock": 10, "stocktake_type": 2, "remark": "盘点差异回滚验证"})
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
 	}

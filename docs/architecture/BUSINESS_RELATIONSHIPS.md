@@ -23,8 +23,8 @@
 | 推荐奖励 | 满足全款且整单已安装，正奖励未付时从订单关联账户扣款并写 `第三方奖励`，设置已付标志；缺少关联账户时不再回退到固定公户 | 收尾款和安装两条触发路径；手工渠道记账与自动发奖是否重复；取消后的处理 | `checkAndPayReferralFee` / `UpdateOrderReferralFee` |
 | 管理员采购入库 | 入库记录、目标库存、`purchase` 流水、成本基准与重算；所有新入库只记录库存/成本，不扣账户、不写采购付款流水 | 入库成本影响之后新订单的成本快照与毛利；撤销仅对明确标记为历史 `cash_purchase` 且有账户的记录退款 | `inbound_controller.go`: `CreateInbound`；`inbound_settlement.go` |
 | 入库撤销/改价 | 撤销扣目标库存、采购流水设 `purchase_void`、增加反向库存流水、删除入库记录、重算成本；改价更新原流水和入库金额 | 新入库无资金退款；历史 `cash_purchase` 的实际付款金额与改价后金额仍需一致性核对，见 R2 | `CancelInboundByLog` / `UpdateInventoryLogPrice` |
-| 员工入库（即时） | `POST /pending-inbounds` 调 `applyStocktake`，增加门店/云仓库存，写性质 2 的盘点记录及 `stocktake` 流水，重算成本；没有成本基准时允许登记数量并保持商品成本为 0 | 不创建 `PendingInbound` 或采购入库记录，不扣账户；无有效成本的商品仍不能开单，零成本流水可由管理员核价；盲盘期间限制；撤销覆盖见 R1 | `pending_inbound_controller.go`: `CreatePendingInbound` |
-| 遗留入库审核 | 仅处理已有 `pending` 申请；批准时确认正成本、入库并改 approved，不选择/扣除资金账户；拒绝改状态 | 与即时库存登记不可混为一条状态机；批准不可重复 | `ApprovePendingInbound` / `RejectPendingInbound` |
+| 员工端库存调整 | 员工端即时入库登记已移除；数量增加或减少统一通过直接盘点/批次盘点，写盘点记录与 `stocktake` 流水并重算成本；无成本基准时允许登记数量且不虚构成本 | `POST /api/pending-inbounds` 已下线；盘点需使用实盘总量及差异原因，盲盘期间遵循盲盘单；不扣账户。历史即时入库流水与操作记录保留 | `stock_controller.go`: `ProductStocktake` / `applyStocktake`；`stocktake_batch_controller.go`: `submitStocktakeBatchItem` |
+| 遗留入库审核 | 仅处理已有 `pending` 申请；批准时确认正成本、入库并改 approved，不选择/扣除资金账户；拒绝改状态 | 员工端不再创建新入库申请；遗留申请只允许经独立管理员审核接口处理，批准不可重复 | `ApprovePendingInbound` / `RejectPendingInbound` |
 | 直接盘点/盲盘批次提交 | 对比账面快照与当前库存后应用；记录盘点/库存流水并重算成本；无成本基准时允许登记数量并保持商品成本为 0；批次逐项处理并汇总状态 | 冲突要重盘，批次可能部分成功；员工不能看到盲盘账面值；不直接扣现金；无有效成本的商品仍不能开单，零成本流水可由管理员核价 | `stock_controller.go`: `ProductStocktake` / `applyStocktake`；`stocktake_batch_controller.go`: `submitStocktakeBatchItem` |
 | 遗留盘点审核 | 校验 `pending` 与 `ExpectedStock`；变化时退回重盘，否则应用库存并更新审核/批次状态 | 不得根据旧模型注释推断所有当前盘点均待审 | `ApprovePendingStocktake` / `RejectPendingStocktake` |
 | 门店与样机调拨 | 两库存字段等量反向变化，写两条 `transfer` 流水 | 自有总量不变、可售量改变；失败应整笔回滚，见 R9 | `stock_controller.go`: `TransferProduct` |
@@ -105,16 +105,17 @@
 - `/api/operations` 的 `detail` 由已保存的 `OperationHistory.Changes` 操作前后快照按字段白名单生成，员工签到/签退补充查询员工姓名；前端灰色说明显示详情，不展示原始表名、JSON 或内部行 ID。没有新增数据库字段，撤销仍使用原快照和一致性比较。
 - 订单详情优先显示订单号、客户、应付/定金和商品；库存详情显示商品、仓库数量变化；入库、盘点、财务、员工、离职交接和考勤详情显示对应业务名称、金额、数量或状态。未知/缺少字段时退回“操作人、时间、操作已完成”的说明。
 - 展示入口是管理员历史操作页面。员工签到/签退位于认证员工 API；管理员和员工业务写入只有注册在 `operationRoutes` 的路由会生成操作记录。图片导入先生成草稿，确认订单走已登记的 `/api/orders`，确认支出走已登记的 `/api/bookkeeping/entries`；旧 Agent 订单确认也走 `/api/orders`，支出确认走未登记的 `/api/ai/agent/actions/:id/confirm`，不会生成历史详情。AgentNative/调度直接写数据库的行为也不会被补录。导出和报表是只读路径，不受影响。
-- 详情生成不会扩大 `operationRoutes`、`buildOperationCapture` 或 `undoableOperationTables` 覆盖范围。R1 后续已通过修正员工即时入库路由配置及商品关系捕获修复；R10 的其他权限与撤销覆盖缺口仍待专项检查。无新增表/列，数据库备份结构不变；真实备份恢复本次未执行。
+- 详情生成不会扩大 `operationRoutes`、`buildOperationCapture` 或 `undoableOperationTables` 覆盖范围。R1 曾修正员工即时入库路由配置及商品关系捕获；2026-10-23 员工端即时入库入口和 POST 路由已移除，直接盘点的操作捕获保持生效，旧操作快照不清理。R10 的其他权限与撤销覆盖缺口仍待专项检查。无新增表/列，数据库备份结构不变；真实备份恢复本次未执行。
 
 ## 5. 已知断点与需确认的业务意图
 
 R2–R10 是静态代码追踪发现、尚未在真实或测试数据库中复现的未修复断点；优先级是后续处理建议。R1、R11、R13 已修复但未做数据库端到端验证。R12 描述本次员工离职交接实现，业务测试与恢复演练仍待验证。修复其他断点时应先建立可复现的回归场景，再更新本表。
 
-### R1：员工即时入库的历史捕获仍按旧申请配置（已修复，2026-10-23）
+### R1：员工即时入库的历史捕获曾按旧申请配置（历史缺口已修复，入口现已移除）
 
 - 原证据：`CreatePendingInbound` 改为调用 `applyStocktake` 后，实际修改 `products`、`stocktake_records`、`inventory_logs`，可能创建 `historical_cost_repairs`；操作路由仍只捕获 `pending_inbounds`。
-- 修复：`POST /api/pending-inbounds` 和直接盘点路由现按商品 ID 捕获商品关联的盘点记录、库存流水、成本基准；相关表使用商品关系范围捕获，不把并发写入的其他商品新行带入撤销快照。上述表已在 `undoableOperationTables` 中。
+- 历史修复：员工即时入库曾注册在 `operationRoutes`，并按商品 ID 捕获盘点记录、库存流水和成本修复；直接盘点使用相同的商品关联范围，不把并发写入的其他商品行带入撤销快照。
+- 当前状态：2026-10-23 已移除员工即时入库页面入口、客户端调用和 `POST /api/pending-inbounds` 路由。直接盘点的历史捕获保留；历史入库申请仍可查询/审核，历史操作快照不清理。
 - 验证边界：仅静态核对路由、关系捕获和撤销白名单；本次未运行真实操作后撤销的数据库链路。
 
 ### R2：历史入库改价与真实退款金额没有完整闭环（高，部分已修复）
@@ -177,11 +178,11 @@ R2–R10 是静态代码追踪发现、尚未在真实或测试数据库中复�
 - 修复：期间变化时同步子组件日期（无日期则清空），保留用户已选账户、收支、来源和关键词筛选；关键词匹配条件在列表和导出查询中分组，确保与其它筛选条件一起生效。
 - 边界：当前页面默认显示本月。跨月查询需选择起止日期或切到累计；接口按日期范围分页，列表每页最多 100 条，导出返回符合相同筛选条件的全部结果。
 
-### R13：员工库存登记遇到零成本商品时被成本重算回滚（已修复，2026-10-23）
+### R13：员工盘点遇到零成本商品时曾被成本重算回滚（历史缺陷已修复，2026-10-23）
 
-- 证据：员工即时入库与直接/批次盘点共用 `applyStocktake`；商品成本为空时，正数 `stocktake` 流水的单价为 0，成本重算原先直接拒绝并使库存、盘点记录和流水一起回滚，员工端只显示通用失败提示。
+- 证据：此前员工即时入库与直接/批次盘点共用 `applyStocktake`；商品成本为空时，正数 `stocktake` 流水的单价为 0，成本重算原先直接拒绝并使库存、盘点记录和流水一起回滚，员工端只显示通用失败提示。即时入库入口现已移除，直接/批次盘点仍使用此路径。
 - 修复：成本重算现在允许零成本的正数库存事件先登记数量；没有已知成本时商品平均成本保持 0，不推算或套用现价。已有正成本基准时，未注明成本的库存调整保留现有平均成本。若之后出现有成本的入库事件但已有库存仍无成本基准，继续拒绝重算，避免把未知库存按零元加权；管理员可通过核价基准或修复具体零成本入库/盘点流水建立成本。
-- 业务边界：新订单仍要求 `orderCostSnapshot` 有效成本；员工即时登记不扣资金、不代表已发生采购付款。此代码变更未增加数据库表/列；真实数据库和备份恢复均未验证。
+- 业务边界：新订单仍要求 `orderCostSnapshot` 有效成本；员工端盘点不扣资金、不代表已发生采购付款。此代码变更未增加数据库表/列；真实数据库和备份恢复均未验证。
 
 ## 6. 回归场景与现有验证入口
 
@@ -192,9 +193,9 @@ R2–R10 是静态代码追踪发现、尚未在真实或测试数据库中复�
 | 历史操作详情 → 撤销 | 签到显示员工姓名/日期/打卡时间；订单、库存、支出、离职交接显示可读单号/商品/数量/金额/状态；页面不泄露原始 JSON、内部表名或白名单外字段；撤销仍使用原快照校验 | `operation_history_controller_test.go` 覆盖详情生成；本次未重新运行撤销事务用例，撤销代码未改 |
 | 门店、云仓有货/缺货、赠品、定金开单 → 取消 | 实际扣退库存、数量/成本、收款拆分、状态、重复取消 | `order_controller_test.go`、`audit_financial_test.go` |
 | 混付国补/换新/折扣 → 收尾款 → 跨月退款 | 前后端金额一致、退定金配对、账户净额、待收和现金流 | `audit_financial_test.go`、`CheckoutPanel.test.mjs`、`StaffTerminal.test.mjs` |
-| 入库登记 → 销售开单 → 取消销售 | 入库只增加库存/成本、不改账户；订单成本快照计入该单毛利；取消仅按实际收款拆分退款并恢复实际扣库 | `inbound_settlement_test.go`、`order_controller_test.go`；历史现金采购撤销金额仍按 R2 核对 |
-| 员工即时入库、直接盘点、批次盘点 → 历史撤销 | 不误进遗留待审；库存变更/成本基准/记录可完整回退 | `pending_inbound_controller_integration_test.go`、`stock_controller_integration_test.go`、`stocktake_batch_controller_integration_test.go`；本次未运行真实撤销链路 |
-| 零成本商品员工入库/盘点 → 管理员核价 → 员工开单 | 首次库存登记成功，成本字段不被虚构；有效成本补录后重算库存成本，新订单保存正成本快照；补录前开单被拒绝 | 本次未运行业务测试；`historical_cost_repair_controller.go` 支持修复正数零成本 `purchase` / `stocktake` 流水 |
+| 管理员采购入库 → 销售开单 → 取消销售 | 入库只增加库存/成本、不改账户；订单成本快照计入该单毛利；取消仅按实际收款拆分退款并恢复实际扣库 | `inbound_settlement_test.go`、`order_controller_test.go`；历史现金采购撤销金额仍按 R2 核对 |
+| 员工直接盘点、批次盘点 → 历史撤销 | 库存变更/成本基准/记录可完整回退；员工端数量增加走盘点路径，旧入库申请接口不被新入口调用 | `stock_controller_integration_test.go`、`stocktake_batch_controller_integration_test.go`；本次未运行真实撤销链路 |
+| 零成本商品员工盘点 → 管理员核价 → 员工开单 | 首次盘点允许登记实物数量，成本字段不被虚构；有效成本补录后重算库存成本，新订单保存正成本快照；补录前开单被拒绝 | 本次未运行业务测试；`historical_cost_repair_controller.go` 支持修复正数零成本 `purchase` / `stocktake` 流水 |
 | 盘点时并发销售/入库、样机调拨写日志失败 | 快照冲突拒绝覆盖；批次逐项状态；双向流水失败回滚 | 库存 integration 测试；R9 需新增失败回归 |
 | 单品履约 → 手工费用 → 再次履约 → 自动奖励 | 单品/主单合计不丢失、付款不重复计提/扣款 | `bookkeeping_controller_test.go`、`order_controller_test.go`；R5 需新增链路 |
 | 普通支出/专业记账/图片/Agent 同一房租 | 账户、现金流、经营费用与净利润口径一致 | `bookkeeping_controller_test.go`、`dashboard_controller_test.go`；R4 需新增跨入口回归 |

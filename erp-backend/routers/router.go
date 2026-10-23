@@ -98,7 +98,6 @@ func SetupRouter() *gin.Engine {
 			auth.PUT("/order-items/:item_id/deliver", controllers.UpdateItemDeliveryStatus)
 			auth.PUT("/order-items/:item_id/install", controllers.UpdateItemInstallStatus)
 			auth.PUT("/orders/:id/commission", controllers.UpdateOrderCommission)
-			auth.POST("/pending-inbounds", controllers.CreatePendingInbound)
 			auth.GET("/pending-inbounds/mine", controllers.ListMyPendingInbounds)
 			auth.GET("/pending-stocktakes/mine", controllers.ListMyPendingStocktakes)
 			auth.GET("/inventory/logs", controllers.GetGlobalInventoryLogs)

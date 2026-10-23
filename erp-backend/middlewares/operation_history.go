@@ -81,7 +81,6 @@ var operationRoutes = map[string]operationRoute{
 	"POST /api/inbounds":                                     {title: "采购入库", tables: []string{"products", "inbound_records", "inventory_logs", "historical_cost_repairs"}},
 	"POST /api/inbounds/cancel-by-log/:log_id":               {title: "撤销采购入库", tables: []string{"products", "inbound_records", "accounts", "financial_logs", "inventory_logs", "historical_cost_repairs", "expenses"}},
 	"POST /api/inbounds/update-price/:log_id":                {title: "修改入库成本", tables: []string{"products", "inbound_records", "inventory_logs", "expenses"}},
-	"POST /api/pending-inbounds":                             {title: "员工即时入库登记", tables: inventoryStocktakeOperationTables},
 	"POST /api/pending-inbounds/:id/approve":                 {title: "审核通过入库申请", tables: []string{"pending_inbounds", "products", "inbound_records", "inventory_logs", "historical_cost_repairs"}},
 	"POST /api/pending-inbounds/:id/reject":                  {title: "驳回入库申请", tables: []string{"pending_inbounds"}},
 	"POST /api/pending-stocktakes/:id/approve":               {title: "审核通过盘点申请", tables: []string{"pending_stocktakes", "stocktake_batch_items", "products", "stocktake_records", "accounts", "financial_logs", "inventory_logs", "historical_cost_repairs", "expenses"}},
@@ -373,7 +372,7 @@ func buildOperationCapture(c *gin.Context, tables []string, body map[string]inte
 		capture.addRelatedIDs("order_items", "product_id", capture.ids("products")...)
 		capture.addRelatedIDs("inventory_logs", "product_id", capture.ids("products")...)
 	}
-	if c.FullPath() == "/api/pending-inbounds" || c.FullPath() == "/api/products/:id/stocktake" {
+	if c.FullPath() == "/api/products/:id/stocktake" {
 		productIDs := capture.ids("products")
 		for _, table := range []string{"inventory_logs", "stocktake_records", "historical_cost_repairs"} {
 			capture.addRelatedIDs(table, "product_id", productIDs...)

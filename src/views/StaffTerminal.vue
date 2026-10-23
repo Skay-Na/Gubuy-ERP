@@ -170,7 +170,7 @@
         <div class="flex flex-wrap gap-2 w-full items-center">
           <el-input
             v-model="searchQuery"
-            :placeholder="inventoryMode ? '搜索要盘点的商品...' : '搜型号、名称、备注...'"
+            placeholder="搜型号、名称、备注..."
             class="terminal-search-input flex-1 min-w-[150px]"
             clearable
             @input="handleSearch"
@@ -232,12 +232,7 @@
       </div>
 
       <!-- 中间滚动区域：商品网格 -->
-      <div class="flex-1 overflow-y-auto p-4" :class="inventoryMode ? 'pb-6' : 'pb-32'">
-        <div v-if="inventoryMode" class="mb-3 px-3 py-2 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-700 flex items-center gap-2">
-          <el-icon><Box /></el-icon>
-          <span class="font-bold">库存管理模式</span>
-          <span class="text-blue-500">请选择商品进行盘库或增库，点击卡片不会加入购物车。</span>
-        </div>
+      <div class="flex-1 overflow-y-auto p-4 pb-32">
         <!-- 加载中：骨架屏 -->
         <div v-if="loading" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
           <el-skeleton v-for="i in 12" :key="i" animated>
@@ -268,10 +263,10 @@
           <div
             v-for="row in productList"
             :key="row.id"
-            v-memo="[row.id, row.store_stock, row.cloud_stock, row.sample_stock, row.special_price, isSpecialActive(row), inventoryMode, blindStocktakeMode]"
+            v-memo="[row.id, row.store_stock, row.cloud_stock, row.sample_stock, row.special_price, isSpecialActive(row), blindStocktakeMode]"
             class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
             :class="isSpecialActive(row) ? 'special-offer-card border-red-200' : ''"
-            @click="inventoryMode ? undefined : addToCart(row)"
+            @click="addToCart(row)"
           >
             <!-- 特价角标 -->
             <div v-if="isSpecialActive(row)" class="absolute top-0 right-0 z-10">
@@ -282,21 +277,15 @@
             <div class="flex-1 min-w-0">
               <div class="font-bold text-slate-800 text-sm line-clamp-2 leading-tight h-9 mb-1">{{ row.name }}</div>
               <div class="flex flex-wrap gap-1 mb-2">
-                <el-tag v-if="!inventoryMode && getProductCost(row) <= 0" type="danger" size="small" class="!px-1.5 !h-5 !text-[10px]">成本待维护</el-tag>
+                <el-tag v-if="getProductCost(row) <= 0" type="danger" size="small" class="!px-1.5 !h-5 !text-[10px]">成本待维护</el-tag>
                 <el-tag v-if="blindStocktakeMode || row.store_stock == null" type="warning" size="small" class="!px-1.5 !h-5 !text-[10px]">库存盘点中</el-tag>
                 <template v-else>
                   <el-tag :type="row.store_stock > 0 ? 'success' : 'danger'" size="small" class="!px-1.5 !h-5 !text-[10px]">店:{{ row.store_stock }}</el-tag>
-                  <el-tag v-if="inventoryMode" :type="row.cloud_stock > 0 ? 'warning' : 'info'" size="small" class="!px-1.5 !h-5 !text-[10px]">云仓实物:{{ row.cloud_stock || 0 }}</el-tag>
-                  <el-tag v-else type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">云仓不限量</el-tag>
-                  <el-tag v-if="inventoryMode" type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">样:{{ row.sample_stock || 0 }}</el-tag>
+                  <el-tag type="info" size="small" class="!px-1.5 !h-5 !text-[10px]">云仓不限量</el-tag>
                 </template>
               </div>
             </div>
-            <div v-if="inventoryMode" class="grid grid-cols-2 gap-2 mt-auto pt-2 border-t border-slate-50">
-              <el-button size="small" class="!m-0 !rounded-lg" @click.stop="openInventoryAction(row, 'stocktake')">盘库</el-button>
-              <el-button type="primary" size="small" class="!m-0 !rounded-lg" @click.stop="openInventoryAction(row, 'increase')">增加库存</el-button>
-            </div>
-            <div v-else class="flex justify-between items-end mt-auto pt-2 border-t border-slate-50">
+            <div class="flex justify-between items-end mt-auto pt-2 border-t border-slate-50">
               <div class="flex flex-col">
                 <div v-if="isSpecialActive(row)" class="flex flex-col">
                   <span class="text-[10px] text-slate-400 line-through">¥{{ ((row.avg_cost || row.latest_cost || 0) / (1 - (row.margin_rate || 0))).toFixed(0) }}</span>
@@ -323,7 +312,7 @@
       </div>
 
       <!-- 底部吸底结算条：增加安全区域适配 -->
-      <div v-if="!inventoryMode" class="fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.1)] px-4 pt-2 pb-[calc(8px+env(safe-area-inset-bottom,0px))] z-40 flex justify-between items-center border-t border-slate-100">
+      <div class="fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-md shadow-[0_-4px_20px_rgba(0,0,0,0.1)] px-4 pt-2 pb-[calc(8px+env(safe-area-inset-bottom,0px))] z-40 flex justify-between items-center border-t border-slate-100">
         <div class="flex items-center gap-3 cursor-pointer py-1" @click="openDrawer">
           <el-badge :value="cart.length" :hidden="cart.length === 0" type="danger">
             <div class="bg-blue-600 p-2 rounded-xl text-white shadow-lg shadow-blue-200">
@@ -642,77 +631,6 @@
         </div>
       </el-drawer>
     </div>
-
-    <!-- 员工库存操作：移动端底部抽屉，桌面端侧边抽屉 -->
-    <el-drawer
-      v-model="inventoryActionVisible"
-      :direction="isMobile ? 'btt' : 'rtl'"
-      :size="isMobile ? 'auto' : '440px'"
-      :with-header="false"
-      destroy-on-close
-      class="inventory-action-drawer"
-    >
-      <div v-if="inventoryProduct" class="p-4 pb-[calc(16px+env(safe-area-inset-bottom,0px))]">
-        <div class="flex items-start justify-between gap-3 mb-4">
-          <div class="min-w-0">
-            <div class="text-xs font-bold text-blue-600 mb-1">员工库存管理</div>
-            <div class="text-lg font-black text-slate-800 leading-tight">{{ inventoryProduct.name }}</div>
-          </div>
-          <el-button circle :icon="Close" @click="inventoryActionVisible = false" />
-        </div>
-
-        <div class="grid grid-cols-4 gap-2 mb-4">
-          <div v-for="item in inventorySummary" :key="item.label" class="rounded-xl bg-slate-50 p-2 text-center border border-slate-100">
-            <div class="text-[10px] text-slate-400">{{ item.label }}</div>
-            <div class="text-base font-black text-slate-700">{{ item.value }}</div>
-          </div>
-        </div>
-
-        <el-segmented v-model="inventoryAction" :options="inventoryActionOptions" class="!w-full mb-4" />
-
-        <el-form label-position="top">
-          <el-form-item label="操作仓库">
-            <el-radio-group v-model="inventoryForm.warehouse_type" class="!w-full grid grid-cols-2 gap-2" @change="syncStocktakeActualStock">
-              <el-radio-button v-for="item in warehouseOptions" :key="item.value" :value="item.value" class="!w-full">
-                {{ item.label }}
-              </el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-
-          <template v-if="inventoryAction === 'stocktake'">
-            <el-form-item label="实际数量">
-              <el-input-number v-model="inventoryForm.actual_stock" :min="0" :precision="0" size="large" class="!w-full" />
-            </el-form-item>
-            <el-form-item label="盘库性质">
-              <el-radio-group v-model="inventoryForm.stocktake_type">
-                <el-radio :value="1">正常损耗</el-radio>
-                <el-radio :value="2">业务调整</el-radio>
-              </el-radio-group>
-            </el-form-item>
-            <el-form-item label="备注">
-              <el-input v-model="inventoryForm.remark" maxlength="200" show-word-limit placeholder="选填，如：门店实物盘点" />
-            </el-form-item>
-          </template>
-
-          <template v-else>
-            <div class="rounded-xl bg-blue-50 border border-blue-100 px-3 py-2 mb-4 text-xs text-blue-700">
-              当前 {{ currentWarehouseName }}库存 <b>{{ currentWarehouseStock }}</b>，提交后将调整为
-              <b>{{ currentWarehouseStock + inventoryForm.increase_quantity }}</b>。
-            </div>
-            <el-form-item label="增加数量">
-              <el-input-number v-model="inventoryForm.increase_quantity" :min="1" :precision="0" size="large" class="!w-full" />
-            </el-form-item>
-            <el-form-item label="补充说明">
-              <el-input v-model="inventoryForm.remark" maxlength="160" show-word-limit placeholder="选填" />
-            </el-form-item>
-          </template>
-        </el-form>
-
-        <el-button type="primary" size="large" class="w-full !h-12 !rounded-xl !font-bold" :loading="inventorySubmitting" @click="submitInventoryAction">
-          {{ inventoryAction === 'stocktake' ? '确认盘库' : '确认入库' }}
-        </el-button>
-      </div>
-    </el-drawer>
 
     <!-- 我的订单跟踪抽屉 -->
     <el-drawer v-model="ordersDrawerVisible" direction="ltr" :size="isMobile ? '100%' : '450px'" :show-close="false" class="staff-orders-drawer">
@@ -1266,10 +1184,7 @@ const resetTerminalSession = () => {
   cart.value = []
   photoOrderDraftId.value = null
   photoOrderVisible.value = false
-  inventoryMode.value = false
   blindStocktakeMode.value = false
-  inventoryActionVisible.value = false
-  inventoryProduct.value = null
   todayAttendance.value = null
   attendanceLoadFailed.value = false
   attendanceStatusLoading.value = false
@@ -1628,28 +1543,7 @@ const searchQuery = ref('')
 const onlySpecial = ref(false)
 const categoryDialogVisible = ref(false)
 const categorySearchQuery = ref('')
-const inventoryMode = ref(false)
 const blindStocktakeMode = ref(false)
-const inventoryActionVisible = ref(false)
-const inventoryProduct = ref(null)
-const inventoryAction = ref('stocktake')
-const inventorySubmitting = ref(false)
-const inventoryForm = ref({
-  warehouse_type: 2,
-  actual_stock: 0,
-  expected_stock: 0,
-  stocktake_type: 1,
-  increase_quantity: 1,
-  remark: ''
-})
-const warehouseOptions = [
-  { label: '门店', value: 2, field: 'store_stock' },
-  { label: '云仓', value: 3, field: 'cloud_stock' }
-]
-const inventoryActionOptions = [
-  { label: '盘库', value: 'stocktake' },
-  { label: '增加库存', value: 'increase' }
-]
 const cart = ref([])
 const photoOrderDraftId = ref(null)
 const photoOrderVisible = ref(false)
@@ -1690,60 +1584,7 @@ const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
 const deliveryMethod = ref(4)
 
-const currentWarehouse = computed(() => warehouseOptions.find(item => item.value === inventoryForm.value.warehouse_type) || warehouseOptions[0])
-const currentWarehouseName = computed(() => currentWarehouse.value.label)
-const currentWarehouseStock = computed(() => Number(inventoryProduct.value?.[currentWarehouse.value.field]) || 0)
-const inventorySummary = computed(() => {
-  if (!inventoryProduct.value) return []
-  return [
-    { label: '门店', value: Number(inventoryProduct.value.store_stock) || 0 },
-    { label: '云仓', value: Number(inventoryProduct.value.cloud_stock) || 0 },
-    { label: '样机', value: Number(inventoryProduct.value.sample_stock) || 0 }
-  ]
-})
-
-const toggleInventoryMode = () => {
-  if (blindStocktakeMode.value) {
-    ElMessage.warning('当前有进行中的盲盘单，请在库管页按纸单清点')
-    return
-  }
-  inventoryMode.value = !inventoryMode.value
-  inventoryActionVisible.value = false
-  if (inventoryMode.value) onlySpecial.value = false
-  fetchProducts()
-}
-
 const openInventoryPage = () => router.push('/terminal/inventory')
-
-const syncStocktakeActualStock = () => {
-  if (inventoryAction.value === 'stocktake') {
-    inventoryForm.value.actual_stock = currentWarehouseStock.value
-    inventoryForm.value.expected_stock = currentWarehouseStock.value
-  }
-}
-
-const openInventoryAction = (product, action) => {
-  if (blindStocktakeMode.value) {
-    ElMessage.warning('盲盘期间请从当前盘库单录入结果')
-    return
-  }
-  inventoryProduct.value = product
-  inventoryAction.value = action
-  inventoryForm.value = {
-    warehouse_type: 2,
-    actual_stock: Number(product.store_stock) || 0,
-    expected_stock: Number(product.store_stock) || 0,
-    stocktake_type: 1,
-    increase_quantity: 1,
-    remark: ''
-  }
-  inventoryActionVisible.value = true
-}
-
-watch(inventoryAction, (action) => {
-  if (action === 'stocktake') syncStocktakeActualStock()
-  inventoryForm.value.remark = ''
-})
 
 const resetStaffProductForm = () => {
   staffProductForm.value = {
@@ -1862,15 +1703,12 @@ const fetchProducts = async () => {
       params: {
         keyword: searchQuery.value,
         category_id: selectedCategoryId.value,
-        only_special: onlySpecial.value ? 1 : 0,
-        all: inventoryMode.value ? 1 : 0
+        only_special: onlySpecial.value ? 1 : 0
       }
     })
     if (res.data.code === 200) {
       blindStocktakeMode.value = Boolean(res.data.blind_stocktake_mode)
       if (blindStocktakeMode.value) {
-        inventoryMode.value = false
-        inventoryActionVisible.value = false
         cart.value = cart.value.map((item) => {
           const safeItem = { ...item }
           delete safeItem.main_stock
@@ -1899,73 +1737,6 @@ const handleSearch = () => {
 const toggleSpecial = () => {
   onlySpecial.value = !onlySpecial.value
   fetchProducts()
-}
-
-const submitInventoryAction = async () => {
-  if (!inventoryProduct.value || inventorySubmitting.value) return
-
-  const isIncrease = inventoryAction.value === 'increase'
-  const increaseQuantity = Number(inventoryForm.value.increase_quantity)
-  if (isIncrease && (!Number.isInteger(increaseQuantity) || increaseQuantity < 1)) {
-    ElMessage.warning('增加数量必须是大于 0 的整数')
-    return
-  }
-
-  const actualStock = isIncrease
-    ? currentWarehouseStock.value + increaseQuantity
-    : Number(inventoryForm.value.actual_stock)
-  if (!Number.isInteger(actualStock) || actualStock < 0) {
-    ElMessage.warning('实际数量必须是大于等于 0 的整数')
-    return
-  }
-
-  const employeeName = currentEmployee.value?.name || '员工'
-  const extraRemark = inventoryForm.value.remark.trim()
-  const remark = isIncrease
-    ? `${employeeName} 员工增库${extraRemark ? `：${extraRemark}` : ''}`
-    : extraRemark
-
-  inventorySubmitting.value = true
-  try {
-    if (isIncrease) {
-      const res = await request.post('/api/pending-inbounds', {
-        product_id: inventoryProduct.value.id,
-        warehouse_type: inventoryForm.value.warehouse_type,
-        quantity: increaseQuantity,
-        submitter_name: employeeName,
-        remark: extraRemark
-      })
-      if (res.data.code !== 200) {
-        ElMessage.error(res.data.msg || '入库失败')
-        return
-      }
-      ElMessage.success(res.data.msg || '入库完成，已记录库存流水')
-    } else {
-      if (actualStock !== Number(inventoryForm.value.expected_stock) && !extraRemark) {
-        ElMessage.warning('盘点数量有差异时请填写差异原因')
-        return
-      }
-      const res = await request.post(`/api/products/${inventoryProduct.value.id}/stocktake`, {
-        warehouse_type: inventoryForm.value.warehouse_type,
-        actual_stock: actualStock,
-        expected_stock: inventoryForm.value.expected_stock,
-        stocktake_type: inventoryForm.value.stocktake_type,
-        remark
-      })
-      if (res.data.code !== 200) {
-        ElMessage.error(res.data.msg || '盘库操作失败')
-        return
-      } else {
-        ElMessage.success('盘库完成')
-      }
-    }
-    await fetchProducts()
-    inventoryActionVisible.value = false
-  } catch (error) {
-    console.error('Inventory action error:', error)
-  } finally {
-    inventorySubmitting.value = false
-  }
 }
 
 const addToCart = (product) => {

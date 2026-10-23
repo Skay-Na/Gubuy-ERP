@@ -3,107 +3,13 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
-
-type CreatePendingInboundRequest struct {
-	ProductID     uint   `json:"product_id" binding:"required"`
-	WarehouseType int    `json:"warehouse_type" binding:"required,oneof=1 2 3"`
-	Quantity      int    `json:"quantity" binding:"required,gt=0"`
-	SubmitterName string `json:"submitter_name"`
-	Remark        string `json:"remark" binding:"max=200"`
-}
-
-// CreatePendingInbound immediately records employee inbound for every supported warehouse.
-// @Summary 员工入库登记
-// @Description 门店和云仓入库均即时更新库存并记录操作人、数量和备注，无需审核
-// @Tags System
-// @Accept json
-// @Produce json
-// @Success 200 {object} APIResponse
-// @Security ApiKeyAuth
-// @ID create_pending_inbound
-// @Router /api/pending-inbounds [post]
-func CreatePendingInbound(c *gin.Context) {
-	var req CreatePendingInboundRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误", "error": err.Error()})
-		return
-	}
-	if req.WarehouseType == 1 {
-		req.WarehouseType = 3
-	}
-
-	employee, isEmployeeToken, err := currentEmployeeScope(c)
-	if isEmployeeToken && err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "员工身份无效，请重新登录"})
-		return
-	}
-	operator := InventoryOperator{Name: c.GetString("username")}
-	if employee != nil {
-		operator.EmployeeID = &employee.ID
-		operator.Name = employee.Name
-	}
-	if operator.Name == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "缺少操作人信息"})
-		return
-	}
-	if isEmployeeToken && !requireNoActiveBlindStocktake(c) {
-		return
-	}
-
-	tx := config.DB.Begin()
-	if tx.Error != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "启动库存事务失败"})
-		return
-	}
-	defer tx.Rollback()
-	var product models.Product
-	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, req.ProductID).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "商品不存在"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取商品库存失败"})
-		return
-	}
-
-	remark := "员工入库登记"
-	if detail := strings.TrimSpace(req.Remark); detail != "" {
-		remark += "：" + detail
-	}
-	beforeStock := product.CloudStock
-	if req.WarehouseType == 2 {
-		beforeStock = product.StoreStock
-	}
-	if err := applyStocktake(
-		tx,
-		&product,
-		req.WarehouseType,
-		beforeStock,
-		beforeStock+req.Quantity,
-		2,
-		remark,
-		operator,
-		"",
-	); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "保存入库记录失败"})
-		return
-	}
-	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "提交入库失败"})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "入库完成，已记录操作人和库存流水"})
-}
 
 type ApprovePendingInboundRequest struct {
 	UnitCost float64 `json:"unit_cost" binding:"required,gt=0"`
