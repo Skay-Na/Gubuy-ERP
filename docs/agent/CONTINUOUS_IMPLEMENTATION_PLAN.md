@@ -14,8 +14,6 @@ The working tree initially had local untracked evaluation artifacts (`output/`, 
 
 ## Initial audit
 
-- `AGENT-RUNTIME-UNIFICATION-REPORT.md` accurately reports four registered runtime tools and a deterministic, fixed three-step replenishment workflow. There is no LLM planner, general sales analysis, or persistent user schedule yet.
-- `AGENT-NATIVE-PHASE2-REPORT.md` and `AGENT-NATIVE-MIGRATION-REPORT.md` confirm the existing chat agent still has a separate legacy registry/provider path, daily monitor uses a process-local 24-hour ticker, draft review is internal only, and previous browser validation does not cover the requested new flows.
 - `agentnative.RuntimeExecutor` enforces a hard-coded permission map and writes tool audits, but does not validate per-tool schemas, tool metadata, durable planner decisions, model usage, or result-context limits. The existing task worker uses a fixed workflow, and task cancellation is only polled between tools.
 - `MonitorService.ProcessPending` uses conditional claims and a lease but has no fencing token on subsequent state writes. This needs review before sharing worker behavior with planner and scheduler tasks.
 - The active provider selection and decrypted key handling live in the AI settings/controller path. New planner calls must adapt that path instead of adding provider configuration.
@@ -97,6 +95,5 @@ Current phase: **Complete — Phases 1–3 implemented and validated; final repo
 
 ### Final checkpoint
 
-- Root report delivered at `AGENT-NATIVE-PHASE3-5-FINAL-REPORT.md`.
-- After guarding the unrelated inventory rewrite, the isolated full Go suite and `go vet ./...` were rerun and passed. Frontend build/unit results, `go generate .`, browser E2E, subprocess crash tests, and final diff checks are recorded in the root report and testing records.
+- After guarding the unrelated inventory rewrite, the isolated full Go suite and `go vet ./...` were rerun and passed. Frontend build/unit results, `go generate .`, browser E2E, subprocess crash tests, and final diff checks were recorded in the phase reports and testing records (removed from the working tree afterwards; see git history).
 - This turn's backend, Vite, and local Mock Provider processes were stopped. Test artifacts and unrelated user worktree files were preserved. Production database, formal procurement/payment, and deployment were not touched.
