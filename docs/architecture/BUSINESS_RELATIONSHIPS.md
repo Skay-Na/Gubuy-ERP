@@ -20,7 +20,7 @@
 | 定金转全款 | 按原拆分退定金并配对冲销；新账户收全额 `actual_pay_amount`；定金清零，替换收款拆分 | 账户净变动、冲销后的现金流、待收尾款清零、推荐奖励触发、重复结清 | `PayOrderBalance` / `WriteReversalLog` |
 | 普通取消/红冲取消 | 订单状态设 2；退回实际扣库；按付款状态退定金或全款并尝试配对流水；重算成本 | 各报表排除该单；已发生的以旧换新/推荐奖励/国补回款如何处理，见 R3 | `cancelOrderWithOptions` |
 | 单品配送/安装、费用修改 | 单品状态/人员/时间/费用，再汇总父订单；整单接口仍保留 | 安装前配送状态、订单汇总、利润、推荐奖励；费用登记不等于实际付款 | `UpdateItemDeliveryStatus` / `UpdateItemInstallStatus` / `UpdateItemDeliveryFee` / `UpdateItemInstallationFee` |
-| 推荐奖励 | 满足全款且整单已安装，正奖励未付时从订单关联账户扣款并写 `第三方奖励`，设置已付标志；缺少关联账户时不再回退到固定公户 | 收尾款和安装两条触发路径；手工渠道记账与自动发奖是否重复；取消后的处理 | `checkAndPayReferralFee` / `UpdateOrderReferralFee` |
+| 推荐人信息与推荐奖励 | 管理员订单详情在奖励未支付时，可通过同一接口修改订单 `referrer_name` 和 `referral_fee`；订单行锁内重新校验已发状态并原子保存，路由由操作历史捕获。满足全款且整单已安装、正奖励未付时，从订单关联账户扣款并写 `第三方奖励`，设置已付标志；缺少关联账户时不回退到固定公户 | `referrer_name` 是自由文本，会显示为推荐人/渠道；含“老板”会影响员工个人业绩归类，管理端应提示。员工端、收银端和旧 `/api/ai/orders` 开单时可填写；图片导入和 Agent 确认订单走统一创建路径，但没有单独编辑推荐人入口；收据、员工端订单列表、员工绩效、仪表盘排行读取该值，订单导出不包含推荐人文本。手工渠道记账与自动发奖是否重复、取消后的处理见 R3/R5 | `checkAndPayReferralFee` / `UpdateOrderReferralFee` / `OrderManage.vue` |
 | 管理员采购入库 | 入库记录、目标库存、`purchase` 流水、成本基准与重算；所有新入库只记录库存/成本，不扣账户、不写采购付款流水 | 入库成本影响之后新订单的成本快照与毛利；撤销仅对明确标记为历史 `cash_purchase` 且有账户的记录退款 | `inbound_controller.go`: `CreateInbound`；`inbound_settlement.go` |
 | 入库撤销/改价 | 撤销扣目标库存、采购流水设 `purchase_void`、增加反向库存流水、删除入库记录、重算成本；改价更新原流水和入库金额 | 新入库无资金退款；历史 `cash_purchase` 的实际付款金额与改价后金额仍需一致性核对，见 R2 | `CancelInboundByLog` / `UpdateInventoryLogPrice` |
 | 员工端库存调整 | 员工端即时入库登记已移除；数量增加或减少统一通过直接盘点/批次盘点，写盘点记录与 `stocktake` 流水并重算成本；无成本基准时允许登记数量且不虚构成本 | `POST /api/pending-inbounds` 已下线；盘点需使用实盘总量及差异原因，盲盘期间遵循盲盘单；不扣账户。历史即时入库流水与操作记录保留 | `stock_controller.go`: `ProductStocktake` / `applyStocktake`；`stocktake_batch_controller.go`: `submitStocktakeBatchItem` |
@@ -56,6 +56,7 @@
 - 数据表 `employee_offboardings`、`employee_handover_tasks`、`employee_offboarding_alerts` 由 `AutoMigrate` 创建，SQL 全库备份会包含，恢复计数已纳入；新增结构尚未做隔离库导出/恢复演练，因此本次备份恢复仍未验证。管理员、员工终端、AI/图片导入共用订单写入路径；报表月报覆盖离职结算快照；员工清单导出包含任职状态与最后工作日，订单导出保留原始员工归属字段，不重写历史订单。
 - 订单管理新增临时“已删除员工待跟进”快捷筛选：只匹配 `employee_id` 指向软删除员工档案的正常订单，排除空经办人订单；待跟进条件为仅付定金、国补状态 1/2，或非自提订单明细仍未完成配送/安装。列表和导出复用同一查询条件，不修改订单归属或状态。国补状态 2 仅表示已提交且未标记回款；因回款没有逐单核销，筛选结果是待核候选，不证明逐单实际欠款。
 - 写入成功后应刷新当前展示的关联数据；各 composable 实例中的本地数据不代表全局已经刷新，需检查调用方和切页后的重载。
+- 管理端订单详情的“编辑推荐信息与提成”更新订单推荐人/渠道文本与奖励金额；奖励已发放后两项都禁止修改。保存写入 `orders`，由已有 `/api/orders/:id/referral-fee` 操作历史捕获并可撤销；历史详情会显示推荐人/渠道的前后值。此字段也驱动员工端推荐单筛选和员工绩效过滤（名称含“老板”时排除个人绩效），不能只按展示备注理解。
 
 ## 3. 核心数值来源与边界
 

@@ -460,6 +460,7 @@ func describeOrderChange(before, after map[string]interface{}) string {
 		{key: "delivery_fee", label: "配送费用"},
 		{key: "installation_fee", label: "安装费用"},
 		{key: "commission_amount", label: "员工提成"},
+		{key: "referrer_name", label: "推荐人/渠道"},
 		{key: "referral_fee", label: "渠道奖励"},
 	} {
 		if oldValue, newValue, changed := operationChangedValue(before, after, field.key); changed {
@@ -1018,6 +1019,11 @@ func operationFieldValue(key string, value interface{}) string {
 			return "已付全款"
 		}
 		return "仅付定金"
+	case "referrer_name":
+		if text := operationCleanText(fmt.Sprint(value)); text != "" {
+			return text
+		}
+		return "未填写"
 	case "is_delivered":
 		if operationBoolean(value) {
 			return "已配送"
