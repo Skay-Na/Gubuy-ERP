@@ -75,6 +75,7 @@ docker-compose.override.yaml
 *.sql
 chunk_*.txt
 scripts/archive/
+scripts/.router-pass.clixml
 
 # Misc
 .agents/
