@@ -25,6 +25,27 @@ brew install mariadb
 
 `./dev.sh`（等同于 `./dev.sh start`）与 `npm run dev:stack` 是同一启动入口：Docker 只运行本机 MySQL（默认 `127.0.0.1:3307`），Go/Air 在本机 `8081` 运行，Vite 在 `5173` 运行并代理 API 到 `8081`。Vue 和 Go 修改均会自动重载。脚本会检查 SQL 客户端，停止本地打包版 app，避免多个后端同时执行后台任务。
 
+#### Windows
+
+Windows 使用等价的 PowerShell 脚本 `scripts/dev.ps1`（双击或命令行运行 `scripts/dev.cmd`，或 `npm run dev:stack:win`）：
+
+```powershell
+scripts\dev.cmd start       # 后台启动 MySQL、Go/Air、Vite（默认）
+scripts\dev.cmd status      # 查看开发服务和 MySQL 状态
+scripts\dev.cmd stop        # 停止 Go/Air 和 Vite，保留 MySQL 容器及数据卷
+scripts\dev.cmd restart     # 重启 Go/Air 和 Vite
+scripts\dev.cmd foreground  # 在当前终端前台运行，Ctrl+C 停止
+scripts\dev.cmd logs        # 持续查看运行日志
+```
+
+说明：
+
+- Go / Node 不在 PATH 时，脚本会自动探测常见安装位置（含 `DEV_GO_EXE` / `DEV_NODE_EXE` 指定的路径）。
+- start 会在需要时自动打开 Docker Desktop 并等待引擎就绪（超时 `DEV_DOCKER_STARTUP_TIMEOUT`，默认 180 秒）。
+- Go 热重载使用 `erp-backend/.air.windows.toml`（构建产物带 `.exe` 后缀）；macOS/Linux 仍使用 `.air.toml`。
+- SQL 备份/恢复客户端（mariadb-dump 等）缺失时仅提示，不阻断开发环境启动。
+- 日志位于 `logs/dev-stack/`：`dev.log`（运行器）、`air.out.log` / `air.err.log`（Go）、`vite.out.log` / `vite.err.log`（Vite）。
+
 `start` 会先检查依赖和端口；macOS 上 Docker Desktop 未运行时会自动打开并等待引擎就绪，然后启动 MySQL、Go/Air 和 Vite。Docker Desktop 需预先安装。等待 Docker 的默认上限为 180 秒（`DEV_DOCKER_STARTUP_TIMEOUT`），整体启动默认上限为 600 秒（`DEV_TOTAL_STARTUP_TIMEOUT`）。`status` 会检查 Docker 引擎、开发进程、Go API、Vite、API 代理和 MySQL。`stop` 停止 Go/Air 与 Vite，MySQL 容器及数据卷保留；`restart` 仅重启 Go/Air 与 Vite。日志保存在 `logs/dev-stack/dev.log`。需要前台运行时使用 `./dev.sh foreground`，按 Ctrl+C 停止。可在 `.env` 设置 `DEV_API_PORT`、`DEV_VITE_PORT`；设置 `DEV_OPEN_BROWSER=0` 可禁止启动时自动打开浏览器。
 
 ### 前端

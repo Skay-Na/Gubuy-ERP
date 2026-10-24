@@ -1,0 +1,17 @@
+root = "."
+tmp_dir = "tmp"
+
+# Windows 专用配置：构建产物必须带 .exe 后缀（macOS/Linux 用 .air.toml）
+[build]
+cmd = "go build -o ./tmp/main.exe ."
+entrypoint = ["./tmp/main.exe"]
+delay = 500
+include_ext = ["go"]
+exclude_dir = ["tmp", ".tmp", ".cache", "docs", "scripts"]
+exclude_regex = ["_test.go$"]
+stop_on_error = true
+send_interrupt = true
+kill_delay = "1s"
+
+[misc]
+clean_on_exit = true
