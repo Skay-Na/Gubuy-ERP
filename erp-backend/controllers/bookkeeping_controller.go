@@ -20,12 +20,14 @@ const (
 )
 
 var (
-	errInvalidBookkeepingType   = errors.New("记账类型仅支持收入或支出")
-	errInvalidBookkeepingAmount = errors.New("记账金额必须大于 0")
-	errMissingBookkeepingFields = errors.New("账户和分类不能为空")
-	errOrderCommissionForbidden = errors.New("商会订单不能通过记账增加员工提成")
-	errOrderCommissionTooHigh   = errors.New("员工提成累计金额超过订单实付金额的 30%")
-	errOrderCostRequiresExpense = errors.New("订单成本类记账必须选择支出")
+	errInvalidBookkeepingType      = errors.New("记账类型仅支持收入或支出")
+	errInvalidBookkeepingAmount    = errors.New("记账金额必须大于 0")
+	errMissingBookkeepingFields    = errors.New("账户和分类不能为空")
+	errOrderCommissionForbidden    = errors.New("商会订单不能通过记账增加员工提成")
+	errOrderCommissionTooHigh      = errors.New("员工提成累计金额超过订单实付金额的 30%")
+	errOrderCostRequiresExpense    = errors.New("订单成本类记账必须选择支出")
+	errReferralRewardRequiresOrder = errors.New("渠道奖励支出必须关联有效订单")
+	errReferralRewardAlreadyPaid   = errors.New("该订单渠道奖励已记账支出，不能重复登记")
 )
 
 var bookkeepingOrderFields = map[string]string{
@@ -75,6 +77,9 @@ func validateBookkeepingEntry(req *CreateBookkeepingEntryRequest) error {
 	if req.AccountID == 0 || req.Category == "" {
 		return errMissingBookkeepingFields
 	}
+	if req.Category == "渠道奖励" && req.OrderID == 0 && req.RelatedNo == "" {
+		return errReferralRewardRequiresOrder
+	}
 	return nil
 }
 
@@ -97,6 +102,9 @@ func bookkeepingOrderField(req CreateBookkeepingEntryRequest, order models.Order
 	}
 	if req.EntryType != bookkeepingExpense {
 		return "", errOrderCostRequiresExpense
+	}
+	if req.Category == "渠道奖励" && order.IsReferralFeePaid {
+		return "", errReferralRewardAlreadyPaid
 	}
 	if field != "commission_amount" {
 		return field, nil
@@ -206,6 +214,10 @@ func CreateBookkeepingEntry(c *gin.Context) {
 	}
 	if err := validateBookkeepingEntry(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+	if req.Category == "渠道奖励" && strings.HasPrefix(c.GetString("username"), "emp_") {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "msg": "渠道奖励支出需要管理员操作"})
 		return
 	}
 

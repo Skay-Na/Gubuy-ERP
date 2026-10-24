@@ -331,16 +331,19 @@
                   <el-descriptions-item label="客户名称">{{ row.customer_name || '散客' }}</el-descriptions-item>
                   <el-descriptions-item label="联系电话">{{ row.customer_phone || '-' }}</el-descriptions-item>
                   <el-descriptions-item label="收货地址">{{ row.customer_address || '-' }}</el-descriptions-item>
-                  <el-descriptions-item label="推荐人/渠道">{{ row.referrer_name || '无' }}</el-descriptions-item>
+                  <el-descriptions-item label="推荐人/渠道">
+                    {{ row.referrer_name || '无' }}
+                    <el-button text type="primary" size="small" class="ml-2" @click="openReferrerDialog(row)">编辑</el-button>
+                  </el-descriptions-item>
                   <el-descriptions-item v-if="isBossCustomerOrder(row)" label="客户来源">
                     <span class="font-bold text-amber-600">老板自带客户</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="渠道奖励">
                     ¥{{ (row.referral_fee || 0).toFixed(2) }} 
                     <el-tag v-if="row.referral_fee > 0" size="small" :type="row.is_referral_fee_paid ? 'success' : 'info'" class="ml-2">
-                      {{ row.is_referral_fee_paid ? '已发放' : '待结算' }}
+                      {{ row.is_referral_fee_paid ? '已支出' : '待支出' }}
                     </el-tag>
-                    <el-button text type="primary" size="small" class="ml-2" @click="openReferralFeeDialog(row)">编辑</el-button>
+                    <el-button v-if="row.order_status === 1 && !row.is_referral_fee_paid" text type="primary" size="small" class="ml-2" @click="$router.push('/admin/bookkeeping')">去记账</el-button>
                   </el-descriptions-item>
                 </el-descriptions>
               </div>
@@ -404,7 +407,7 @@
                     <el-dropdown-item @click="openReceiptPreview(row)">打印小票</el-dropdown-item>
                     <el-dropdown-item v-if="row.subsidy_status === 1" @click="handleSubmitSubsidy(row)">提交国补</el-dropdown-item>
                     <el-dropdown-item @click="openCommissionDialog(row)">调整提成</el-dropdown-item>
-                    <el-dropdown-item @click="openReferralFeeDialog(row)">编辑推荐人/渠道</el-dropdown-item>
+                    <el-dropdown-item @click="openReferrerDialog(row)">编辑推荐人/渠道</el-dropdown-item>
                     <el-dropdown-item v-if="isOrderFulfilled(row)" divided type="danger" @click="handleReversalCancel(row)" class="!text-red-500">红冲重开</el-dropdown-item>
                     <el-dropdown-item v-else divided type="danger" @click="handleCancel(row)" class="!text-red-500">取消订单</el-dropdown-item>
                   </el-dropdown-menu>
@@ -624,54 +627,51 @@
       </div>
     </el-drawer>
 
-    <el-dialog v-if="!isMobileView" v-model="referralFeeDialogVisible" title="编辑推荐信息与提成" width="440px" destroy-on-close class="!rounded-2xl">
-      <div v-if="referralFeeTargetOrder" class="space-y-4">
+    <el-dialog v-if="!isMobileView" v-model="referrerDialogVisible" title="编辑推荐人/渠道" width="440px" destroy-on-close class="!rounded-2xl">
+      <div v-if="referrerTargetOrder" class="space-y-4">
         <el-alert
-          :title="referralFeeTargetOrder.is_referral_fee_paid ? '推荐奖励已发放，推荐人和金额不可修改' : '保存后会同步刷新订单列表'"
-          :type="referralFeeTargetOrder.is_referral_fee_paid ? 'warning' : 'info'"
+          :title="referrerTargetOrder.is_referral_fee_paid ? '渠道奖励已通过记账支出，推荐人/渠道不可修改' : '请由管理员到专业记账选择“渠道奖励”支出并关联本订单'"
+          :type="referrerTargetOrder.is_referral_fee_paid ? 'warning' : 'info'"
           :closable="false"
           show-icon
           class="!rounded-xl"
         />
         <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
-          <div class="text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider">订单号: {{ referralFeeTargetOrder.order_no }}</div>
-          <div class="text-sm font-bold text-slate-700 mb-4">当前订单总额: ¥{{ referralFeeTargetOrder.total_amount.toFixed(2) }}</div>
+          <div class="text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider">订单号: {{ referrerTargetOrder.order_no }}</div>
           <label class="block text-sm font-bold text-slate-700 mb-2">推荐人/渠道</label>
-          <el-input v-model="newReferrerName" maxlength="100" show-word-limit :disabled="referralFeeTargetOrder.is_referral_fee_paid" placeholder="请输入推荐人或推荐渠道" class="mb-1" />
-          <div class="text-xs text-slate-400 mb-4">名称包含“老板”时会影响员工绩效分类，请核对。</div>
-          <label class="block text-sm font-bold text-slate-700 mb-2">推荐人提成金额 (元)</label>
-          <el-input-number v-model="newReferralFee" :min="0" :precision="2" :disabled="referralFeeTargetOrder.is_referral_fee_paid" class="!w-full" controls-position="right" />
+          <el-input v-model="newReferrerName" maxlength="100" show-word-limit :disabled="referrerTargetOrder.is_referral_fee_paid" placeholder="请输入推荐人或推荐渠道" />
+          <div class="text-xs text-slate-500 mt-3">名称包含“老板”时会影响员工绩效分类，请核对。</div>
+          <div class="text-sm font-bold text-slate-700 mt-4">渠道奖励支出：¥{{ Number(referrerTargetOrder.referral_fee || 0).toFixed(2) }}</div>
         </div>
       </div>
       <template #footer>
-        <el-button @click="referralFeeDialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="referralFeeTargetOrder?.is_referral_fee_paid" @click="confirmUpdateReferralFee">确认修改</el-button>
+        <el-button @click="referrerDialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="referrerTargetOrder?.is_referral_fee_paid" @click="confirmUpdateReferrer">保存推荐人/渠道</el-button>
       </template>
     </el-dialog>
 
-    <el-drawer v-if="isMobileView" v-model="referralFeeDialogVisible" title="编辑推荐信息与提成" direction="btt" size="75%" class="md:hidden">
-      <div v-if="referralFeeTargetOrder" class="h-full flex flex-col">
+    <el-drawer v-if="isMobileView" v-model="referrerDialogVisible" title="编辑推荐人/渠道" direction="btt" size="75%" class="md:hidden">
+      <div v-if="referrerTargetOrder" class="h-full flex flex-col">
         <div class="flex-1 space-y-4">
           <el-alert
-            :title="referralFeeTargetOrder.is_referral_fee_paid ? '推荐奖励已发放，推荐人和金额不可修改' : '保存后会同步刷新订单列表'"
-            :type="referralFeeTargetOrder.is_referral_fee_paid ? 'warning' : 'info'"
+            :title="referrerTargetOrder.is_referral_fee_paid ? '渠道奖励已通过记账支出，推荐人/渠道不可修改' : '请由管理员到专业记账选择“渠道奖励”支出并关联本订单'"
+            :type="referrerTargetOrder.is_referral_fee_paid ? 'warning' : 'info'"
             :closable="false"
             show-icon
             class="!rounded-2xl"
           />
           <div class="bg-slate-50 p-4 rounded-2xl border border-slate-100">
             <div class="text-xs text-slate-400 mb-1 font-bold">订单号</div>
-            <div class="font-mono text-xs text-slate-600 break-all mb-3">{{ referralFeeTargetOrder.order_no }}</div>
+            <div class="font-mono text-xs text-slate-600 break-all mb-3">{{ referrerTargetOrder.order_no }}</div>
             <label class="block text-xs text-slate-400 mb-1 font-bold">推荐人/渠道</label>
-            <el-input v-model="newReferrerName" maxlength="100" show-word-limit :disabled="referralFeeTargetOrder.is_referral_fee_paid" placeholder="请输入推荐人或推荐渠道" class="mb-1" />
-            <div class="text-xs text-slate-400 mb-3">名称包含“老板”时会影响员工绩效分类，请核对。</div>
-            <label class="block text-sm font-bold text-slate-700 mb-2">推荐人提成金额</label>
-            <el-input-number v-model="newReferralFee" :min="0" :precision="2" :disabled="referralFeeTargetOrder.is_referral_fee_paid" class="!w-full" controls-position="right" />
+            <el-input v-model="newReferrerName" maxlength="100" show-word-limit :disabled="referrerTargetOrder.is_referral_fee_paid" placeholder="请输入推荐人或推荐渠道" class="mb-1" />
+            <div class="text-xs text-slate-500 mt-3">名称包含“老板”时会影响员工绩效分类，请核对。</div>
+            <div class="text-sm font-bold text-slate-700 mt-4">渠道奖励支出：¥{{ Number(referrerTargetOrder.referral_fee || 0).toFixed(2) }}</div>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2 pt-3 pb-[env(safe-area-inset-bottom)]">
-          <el-button @click="referralFeeDialogVisible = false">取消</el-button>
-          <el-button type="primary" :disabled="referralFeeTargetOrder.is_referral_fee_paid" @click="confirmUpdateReferralFee">保存修改</el-button>
+          <el-button @click="referrerDialogVisible = false">取消</el-button>
+          <el-button type="primary" :disabled="referrerTargetOrder.is_referral_fee_paid" @click="confirmUpdateReferrer">保存推荐人/渠道</el-button>
         </div>
       </div>
     </el-drawer>
@@ -795,7 +795,7 @@
           <el-button @click="openReceiptPreview(detailOrder)">打印小票</el-button>
           <el-button v-if="detailOrder.subsidy_status === 1" type="warning" @click="handleSubmitSubsidy(detailOrder)">提交国补</el-button>
           <el-button v-else @click="openCommissionDialog(detailOrder)">调整提成</el-button>
-          <el-button @click="openReferralFeeDialog(detailOrder)">编辑推荐信息与提成</el-button>
+          <el-button @click="openReferrerDialog(detailOrder)">编辑推荐人/渠道</el-button>
           <el-button v-if="detailOrder.order_status === 1 && isOrderFulfilled(detailOrder)" type="danger" plain @click="handleReversalCancel(detailOrder)">红冲重开</el-button>
           <el-button v-else-if="detailOrder.order_status === 1" type="danger" plain @click="handleCancel(detailOrder)">取消订单</el-button>
         </div>
@@ -1466,30 +1466,27 @@ const confirmUpdateCommission = async () => {
   }
 }
 
-const referralFeeDialogVisible = ref(false)
-const referralFeeTargetOrder = ref(null)
-const newReferralFee = ref(0)
+const referrerDialogVisible = ref(false)
+const referrerTargetOrder = ref(null)
 const newReferrerName = ref('')
 
-const openReferralFeeDialog = (row) => {
-  referralFeeTargetOrder.value = row
-  newReferralFee.value = Number(row.referral_fee || 0)
+const openReferrerDialog = (row) => {
+  referrerTargetOrder.value = row
   newReferrerName.value = row.referrer_name || ''
   if (isMobileView.value) orderDetailVisible.value = false
-  referralFeeDialogVisible.value = true
+  referrerDialogVisible.value = true
 }
 
-const confirmUpdateReferralFee = async () => {
-  if (referralFeeTargetOrder.value?.is_referral_fee_paid) return
+const confirmUpdateReferrer = async () => {
+  if (referrerTargetOrder.value?.is_referral_fee_paid) return
   try {
-    const res = await request.put(`/api/orders/${referralFeeTargetOrder.value.id}/referral-fee`, {
-      referral_fee: newReferralFee.value,
+    const res = await request.put(`/api/orders/${referrerTargetOrder.value.id}/referrer`, {
       referrer_name: newReferrerName.value
     })
     if (res.data.code === 200) {
-      const updatedOrderID = referralFeeTargetOrder.value.id
-      ElMessage.success('推荐信息和提成调整成功')
-      referralFeeDialogVisible.value = false
+      const updatedOrderID = referrerTargetOrder.value.id
+      ElMessage.success('推荐人/渠道更新成功')
+      referrerDialogVisible.value = false
       await fetchOrders()
       if (detailOrder.value?.id === updatedOrderID) {
         detailOrder.value = allOrders.value.find(order => order.id === updatedOrderID) || detailOrder.value

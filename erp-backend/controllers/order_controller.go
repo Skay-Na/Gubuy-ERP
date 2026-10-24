@@ -143,7 +143,6 @@ type CreateOrderRequest struct {
 	CustomerAddress string             `json:"customer_address"`
 	EmployeeID      *uint              `json:"employee_id"`
 	ReferrerName    string             `json:"referrer_name"`
-	ReferralFee     float64            `json:"referral_fee"`
 	NoCommission    bool               `json:"no_commission"`
 	// 支付方式: 1-支付宝, 2-微信, 3-公户, 5-现金
 	PaymentMethod int `json:"payment_method" binding:"required"`
@@ -755,7 +754,6 @@ func CreateOrder(c *gin.Context) {
 		AccountID:             &accountID,
 		EmployeeID:            req.EmployeeID,
 		ReferrerName:          req.ReferrerName,
-		ReferralFee:           req.ReferralFee,
 		CommissionAmount:      commissionAmount,
 		TradeInAmount:         req.TradeInAmount,
 		TradeInType:           req.TradeInType,
@@ -1372,14 +1370,8 @@ func PayOrderBalance(c *gin.Context) {
 		return
 	}
 
-	// 触发推荐人提成下发检查 (结平尾款可能是由于后续操作，也可能此时已经安装完毕)
 	order.PaymentStatus = 2
 	order.AccountID = &finalAccountID
-	if err := checkAndPayReferralFee(tx, &order); err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "第三方提成下发失败"})
-		return
-	}
 
 	if err := tx.Commit().Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "事务提交失败"})
@@ -1994,12 +1986,6 @@ func UpdateInstallStatus(c *gin.Context) {
 	}
 
 	order.IsInstalled = true
-	// 判断是否需要下发推荐人提成 (安装由于可能是结清全款之后的事情，因此也作为触发点)
-	if err := checkAndPayReferralFee(tx, &order); err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "第三方提成下发失败"})
-		return
-	}
 	if err := resolvePendingFulfillmentAlert(tx, order.ID); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "更新离职订单履约告警失败"})
@@ -2017,42 +2003,10 @@ func UpdateInstallStatus(c *gin.Context) {
 	})
 }
 
-// checkAndPayReferralFee 检查订单是否已结清尾款且已安装，若是则下发推荐人提成
-func checkAndPayReferralFee(tx *gorm.DB, order *models.Order) error {
-	if order.ReferralFee > 0 && !order.IsReferralFeePaid && order.PaymentStatus == 2 && order.IsInstalled {
-		if order.AccountID == nil || *order.AccountID == 0 {
-			return fmt.Errorf("订单 %s 缺少推荐奖励付款账户，无法自动扣款", order.OrderNo)
-		}
-		accountID := *order.AccountID
-
-		var account models.Account
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, accountID).Error; err != nil {
-			return fmt.Errorf("查询订单 %s 的推荐奖励付款账户: %w", order.OrderNo, err)
-		}
-
-		if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance - ?", order.ReferralFee)).Error; err != nil {
-			return err
-		}
-
-		var updatedAcc models.Account
-		if err := tx.First(&updatedAcc, accountID).Error; err != nil {
-			return fmt.Errorf("读取推荐奖励扣款后账户余额: %w", err)
-		}
-		if err := WriteFinancialLog(tx, accountID, 2, "第三方奖励", order.ReferralFee, updatedAcc.Balance, order.OrderNo, fmt.Sprintf("订单 %s 完结核算(款齐装完)：推荐人(%s)奖励", order.OrderNo, order.ReferrerName)); err != nil {
-			return err
-		}
-
-		if err := tx.Model(order).UpdateColumn("is_referral_fee_paid", true).Error; err != nil {
-			return err
-		}
-		order.IsReferralFeePaid = true
-	}
-	return nil
-}
-
 var errReferralFeeAlreadyPaid = errors.New("referral fee already paid")
 
-func validateReferralFeeUpdate(order *models.Order, referralFee float64) error {
+// validateReferralFeeUpdate prevents changing referral details after the reward has been paid.
+func validateReferralFeeUpdate(order *models.Order, _ float64) error {
 	if order.IsReferralFeePaid {
 		return errReferralFeeAlreadyPaid
 	}
@@ -2064,10 +2018,9 @@ type UpdateCommissionRequest struct {
 	CommissionAmount float64 `json:"commission_amount" binding:"min=0"`
 }
 
-// UpdateReferralFeeRequest 更新推荐人信息与提成请求体
-type UpdateReferralFeeRequest struct {
-	ReferralFee  *float64 `json:"referral_fee" binding:"required,gte=0"`
-	ReferrerName *string  `json:"referrer_name" binding:"omitempty,max=100"`
+// UpdateOrderReferrerRequest 更新订单推荐人/渠道请求体
+type UpdateOrderReferrerRequest struct {
+	ReferrerName *string `json:"referrer_name" binding:"omitempty,max=100"`
 }
 
 // UpdateOrderCommission 手动调整订单提成金额
@@ -2118,23 +2071,27 @@ func UpdateOrderCommission(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "提成调整成功"})
 }
 
-// UpdateOrderReferralFee 手动更新订单推荐人信息与提成
-// @Summary 更新订单推荐人信息与提成
-// @Description 仅管理员可修改未发放奖励订单的推荐人信息和提成金额
+// UpdateOrderReferrer 更新订单推荐人/渠道信息
+// @Summary 更新订单推荐人/渠道信息
+// @Description 仅管理员可修改尚未记账支出的订单推荐人/渠道信息
 // @Tags Orders
 // @Accept json
 // @Produce json
-// @Param body body UpdateReferralFeeRequest true "推荐人信息与提成参数"
+// @Param body body UpdateOrderReferrerRequest true "推荐人/渠道参数"
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
 // @Param id path int true "路径资源ID"
-// @ID put_api_orders_id_referral_fee
-// @Router /api/orders/{id}/referral-fee [put]
-func UpdateOrderReferralFee(c *gin.Context) {
+// @ID put_api_orders_id_referrer
+// @Router /api/orders/{id}/referrer [put]
+func UpdateOrderReferrer(c *gin.Context) {
 	id := c.Param("id")
-	var req UpdateReferralFeeRequest
+	var req UpdateOrderReferrerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误"})
+		return
+	}
+	if req.ReferrerName == nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "推荐人/渠道不能为空"})
 		return
 	}
 
@@ -2143,30 +2100,34 @@ func UpdateOrderReferralFee(c *gin.Context) {
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, id).Error; err != nil {
 			return err
 		}
-		if err := validateReferralFeeUpdate(&order, *req.ReferralFee); err != nil {
+		if err := validateReferralFeeUpdate(&order, order.ReferralFee); err != nil {
 			return err
 		}
-
-		updates := map[string]interface{}{"referral_fee": *req.ReferralFee}
-		if req.ReferrerName != nil {
-			updates["referrer_name"] = strings.TrimSpace(*req.ReferrerName)
+		var previousPayments int64
+		if err := tx.Model(&models.FinancialLog{}).
+			Where("related_no = ? AND category IN ? AND flow_type = ? AND reversal_pair_id IS NULL", order.OrderNo, []string{"渠道奖励", "第三方奖励"}, 2).
+			Count(&previousPayments).Error; err != nil {
+			return err
 		}
-		return tx.Model(&order).Updates(updates).Error
+		if previousPayments > 0 {
+			return errReferralFeeAlreadyPaid
+		}
+		return tx.Model(&order).Update("referrer_name", strings.TrimSpace(*req.ReferrerName)).Error
 	})
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "订单不存在"})
 		return
 	}
 	if errors.Is(err, errReferralFeeAlreadyPaid) {
-		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "推荐奖励已发放，不能直接修改推荐人和金额，请先进行财务冲正"})
+		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": "渠道奖励已记账支出，不能直接修改推荐人/渠道"})
 		return
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "更新推荐信息和提成失败"})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "更新推荐人/渠道失败"})
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "推荐信息和提成调整成功"})
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "推荐人/渠道更新成功"})
 }
 
 // UpdateItemDeliveryStatus 确认单品送货接口
@@ -2506,11 +2467,6 @@ func UpdateItemInstallStatus(c *gin.Context) {
 	}
 
 	order.IsInstalled = allInstalled
-	if err := checkAndPayReferralFee(tx, &order); err != nil {
-		tx.Rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "第三方提成下发失败"})
-		return
-	}
 	if err := resolvePendingFulfillmentAlert(tx, order.ID); err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "更新离职订单履约告警失败"})

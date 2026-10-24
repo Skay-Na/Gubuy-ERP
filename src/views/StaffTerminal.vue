@@ -373,9 +373,9 @@
                 <el-input v-model="customerPhone" type="tel" placeholder="手机号" />
               </div>
               <el-input v-model="customerAddress" placeholder="请输入详细收货地址" />
-              <div class="grid grid-cols-2 gap-2">
+              <div class="space-y-1">
                 <el-input v-model="referrerName" placeholder="推荐人 (选填)" />
-                <el-input-number v-model="referralFee" :min="0" :precision="2" :controls="false" placeholder="推荐奖励(元)" class="w-full" />
+                <span class="text-[10px] text-slate-400">渠道奖励实际支出请在专业记账中登记。</span>
               </div>
 
               <!-- 模式切换 -->
@@ -1579,7 +1579,6 @@ const customerName = ref('')
 const customerPhone = ref('')
 const customerAddress = ref('')
 const referrerName = ref('')
-const referralFee = ref(0)
 const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
 const deliveryMethod = ref(4)
@@ -1792,7 +1791,6 @@ const applyPhotoOrder = async (draft) => {
   mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
   deliveryMethod.value = 4
   referrerName.value = ''
-  referralFee.value = 0
   cart.value = draft.items.map(item => ({
     id: item.product.id,
     name: item.product.name,
@@ -1998,7 +1996,6 @@ const handleCheckout = async () => {
       employee_id: currentEmployee.value.id,
       no_commission: isBossCustomer.value,
       referrer_name: isBossCustomer.value ? '老板客户' : referrerName.value,
-      referral_fee: referralFee.value,
       payment_method: paymentMethod.value,
       payment_splits: paymentSplits,
       delivery_method: deliveryMethod.value,
@@ -2018,7 +2015,6 @@ const handleCheckout = async () => {
       customerPhone.value = ''
       customerAddress.value = ''
       referrerName.value = ''
-      referralFee.value = 0
       isSubsidized.value = false
       isTradeIn.value = false
       tradeInAmount.value = 0

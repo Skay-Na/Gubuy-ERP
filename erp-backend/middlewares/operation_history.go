@@ -73,7 +73,7 @@ var operationRoutes = map[string]operationRoute{
 	"PUT /api/orders/:id/install":                            {title: "更新订单安装状态", tables: []string{"orders", "order_items", "products", "accounts", "inventory_logs", "financial_logs", "expenses", "employee_offboarding_alerts"}},
 	"PUT /api/orders/:id/deliver":                            {title: "更新订单配送状态", tables: []string{"orders", "order_items", "products", "accounts", "inventory_logs", "financial_logs", "expenses", "employee_offboarding_alerts"}},
 	"PUT /api/orders/:id/commission":                         {title: "修改订单提成", tables: []string{"orders", "order_items", "products", "accounts", "inventory_logs", "financial_logs", "expenses"}},
-	"PUT /api/orders/:id/referral-fee":                       {title: "修改订单推荐信息与渠道奖励", tables: []string{"orders", "order_items", "products", "accounts", "inventory_logs", "financial_logs", "expenses"}},
+	"PUT /api/orders/:id/referrer":                           {title: "修改订单推荐人/渠道", tables: []string{"orders"}},
 	"PUT /api/order-items/:item_id/deliver":                  {title: "更新商品配送状态", tables: []string{"orders", "order_items", "employees", "accounts", "financial_logs", "expenses", "employee_offboarding_alerts"}},
 	"PUT /api/order-items/:item_id/install":                  {title: "更新商品安装状态", tables: []string{"orders", "order_items", "employees", "accounts", "financial_logs", "expenses", "employee_offboarding_alerts"}},
 	"PUT /api/order-items/:item_id/delivery-fee":             {title: "修改商品配送费用", tables: []string{"orders", "order_items", "employees", "accounts", "financial_logs", "expenses"}},

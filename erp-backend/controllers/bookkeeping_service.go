@@ -45,12 +45,31 @@ func postBookkeepingEntry(
 	if err != nil {
 		return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusBadRequest, err.Error(), err)
 	}
+	if req.Category == "渠道奖励" && linkedOrder == nil {
+		return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusBadRequest, errReferralRewardRequiresOrder.Error(), errReferralRewardRequiresOrder)
+	}
 	if linkedOrder != nil {
+		if req.Category == "渠道奖励" {
+			var previousPayments int64
+			if err := tx.Model(&models.FinancialLog{}).
+				Where("related_no = ? AND category IN ? AND flow_type = ? AND reversal_pair_id IS NULL", linkedOrder.OrderNo, []string{"渠道奖励", "第三方奖励"}, bookkeepingExpense).
+				Count(&previousPayments).Error; err != nil {
+				return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "检查历史渠道奖励流水失败", err)
+			}
+			if previousPayments > 0 {
+				return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusConflict, "该订单已有渠道奖励支出流水，请先核对后再记账", errReferralRewardAlreadyPaid)
+			}
+		}
+
 		field, fieldErr := bookkeepingOrderField(req, *linkedOrder)
 		if fieldErr != nil {
-			return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusBadRequest, fieldErr.Error(), fieldErr)
+			status := http.StatusBadRequest
+			if errors.Is(fieldErr, errReferralRewardAlreadyPaid) {
+				status = http.StatusConflict
+			}
+			return models.FinancialLog{}, nil, bookkeepingFailure(status, fieldErr.Error(), fieldErr)
 		}
-		if field != "" {
+		if field != "" && req.Category != "渠道奖励" {
 			if err := tx.Model(linkedOrder).
 				UpdateColumn(field, gorm.Expr(field+" + ?", req.Amount)).Error; err != nil {
 				return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "订单费用同步失败", err)
@@ -90,6 +109,17 @@ func postBookkeepingEntry(
 	}
 	if err := tx.Create(&entry).Error; err != nil {
 		return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "记账流水保存失败", err)
+	}
+	if req.Category == "渠道奖励" && linkedOrder != nil {
+		updates := map[string]interface{}{
+			"referral_fee":         req.Amount,
+			"is_referral_fee_paid": true,
+		}
+		if err := tx.Model(linkedOrder).Updates(updates).Error; err != nil {
+			return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "订单奖励状态同步失败", err)
+		}
+		linkedOrder.ReferralFee = req.Amount
+		linkedOrder.IsReferralFeePaid = true
 	}
 	if req.EntryType == bookkeepingExpense && linkedOrder != nil && strings.Contains(req.Category, "退款") {
 		if err := postExitOrderRefundAlert(tx, *linkedOrder, req.Category, req.Amount, &entry.ID, time.Now()); err != nil {

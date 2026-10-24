@@ -33,9 +33,10 @@ const amountMismatch = computed(() => Number(order.amount) > 0 && Math.abs(Numbe
 const fileName = computed(() => file.value?.name || '支持 JPG、PNG、WebP，最大 8MB')
 const linkedOrder = computed(() => orders.value.find(item => item.id === expense.order_id))
 const linkedField = computed(() => ({ '渠道奖励': '渠道奖励', '员工提成': '员工提成', '安装费': '安装费用', '运输配送': '送货费用' })[expense.category])
+const channelRewardNeedsOrder = computed(() => String(expense.category || '').trim() === '渠道奖励')
 const canSave = computed(() => {
   if (!draftID.value || saved.value || working.value) return false
-  if (kind.value === 'expense') return Number(expense.amount) > 0 && expense.category && expense.account_id
+  if (kind.value === 'expense') return Number(expense.amount) > 0 && expense.category && expense.account_id && (!channelRewardNeedsOrder.value || expense.order_id)
   return order.customer_name && order.delivery_method && order.payment_method && order.account_id && order.payment_mode &&
     (order.payment_mode === 'full' || Number(order.deposit_amount) > 0) && order.items.length > 0 &&
     order.items.every(item => item.product_id && Number(item.quantity) > 0 && Number(item.unit_price) > 0)
@@ -266,8 +267,10 @@ onBeforeUnmount(() => { if (imageURL.value) URL.revokeObjectURL(imageURL.value) 
           <div class="field-grid"><label>支出金额<el-input-number v-model="expense.amount" :min="0" :precision="2" /></label><label>发生日期<el-date-picker v-model="expense.occurred_at" type="date" value-format="YYYY-MM-DD" placeholder="未识别则留空" /></label></div>
           <div class="field-grid"><label>分类<el-input v-model="expense.category" /></label><label>付款账户<el-select v-model="expense.account_id" placeholder="必须选择"><el-option v-for="account in accounts" :key="account.id" :label="account.name" :value="account.id" /></el-select></label></div>
           <label>往来对象<el-input v-model="expense.counterparty" /></label>
-          <label>关联订单（选填）<el-select :model-value="expense.order_id" filterable remote clearable :remote-method="searchOrders" :loading="searchingOrders" placeholder="不关联订单也可保存" @change="selectOrder"><el-option v-for="option in orders" :key="option.id" :label="`${option.order_no} · ${option.customer_name}`" :value="option.id" /></el-select></label>
-          <el-alert v-if="linkedOrder && linkedField" type="info" :closable="false" :title="`保存后将增加订单 ${linkedOrder.order_no} 的${linkedField} ¥${Number(expense.amount || 0).toFixed(2)}`" />
+          <label>关联订单（{{ channelRewardNeedsOrder ? '渠道奖励必填' : '选填' }}）<el-select :model-value="expense.order_id" filterable remote clearable :remote-method="searchOrders" :loading="searchingOrders" :placeholder="channelRewardNeedsOrder ? '选择本次奖励对应订单' : '不关联订单也可保存'" @change="selectOrder"><el-option v-for="option in orders" :key="option.id" :label="`${option.order_no} · ${option.customer_name}`" :value="option.id" /></el-select></label>
+          <el-alert v-if="linkedOrder && channelRewardNeedsOrder" type="info" :closable="false" :title="`保存后将订单 ${linkedOrder.order_no} 的渠道奖励记为实际支出 ¥${Number(expense.amount || 0).toFixed(2)}，并标记已支出`" />
+          <el-alert v-else-if="linkedOrder && linkedField" type="info" :closable="false" :title="`保存后将增加订单 ${linkedOrder.order_no} 的${linkedField} ¥${Number(expense.amount || 0).toFixed(2)}`" />
+          <el-alert v-else-if="channelRewardNeedsOrder" type="warning" :closable="false" title="渠道奖励支出必须关联对应订单" />
           <label>备注<el-input v-model="expense.remark" type="textarea" /></label>
         </template>
         <el-button v-if="!saved" type="primary" size="large" :disabled="!canSave" :loading="working" @click="save">确认并保存</el-button>

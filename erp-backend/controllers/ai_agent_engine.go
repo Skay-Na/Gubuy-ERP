@@ -79,6 +79,9 @@ func agentExecuteTool(ctx context.Context, session models.AIAgentSession, plan a
 		if plan.Amount <= 0 || strings.TrimSpace(plan.Category) == "" {
 			return "请告诉我支出金额和分类。", "", nil, nil
 		}
+		if strings.TrimSpace(plan.Category) == "渠道奖励" {
+			return "渠道奖励支出请到专业记账中选择对应订单后登记。", "", nil, nil
+		}
 		action, err = makeAgentDraft(session, "expense", plan)
 		result = "已准备支出草稿，请核对金额、分类和账户后确认。"
 	case "draft_order":

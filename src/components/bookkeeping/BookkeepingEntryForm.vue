@@ -41,11 +41,14 @@ const {
 
 const categories = computed(() => form.entry_type === 1 ? incomeCategories : expenseCategories)
 const selectedAccount = computed(() => props.accounts.find(account => account.id === form.account_id))
+const isChannelRewardCategory = computed(() => form.category.trim() === '渠道奖励')
+const orderLinkRequired = computed(() => form.entry_type === 2 && isChannelRewardCategory.value)
+const channelRewardRequiresExpense = computed(() => form.entry_type !== 2 && isChannelRewardCategory.value)
 const canSubmit = computed(() =>
-  Boolean(form.account_id && form.category.trim() && Number(form.amount) > 0 && !props.submitting)
+  Boolean(form.account_id && form.category.trim() && Number(form.amount) > 0 && (!orderLinkRequired.value || form.order_id) && !channelRewardRequiresExpense.value && !props.submitting)
 )
 const selectedOrder = computed(() => orderOptions.value.find(order => order.id === form.order_id))
-const linkedOrderField = computed(() => orderLinkedCategories[form.category] || '')
+const linkedOrderField = computed(() => orderLinkedCategories[form.category.trim()] || '')
 
 watch(
   () => props.accounts,
@@ -165,7 +168,7 @@ onMounted(() => searchOrders(''))
         </el-autocomplete>
       </label>
       <label class="form-field">
-        <span>关联订单 <i>选填 · 支持订单号、客户、电话、拼音搜索</i></span>
+        <span>关联订单 <i>{{ orderLinkRequired ? '必填 · 渠道奖励支出必须关联订单' : '选填 · 支持订单号、客户、电话、拼音搜索' }}</i></span>
         <el-select
           v-model="form.order_id"
           filterable
@@ -174,7 +177,7 @@ onMounted(() => searchOrders(''))
           remote-show-suffix
           :remote-method="searchOrders"
           :loading="orderSearchLoading"
-          placeholder="选填，可搜索并关联系统订单"
+          :placeholder="orderLinkRequired ? '搜索并选择本次奖励对应订单' : '选填，可搜索并关联系统订单'"
           class="full-width"
           @visible-change="visible => visible && searchOrders('')"
           @change="selectOrder"
@@ -191,9 +194,12 @@ onMounted(() => searchOrders(''))
       </label>
     </div>
 
-    <div v-if="linkedOrderField" class="order-link-hint" :class="{ active: selectedOrder }">
+    <div v-if="channelRewardRequiresExpense" class="order-link-hint">渠道奖励必须通过支出登记。</div>
+    <div v-else-if="linkedOrderField" class="order-link-hint" :class="{ active: selectedOrder }">
       <el-icon><Link /></el-icon>
-      <span v-if="selectedOrder">保存后将同步增加 {{ selectedOrder.order_no }} 的{{ linkedOrderField }}。</span>
+      <span v-if="isChannelRewardCategory && selectedOrder">保存后会把本笔支出记入 {{ selectedOrder.order_no }}，并标记渠道奖励已支出。</span>
+      <span v-else-if="isChannelRewardCategory">选择对应订单后，系统会同步登记实际奖励金额和发放状态。</span>
+      <span v-else-if="selectedOrder">保存后将同步增加 {{ selectedOrder.order_no }} 的{{ linkedOrderField }}。</span>
       <span v-else>选择关联订单后，这笔金额会同步增加到{{ linkedOrderField }}。</span>
     </div>
 

@@ -72,15 +72,10 @@
                   <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
                 </el-select>
               </div>
-              <div class="grid grid-cols-2 gap-3">
-                <div class="space-y-1">
-                  <span class="text-[10px] text-slate-400 font-medium pl-1">推荐人姓名</span>
-                  <el-input v-model="referrerName" placeholder="选填" class="pos-customer-input" />
-                </div>
-                <div class="space-y-1">
-                  <span class="text-[10px] text-slate-400 font-medium pl-1">推荐奖励(元)</span>
-                  <el-input-number v-model="referralFee" :min="0" :precision="2" :controls="false" class="w-full pos-customer-input" placeholder="奖励金额" />
-                </div>
+              <div class="space-y-1">
+                <span class="text-[10px] text-slate-400 font-medium pl-1">推荐人/渠道</span>
+                <el-input v-model="referrerName" placeholder="选填" class="pos-customer-input" />
+                <span class="text-[10px] text-slate-400">渠道奖励实际支出请在专业记账中登记。</span>
               </div>
               <div class="mt-3 space-y-2">
                 <div class="text-[10px] text-slate-400 font-medium pl-1 uppercase tracking-wider">订单类型</div>
@@ -402,15 +397,10 @@
                 <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
               </el-select>
             </div>
-            <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1">
-                <span class="text-xs text-slate-500 font-medium pl-1">推荐人姓名</span>
-                <el-input v-model="referrerName" placeholder="选填" class="pos-customer-input" size="large" />
-              </div>
-              <div class="space-y-1">
-                <span class="text-xs text-slate-500 font-medium pl-1">推荐奖励(元)</span>
-                <el-input-number v-model="referralFee" :min="0" :precision="2" :controls="false" class="w-full pos-customer-input" placeholder="奖励金额" size="large" />
-              </div>
+            <div class="space-y-1">
+              <span class="text-xs text-slate-500 font-medium pl-1">推荐人/渠道</span>
+              <el-input v-model="referrerName" placeholder="选填" class="pos-customer-input" size="large" />
+              <span class="text-[10px] text-slate-400">渠道奖励实际支出请在专业记账中登记。</span>
             </div>
           </div>
         </div>
@@ -645,7 +635,6 @@ const customerPhone = ref('')
 const customerAddress = ref('')
 const employeeId = ref(null)
 const referrerName = ref('')
-const referralFee = ref(0)
 const orderType = ref(1)
 const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
@@ -879,7 +868,6 @@ const handleCheckout = async () => {
       customer_address: customerAddress.value,
       employee_id: employeeId.value || undefined,
       referrer_name: referrerName.value,
-      referral_fee: referralFee.value,
       payment_method: paymentMethod.value,
       account_id: selectedAccountId || undefined, // 传入智能解析的账户ID
       payment_splits: paymentSplits,
@@ -913,7 +901,6 @@ const handleCheckout = async () => {
       wipeZeroAmount.value = 0
       employeeId.value = null
       referrerName.value = ''
-      referralFee.value = 0
       orderType.value = 1
       paymentMethod.value = 1
       mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
