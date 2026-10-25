@@ -3,6 +3,7 @@ package controllers
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"erp-backend/config"
 	"erp-backend/models"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type ResetSystemRequest struct {
@@ -115,8 +117,8 @@ func ExportBackup(c *gin.Context) {
 	defer os.Remove(tempPath)
 
 	args := []string{"--single-transaction", "--quick", "--hex-blob", "--no-tablespaces"}
-	args = append(args, mysqlClientArgs(dumpCommand)...)
-	cmd := exec.CommandContext(ctx, dumpCommand, args...)
+	args = dumpCommand.fullArgs(mysqlClientArgs(dumpCommand, args...))
+	cmd := exec.CommandContext(ctx, dumpCommand.execPath, args...)
 	var stderr bytes.Buffer
 	cmd.Stdout = tempFile
 	cmd.Stderr = &stderr
@@ -145,11 +147,12 @@ func ExportBackup(c *gin.Context) {
 
 // ImportBackup 导入数据库备份 (覆盖式)
 // @Summary 导入数据备份
-// @Description 导入数据备份
+// @Description 导入数据备份（需管理员密码二次确认；恢复前自动落盘全库快照）
 // @Tags System
 // @Accept multipart/form-data
 // @Produce json
 // @Param file formData file true "SQL 备份文件"
+// @Param admin_password formData string true "管理员密码（二次确认）"
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
 // @ID post_api_system_restore
@@ -163,6 +166,17 @@ func ImportBackup(c *gin.Context) {
 
 	if filepath.Ext(file.Filename) != ".sql" {
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "仅支持导入 .sql 备份文件"})
+		return
+	}
+
+	// 二次确认：必须携带管理员密码并通过校验，才允许执行覆盖式恢复。
+	adminPassword := c.PostForm("admin_password")
+	if adminPassword == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "请输入管理员密码以确认恢复操作"})
+		return
+	}
+	if !verifyRestoreAdminPassword(adminPassword) {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "管理员密码错误，已取消恢复操作"})
 		return
 	}
 
@@ -209,8 +223,16 @@ func ImportBackup(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
 	defer cancel()
 
-	args := mysqlClientArgs(restoreCommand)
-	cmd := exec.CommandContext(ctx, restoreCommand, args...)
+	// 恢复前强制自动快照：复用备份导出机制落盘一份全库 SQL 到服务器备份目录，
+	// 失败则中止恢复，保证误恢复时仍可回退。
+	snapshotPath, err := createPreRestoreSnapshot(ctx)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "恢复已中止：" + err.Error()})
+		return
+	}
+
+	args := restoreCommand.fullArgs(mysqlClientArgs(restoreCommand))
+	cmd := exec.CommandContext(ctx, restoreCommand.execPath, args...)
 	var stderr bytes.Buffer
 
 	f, err := os.Open(tempPath)
@@ -231,44 +253,145 @@ func ImportBackup(c *gin.Context) {
 	}
 
 	afterCounts := collectRestoreCounts()
-	fmt.Printf("Backup restored: file=%s size=%d before=%v after=%v\n", file.Filename, file.Size, beforeCounts, afterCounts)
+	fmt.Printf("Backup restored: file=%s size=%d snapshot=%s before=%v after=%v\n",
+		file.Filename, file.Size, snapshotPath, beforeCounts, afterCounts)
+
+	// 恢复动作写入操作历史（该路由未纳入 OperationHistoryMiddleware 跟踪表，手工补记）。
+	recordRestoreOperationHistory(c, file.Filename, file.Size, snapshotPath, beforeCounts, afterCounts)
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
 		"msg":  "数据库已成功从备份文件恢复",
 		"data": gin.H{
-			"file":   file.Filename,
-			"size":   file.Size,
-			"before": beforeCounts,
-			"after":  afterCounts,
+			"file":     file.Filename,
+			"size":     file.Size,
+			"snapshot": snapshotPath,
+			"before":   beforeCounts,
+			"after":    afterCounts,
 		},
 	})
 }
 
-func mysqlClientArgs(command string) []string {
+// createPreRestoreSnapshot 在恢复前对当前库做一次全量 mysqldump 快照，
+// 落盘到 BACKUP_DIR（默认 ./backups）目录，返回快照文件路径。
+// 机制与 ExportBackup 完全一致（同一套 mysqlClientCommand 查找/包装逻辑）。
+func createPreRestoreSnapshot(ctx context.Context) (string, error) {
+	dumpCommand, err := findMySQLCommand("mariadb-dump", "mysqldump")
+	if err != nil {
+		return "", fmt.Errorf("数据库备份执行失败: %w", err)
+	}
+
+	backupDir := getEnvString("BACKUP_DIR", "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return "", fmt.Errorf("创建备份目录失败: %w", err)
+	}
+	snapshotPath := filepath.Join(backupDir, fmt.Sprintf("pre_restore_snapshot_%s.sql", time.Now().Format("20060102_150405")))
+
+	snapshotFile, err := os.Create(snapshotPath)
+	if err != nil {
+		return "", fmt.Errorf("创建快照文件失败: %w", err)
+	}
+
+	args := []string{"--single-transaction", "--quick", "--hex-blob", "--no-tablespaces"}
+	args = dumpCommand.fullArgs(mysqlClientArgs(dumpCommand, args...))
+	cmd := exec.CommandContext(ctx, dumpCommand.execPath, args...)
+	var stderr bytes.Buffer
+	cmd.Stdout = snapshotFile
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		snapshotFile.Close()
+		os.Remove(snapshotPath)
+		return "", fmt.Errorf("恢复前自动备份失败: %s", mysqlCommandError(stderr.String(), err))
+	}
+	if err := snapshotFile.Close(); err != nil {
+		os.Remove(snapshotPath)
+		return "", fmt.Errorf("快照文件写入失败: %w", err)
+	}
+	return snapshotPath, nil
+}
+
+// verifyRestoreAdminPassword 校验恢复操作的管理员密码，
+// 与 VerifyAdminPassword 登录验证保持一致的 bcrypt/明文兼容逻辑。
+func verifyRestoreAdminPassword(password string) bool {
+	var admin models.AdminUser
+	if err := config.DB.First(&admin).Error; err != nil {
+		return false
+	}
+	if err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(password)); err == nil {
+		return true
+	}
+	// 兼容历史明文密码（登录逻辑同样保留该兼容分支）
+	return admin.Password == password
+}
+
+// recordRestoreOperationHistory 将一次恢复操作写入 operation_histories，
+// Changes 存放恢复摘要（文件、快照路径、前后行数对照），便于事后审计。
+func recordRestoreOperationHistory(c *gin.Context, filename string, size int64, snapshotPath string, before, after gin.H) {
+	summary, err := json.Marshal(gin.H{
+		"file":     filename,
+		"size":     size,
+		"snapshot": snapshotPath,
+		"before":   before,
+		"after":    after,
+	})
+	if err != nil {
+		summary = []byte(fmt.Sprintf(`{"file":%q,"snapshot":%q}`, filename, snapshotPath))
+	}
+	entry := models.OperationHistory{
+		Username: c.GetString("username"),
+		Title:    "恢复数据库备份",
+		Method:   c.Request.Method,
+		Path:     "/api/system/restore",
+		Changes:  string(summary),
+	}
+	if err := config.DB.Create(&entry).Error; err != nil {
+		fmt.Printf("restore operation history save failed: %v\n", err)
+	}
+}
+
+// mysqlClientCommand 描述一次数据库客户端调用：
+// - 本地模式：直接执行宿主机上的客户端（execPath 即客户端路径，prefix 为空）
+// - Docker 模式：通过 docker exec 进入数据库容器执行（execPath 为 docker，prefix 为 exec 包装参数）
+type mysqlClientCommand struct {
+	execPath string   // 宿主机可执行文件（本地客户端或 docker 本身）
+	prefix   []string // 附加在客户端参数之前的包装参数（如 docker exec gubuy-erp-db）
+	binary   string   // 客户端二进制名，用于区分 mariadb/mysql 的 SSL 参数
+	host     string   // 客户端连接时使用的主机
+	port     string   // 客户端连接时使用的端口
+}
+
+// fullArgs 组装完整命令参数：包装参数 + [客户端名] + 客户端参数。
+// 本地模式 prefix 为空，execPath 本身就是客户端；
+// Docker 模式需要在 docker exec <容器> 之后补上容器内的客户端命令名。
+func (m mysqlClientCommand) fullArgs(clientArgs []string) []string {
+	args := make([]string, 0, len(m.prefix)+1+len(clientArgs))
+	args = append(args, m.prefix...)
+	if len(m.prefix) > 0 {
+		args = append(args, m.binary)
+	}
+	return append(args, clientArgs...)
+}
+
+func mysqlClientArgs(client mysqlClientCommand, extraOptions ...string) []string {
 	dbUser := getEnvString("DB_USER", "root")
 	dbPass := os.Getenv("DB_PASS")
-	dbHost := getEnvString("DB_HOST", "127.0.0.1")
-	dbPort := getEnvString("DB_PORT", "3306")
 	dbName := getEnvString("DB_NAME", "erp_db")
 
 	sslOption := "--ssl-mode=DISABLED"
-	clientPath, err := filepath.EvalSymlinks(command)
-	if err != nil {
-		clientPath = command
-	}
-	if strings.Contains(filepath.Base(clientPath), "mariadb") {
+	if strings.Contains(client.binary, "mariadb") {
 		sslOption = "--skip-ssl"
 	}
 
 	args := []string{
 		"--protocol=tcp",
-		"-h", dbHost,
-		"-P", dbPort,
+		"-h", client.host,
+		"-P", client.port,
 		"-u", dbUser,
 		"--default-character-set=utf8mb4",
 		sslOption,
 	}
+	args = append(args, extraOptions...)
 	if dbPass != "" {
 		args = append(args, "-p"+dbPass)
 	}
@@ -286,18 +409,75 @@ func mysqlCommandError(stderr string, err error) string {
 	return err.Error()
 }
 
-func findMySQLCommand(names ...string) (string, error) {
+// findMySQLCommand 查找可用的数据库客户端：
+// 1. 优先在宿主机 PATH 中查找本地客户端（mariadb/mariadb-dump 或 mysql/mysqldump）
+// 2. 找不到时降级为 docker exec 进入数据库容器执行（DB_CLIENT_MODE=local 可强制关闭）
+func findMySQLCommand(names ...string) (mysqlClientCommand, error) {
 	for _, name := range names {
 		path, err := exec.LookPath(name)
 		if err == nil {
-			return path, nil
+			return mysqlClientCommand{
+				execPath: path,
+				binary:   name,
+				host:     getEnvString("DB_HOST", "127.0.0.1"),
+				port:     getEnvString("DB_PORT", "3306"),
+			}, nil
 		}
 	}
 
-	return "", fmt.Errorf(
-		"未找到数据库客户端命令（尝试了 %s），请在后端运行环境安装 MariaDB 或 MySQL 客户端",
+	if getEnvString("DB_CLIENT_MODE", "auto") != "local" {
+		if client, dockerErr := findDockerMySQLClient(names...); dockerErr == nil {
+			return client, nil
+		}
+	}
+
+	return mysqlClientCommand{}, fmt.Errorf(
+		"未找到数据库客户端命令（尝试了 %s），请在后端运行环境安装 MariaDB 或 MySQL 客户端，或确保数据库容器（Docker）正在运行",
 		strings.Join(names, "、"),
 	)
+}
+
+// findDockerMySQLClient 在数据库容器内查找客户端命令。
+// 容器名默认 gubuy-erp-db，可用 DB_DOCKER_CONTAINER 覆盖；
+// 容器内连接地址默认 127.0.0.1:3306，可用 DB_DOCKER_HOST / DB_DOCKER_PORT 覆盖。
+func findDockerMySQLClient(names ...string) (mysqlClientCommand, error) {
+	dockerPath, err := exec.LookPath("docker")
+	if err != nil {
+		return mysqlClientCommand{}, fmt.Errorf("未找到 docker 命令，无法进入数据库容器执行")
+	}
+
+	container := getEnvString("DB_DOCKER_CONTAINER", "gubuy-erp-db")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// 先确认容器在运行，给出比 "exec: xxx" 更明确的错误
+	inspect := exec.CommandContext(ctx, dockerPath, "inspect", "-f", "{{.State.Running}}", container)
+	if output, inspectErr := inspect.Output(); inspectErr != nil || strings.TrimSpace(string(output)) != "true" {
+		return mysqlClientCommand{}, fmt.Errorf("数据库容器 %s 未在运行，无法通过 Docker 执行数据库客户端", container)
+	}
+
+	var lastErr error
+	for _, name := range names {
+		probe := exec.CommandContext(ctx, dockerPath, "exec", container, name, "--version")
+		if err := probe.Run(); err == nil {
+			return mysqlClientCommand{
+				execPath: dockerPath,
+				// -i 保持 stdin 打开：恢复导入需要从宿主机管道读入 SQL 流，
+				// 备份导出时也无副作用
+				prefix:   []string{"exec", "-i", container},
+				binary:   name,
+				host:     getEnvString("DB_DOCKER_HOST", "127.0.0.1"),
+				port:     getEnvString("DB_DOCKER_PORT", "3306"),
+			}, nil
+		} else {
+			lastErr = err
+		}
+	}
+
+	if lastErr != nil {
+		return mysqlClientCommand{}, fmt.Errorf("数据库容器 %s 内未找到数据库客户端命令: %w", container, lastErr)
+	}
+	return mysqlClientCommand{}, fmt.Errorf("数据库容器 %s 内未找到数据库客户端命令", container)
 }
 
 func getEnvString(key string, fallback string) string {

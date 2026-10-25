@@ -301,22 +301,30 @@ const handleDownloadBackup = async () => {
   }
 }
 
+// 恢复二次确认：管理员密码由恢复确认弹窗输入，随表单提交给后端校验
+let restoreAdminPassword = ''
+
 const beforeRestoreUpload = (file) => {
   return new Promise((resolve, reject) => {
-    ElMessageBox.confirm(
-      '警告：从备份恢复将彻底覆盖当前所有业务数据！此操作无法撤销。建议在恢复前先导出当前数据的备份。',
+    ElMessageBox.prompt(
+      '警告：从备份恢复将彻底覆盖当前所有业务数据！系统会在恢复前自动备份当前数据到服务器备份目录。请输入管理员密码确认执行。',
       '确认恢复数据',
       {
         confirmButtonText: '我明白风险，开始恢复',
         cancelButtonText: '取消',
         type: 'warning',
+        inputType: 'password',
+        inputPlaceholder: '请输入管理员密码',
+        inputValidator: (value) => (value && value.trim() ? true : '请输入管理员密码'),
         confirmButtonClass: 'el-button--danger',
         roundButton: true
       }
-    ).then(() => {
+    ).then(({ value }) => {
+      restoreAdminPassword = value
       restoring.value = true
       resolve(true)
     }).catch(() => {
+      restoreAdminPassword = ''
       reject(false)
     })
   })
@@ -325,6 +333,8 @@ const beforeRestoreUpload = (file) => {
 const handleRestoreUpload = async ({ file }) => {
   const formData = new FormData()
   formData.append('file', file)
+  formData.append('admin_password', restoreAdminPassword)
+  restoreAdminPassword = ''
 
   try {
     const res = await request.post('/api/system/restore', formData, {

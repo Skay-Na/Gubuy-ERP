@@ -343,13 +343,13 @@ func TestAgentAttachmentBackupRestoreChain(t *testing.T) {
 	targetDatabase := fmt.Sprintf("erp_attachment_restore_test_%d", time.Now().UnixNano())
 	adminArgs := mysqlClientArgs(mysqlCommand)
 	adminArgs = append(adminArgs[:len(adminArgs)-1], "--execute", "CREATE DATABASE `"+targetDatabase+"` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci")
-	if output, err := exec.Command(mysqlCommand, adminArgs...).CombinedOutput(); err != nil {
+	if output, err := exec.Command(mysqlCommand.execPath, mysqlCommand.fullArgs(adminArgs)...).CombinedOutput(); err != nil {
 		t.Fatalf("create isolated restore database: %v (%s)", err, output)
 	}
 	t.Cleanup(func() {
 		args := mysqlClientArgs(mysqlCommand)
 		args = append(args[:len(args)-1], "--execute", "DROP DATABASE IF EXISTS `"+targetDatabase+"`")
-		if output, err := exec.Command(mysqlCommand, args...).CombinedOutput(); err != nil {
+		if output, err := exec.Command(mysqlCommand.execPath, mysqlCommand.fullArgs(args)...).CombinedOutput(); err != nil {
 			t.Errorf("drop isolated restore database: %v (%s)", err, output)
 		}
 	})
@@ -413,7 +413,7 @@ func TestAgentAttachmentBackupRestoreChain(t *testing.T) {
 	query := fmt.Sprintf("SELECT HEX(data), extracted_text, owner FROM ai_agent_attachments WHERE id = %d", attachment.ID)
 	args := mysqlClientArgs(mysqlCommand)
 	args = append(args[:len(args)-1], "--batch", "--skip-column-names", "--execute", query, targetDatabase)
-	output, err := exec.Command(mysqlCommand, args...).Output()
+	output, err := exec.Command(mysqlCommand.execPath, mysqlCommand.fullArgs(args)...).Output()
 	if err != nil {
 		t.Fatalf("read restored attachment: %v", err)
 	}
