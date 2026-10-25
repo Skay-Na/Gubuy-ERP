@@ -42,9 +42,15 @@ func UpdateAdminPassword(c *gin.Context) {
 		return
 	}
 
+	// 按当前登录用户定位管理员，避免多管理员场景下误改第一条记录
+	currentUser := c.GetString("username")
+	if currentUser == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "未识别当前登录用户"})
+		return
+	}
 	var admin models.AdminUser
-	if err := config.DB.First(&admin).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "未找到管理员账户"})
+	if err := config.DB.Where("username = ?", currentUser).First(&admin).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "未找到当前登录的管理员账户"})
 		return
 	}
 

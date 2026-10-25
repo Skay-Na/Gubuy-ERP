@@ -4,11 +4,30 @@ import (
 	"erp-backend/controllers"
 	"erp-backend/middlewares"
 	"net/http"
+	"os"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
+
+// corsAllowOrigins 读取 CORS 白名单（逗号分隔）。
+// 默认包含本地开发前端与生产地址，未配置时保持可用的最小集。
+func corsAllowOrigins() map[string]struct{} {
+	raw := os.Getenv("CORS_ALLOW_ORIGINS")
+	if strings.TrimSpace(raw) == "" {
+		raw = "http://localhost:5173,http://192.168.5.22:8080"
+	}
+	allowed := make(map[string]struct{})
+	for _, item := range strings.Split(raw, ",") {
+		origin := strings.TrimSpace(item)
+		if origin != "" {
+			allowed[origin] = struct{}{}
+		}
+	}
+	return allowed
+}
 
 // SetupRouter 初始化路由配置
 func SetupRouter() *gin.Engine {
@@ -38,7 +57,10 @@ func SetupRouter() *gin.Engine {
 		auth.Use(middlewares.AuthRequired())
 		auth.Use(middlewares.OperationHistoryMiddleware())
 		{
-			auth.POST("/dev/reset-order-counters", controllers.ResetOrderCounters)
+			// 开发/测试专用运维接口：仅非生产环境注册，生产环境不暴露。
+			if env := os.Getenv("APP_ENV"); env == "development" || env == "test" {
+				auth.POST("/dev/reset-order-counters", controllers.ResetOrderCounters)
+			}
 			auth.GET("/products", controllers.GetProducts)
 			auth.POST("/products", controllers.CreateProduct)
 			auth.GET("/categories", controllers.GetCategories)
@@ -102,39 +124,36 @@ func SetupRouter() *gin.Engine {
 			auth.GET("/pending-stocktakes/mine", controllers.ListMyPendingStocktakes)
 			auth.GET("/inventory/logs", controllers.GetGlobalInventoryLogs)
 			auth.GET("/expenses", controllers.GetExpenses)
-			auth.POST("/expenses", controllers.CreateExpense)
-			auth.PUT("/expenses/:id", controllers.UpdateExpense)
+			auth.POST("/expenses", middlewares.AdminAuthRequired(), controllers.CreateExpense)
+			auth.PUT("/expenses/:id", middlewares.AdminAuthRequired(), controllers.UpdateExpense)
 			auth.GET("/search/related", controllers.SearchRelated)
 			auth.GET("/finance/logs", controllers.GetFinancialLogs)
 			auth.GET("/finance/summary", controllers.GetFinanceSummary)
 			auth.GET("/bookkeeping/orders", controllers.SearchBookkeepingOrders)
-			auth.POST("/bookkeeping/entries", controllers.CreateBookkeepingEntry)
-			auth.POST("/payroll/confirm", controllers.ConfirmPayroll)
+			auth.POST("/bookkeeping/entries", middlewares.AdminAuthRequired(), controllers.CreateBookkeepingEntry)
+			auth.POST("/payroll/confirm", middlewares.AdminAuthRequired(), controllers.ConfirmPayroll)
 			auth.GET("/payroll/confirmations", controllers.GetPayrollConfirmations)
 			auth.GET("/stats/monthly", controllers.GetMonthlyStats)
 			auth.GET("/finance/real-profit", controllers.GetRealProfit)
 			auth.GET("/finance/workspace", controllers.GetFinanceWorkspace)
 			auth.GET("/accounts", controllers.GetAccounts)
-			auth.POST("/accounts", controllers.CreateAccount)
-			auth.POST("/accounts/transfer", controllers.TransferFunds)
+			auth.POST("/accounts", middlewares.AdminAuthRequired(), controllers.CreateAccount)
+			auth.POST("/accounts/transfer", middlewares.AdminAuthRequired(), controllers.TransferFunds)
 			auth.GET("/accounts/transfers", controllers.GetTransferRecords)
-			auth.PUT("/accounts/:id/calibrate", controllers.CalibrateAccount)
+			auth.PUT("/accounts/:id/calibrate", middlewares.AdminAuthRequired(), controllers.CalibrateAccount)
 			auth.PUT("/accounts/:id/set-default-expense", controllers.SetDefaultExpenseAccount)
 			auth.GET("/employees", controllers.GetEmployees)
-			auth.POST("/employees", controllers.CreateEmployee)
-			auth.PUT("/employees/:id", controllers.UpdateEmployee)
-			auth.DELETE("/employees/:id", controllers.DeleteEmployee)
-			auth.POST("/employees/attendance", controllers.UpdateAttendance)
 			auth.GET("/employees/commission-report", controllers.GetCommissionReport)
 			auth.GET("/employees/:id/stats", controllers.GetEmployeeMeStats)
+			// 员工自助打卡与考勤查询保持员工可用；管理性质的档案与考勤修改收归管理员。
 			auth.POST("/employees/check-in", controllers.CheckIn)
 			auth.POST("/employees/check-out", controllers.CheckOut)
 			auth.GET("/employees/attendance-logs", controllers.GetDailyAttendance)
-			auth.PUT("/admin/password", controllers.UpdateAdminPassword)
+			auth.PUT("/admin/password", middlewares.AdminAuthRequired(), controllers.UpdateAdminPassword)
 			auth.GET("/subsidy/summary", controllers.GetSubsidySummary)
 			auth.GET("/subsidy/settlements", controllers.GetSubsidySettlements)
-			auth.POST("/subsidy/settle", controllers.CreateSubsidySettlement)
-			auth.POST("/subsidy/allocate", controllers.AllocateSubsidyReceipt)
+			auth.POST("/subsidy/settle", middlewares.AdminAuthRequired(), controllers.CreateSubsidySettlement)
+			auth.POST("/subsidy/allocate", middlewares.AdminAuthRequired(), controllers.AllocateSubsidyReceipt)
 			auth.GET("/subsidy/receipts", controllers.GetSubsidyReceipts)
 
 			// 导出相关接口
@@ -176,6 +195,11 @@ func SetupRouter() *gin.Engine {
 			adminAuth.POST("/system/historical-cost-repair", controllers.RepairHistoricalCost)
 			adminAuth.POST("/employees/:id/offboardings", controllers.CreateEmployeeOffboarding)
 			adminAuth.GET("/employees/:id/offboardings", controllers.GetEmployeeOffboarding)
+			// 员工档案写操作与考勤修正属于管理行为，统一收归管理员权限。
+			adminAuth.POST("/employees", controllers.CreateEmployee)
+			adminAuth.PUT("/employees/:id", controllers.UpdateEmployee)
+			adminAuth.DELETE("/employees/:id", controllers.DeleteEmployee)
+			adminAuth.POST("/employees/attendance", controllers.UpdateAttendance)
 			adminAuth.GET("/employee-offboarding-alerts", controllers.ListEmployeeOffboardingAlerts)
 			adminAuth.PUT("/employee-offboardings/:id/tasks/:task_id", controllers.UpdateEmployeeHandoverTask)
 			adminAuth.POST("/employee-offboardings/:id/settlement", controllers.ConfirmEmployeeOffboardingSettlement)
@@ -194,22 +218,34 @@ func SetupRouter() *gin.Engine {
 	return r
 }
 
-// Cors 跨域中间件
+// Cors 跨域中间件：仅对白名单内的 Origin 反射 CORS 头。
+// 白名单通过 CORS_ALLOW_ORIGINS 环境变量配置（逗号分隔）；
+// 无 Origin（同源/服务端请求）直接放行，不添加 CORS 头；
+// 白名单外的跨域请求不添加 CORS 头（浏览器将拦截跨域响应），预检请求直接拒绝。
 func Cors() gin.HandlerFunc {
+	allowed := corsAllowOrigins()
 	return func(c *gin.Context) {
 		method := c.Request.Method
 		origin := c.Request.Header.Get("Origin")
+		originAllowed := false
 		if origin != "" {
-			// 动态将请求 Origin 写入 Allow-Origin，从而支持 Credentials: true，并避免与通配符 * 冲突
-			c.Header("Access-Control-Allow-Origin", origin)
-			c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
-			c.Header("Access-Control-Allow-Headers", "Content-Type, AccessToken, X-CSRF-Token, Authorization, Token")
-			c.Header("Access-Control-Allow-Credentials", "true")
-			c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
+			if _, ok := allowed[origin]; ok {
+				originAllowed = true
+				// 反射白名单 Origin，从而支持 Credentials: true，并避免与通配符 * 冲突
+				c.Header("Access-Control-Allow-Origin", origin)
+				c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE, UPDATE")
+				c.Header("Access-Control-Allow-Headers", "Content-Type, AccessToken, X-CSRF-Token, Authorization, Token")
+				c.Header("Access-Control-Allow-Credentials", "true")
+				c.Header("Access-Control-Expose-Headers", "Content-Length, Content-Disposition, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
+			}
 		}
 
 		if method == "OPTIONS" {
-			c.AbortWithStatus(http.StatusNoContent)
+			if originAllowed {
+				c.AbortWithStatus(http.StatusNoContent)
+			} else {
+				c.AbortWithStatus(http.StatusForbidden)
+			}
 			return
 		}
 		c.Next()

@@ -13,6 +13,7 @@ services:
       - DB_PORT=${DB_PORT:-3306}
       - DB_NAME=${DB_NAME:-erp_db}
       - JWT_SECRET=${JWT_SECRET:?JWT_SECRET must be set to a private value of at least 32 bytes}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-http://localhost:5173,http://192.168.5.22:8080}
       - BACKUP_UPLOAD_MAX_MB=${BACKUP_UPLOAD_MAX_MB:-200}
       - AI_API_KEY=${AI_API_KEY:-}
       - AI_MODEL=${AI_MODEL:-}
