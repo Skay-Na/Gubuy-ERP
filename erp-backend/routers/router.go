@@ -130,6 +130,8 @@ func SetupRouter() *gin.Engine {
 			auth.GET("/subsidy/summary", controllers.GetSubsidySummary)
 			auth.GET("/subsidy/settlements", controllers.GetSubsidySettlements)
 			auth.POST("/subsidy/settle", controllers.CreateSubsidySettlement)
+			auth.POST("/subsidy/allocate", controllers.AllocateSubsidyReceipt)
+			auth.GET("/subsidy/receipts", controllers.GetSubsidyReceipts)
 
 			// 导出相关接口
 			auth.GET("/orders/export", controllers.ExportOrders)

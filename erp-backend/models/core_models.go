@@ -211,6 +211,7 @@ type Order struct {
 	TotalAmount           float64 `gorm:"type:decimal(10,2);not null;comment:商品总金额" json:"total_amount"`
 	SubsidyAmount         float64 `gorm:"type:decimal(10,2);not null;default:0;comment:国补金额" json:"subsidy_amount"`
 	SubsidyPendingAmount  float64 `gorm:"type:decimal(10,2);not null;default:0;comment:实际国补待回款金额(反推原价)" json:"subsidy_pending_amount"`
+	SubsidyReceivedAmt    float64 `gorm:"type:decimal(10,2);not null;default:0;comment:已核销国补回款金额(累计)；received>=pending 即已回款" json:"subsidy_received_amt"`
 	ActualPayAmount       float64 `gorm:"type:decimal(10,2);not null;comment:客户实际应付" json:"actual_pay_amount"`
 	DepositAmount         float64 `gorm:"type:decimal(10,2);not null;default:0;comment:已付定金" json:"deposit_amount"`
 	DiscountAmount        float64 `gorm:"type:decimal(10,2);not null;default:0;comment:手动抹零优惠" json:"discount_amount"`

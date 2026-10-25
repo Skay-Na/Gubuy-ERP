@@ -62,6 +62,8 @@ func ResetSystem(c *gin.Context) {
 		&models.StocktakeRecord{},
 		&models.InboundRecord{},
 		&models.Expense{},
+		&models.SubsidyReceipt{},
+		&models.SubsidySettlement{},
 		&models.OrderItem{},
 		&models.Order{},
 		&models.Product{},

@@ -55,6 +55,7 @@ func resetAuditDB(t *testing.T) {
 		"orders",
 		"order_daily_counters",
 		"subsidy_settlements",
+		"subsidy_receipts",
 		"expenses",
 		"stocktake_records",
 		"inventory_logs",

@@ -1326,7 +1326,7 @@ var undoableOperationTables = map[string]bool{
 	"inbound_records": true, "inventory_logs": true, "monthly_attendances": true,
 	"order_items": true, "orders": true, "pending_inbounds": true, "pending_stocktakes": true,
 	"products": true, "stocktake_batch_items": true, "stocktake_batches": true,
-	"stocktake_records": true, "subsidy_settlements": true, "transfer_records": true,
+	"stocktake_records": true, "subsidy_settlements": true, "subsidy_receipts": true, "transfer_records": true,
 }
 
 func readOperationRow(tx *gorm.DB, table string, id uint, columns []string, lock bool) (map[string]interface{}, bool, error) {
@@ -1406,6 +1406,7 @@ func operationTableOrder(table string) int {
 		"order_items": 17, "stocktake_records": 18, "historical_cost_repairs": 19,
 		"daily_attendances": 20, "monthly_attendances": 21, "inventory_logs": 22,
 		"financial_logs": 23, "ai_imports": 24, "ai_agent_actions": 25, "agent_work_tasks": 26,
+		"subsidy_receipts": 27,
 	}
 	return order[table]
 }

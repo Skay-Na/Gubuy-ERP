@@ -99,6 +99,7 @@ func InitDB() {
 		&models.AdminUser{},
 		&models.DailyAttendance{},
 		&models.SubsidySettlement{},
+		&models.SubsidyReceipt{},
 		&models.OperationHistory{},
 	)
 	if err != nil {
