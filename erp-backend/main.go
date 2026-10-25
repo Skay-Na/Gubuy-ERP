@@ -58,6 +58,12 @@ func main() {
 	// 3. 初始化路由
 	r := routers.SetupRouter()
 
+	// 3.1 开发/测试专用运维接口：仅非生产环境注册，生产环境不暴露。
+	// 独立注册以保证 SetupRouter 的路由集合在所有环境下恒定（swagger 契约稳定）。
+	if env := os.Getenv("APP_ENV"); env == "development" || env == "test" {
+		routers.RegisterDevRoutes(r)
+	}
+
 	// 设置上传文件大小限制 (100MB)
 	r.MaxMultipartMemory = 100 << 20
 

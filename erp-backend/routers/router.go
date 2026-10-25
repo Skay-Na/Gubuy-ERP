@@ -57,10 +57,6 @@ func SetupRouter() *gin.Engine {
 		auth.Use(middlewares.AuthRequired())
 		auth.Use(middlewares.OperationHistoryMiddleware())
 		{
-			// 开发/测试专用运维接口：仅非生产环境注册，生产环境不暴露。
-			if env := os.Getenv("APP_ENV"); env == "development" || env == "test" {
-				auth.POST("/dev/reset-order-counters", controllers.ResetOrderCounters)
-			}
 			auth.GET("/products", controllers.GetProducts)
 			auth.POST("/products", controllers.CreateProduct)
 			auth.GET("/categories", controllers.GetCategories)
@@ -203,6 +199,22 @@ func SetupRouter() *gin.Engine {
 	})
 
 	return r
+}
+
+// RegisterDevRoutes 注册开发/测试专用运维接口（如重置订单计数器）。
+// 独立于 SetupRouter：由 main.go 在 APP_ENV 为 development/test 时调用，
+// 生产环境不暴露该路由；同时保证 SetupRouter 在所有环境下注册的路由集合
+// 恒定，避免 swagger 契约随环境漂移（契约测试仅覆盖 SetupRouter）。
+func RegisterDevRoutes(r *gin.Engine) {
+	auth := r.Group("/api")
+	// RegisterDevRoutes 在 SetupRouter 之后调用，gin 的引擎级中间件
+	// 只对注册时已存在的 handler 链生效，因此这里需显式补挂 CORS。
+	auth.Use(Cors())
+	auth.Use(middlewares.AuthRequired())
+	auth.Use(middlewares.OperationHistoryMiddleware())
+	{
+		auth.POST("/dev/reset-order-counters", controllers.ResetOrderCounters)
+	}
 }
 
 // Cors 跨域中间件：仅对白名单内的 Origin 反射 CORS 头。

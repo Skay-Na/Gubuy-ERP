@@ -8,7 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ResetOrderCounters 清理测试数据并恢复计数器
+// ResetOrderCounters 清理测试数据并恢复计数器。
+// 注意：本 handler 不书写 @Router 注解（swag 不会为其生成文档）——
+// 路由由 main.go 在 APP_ENV 为 development/test 时通过 routers.RegisterDevRoutes
+// 动态注册，不属于 swagger 契约的一部分，避免契约随环境漂移。
 // @Summary 清理订单每日计数器
 // @Description 仅在开发/测试环境可用，重置订单号计数器
 // @Tags System
