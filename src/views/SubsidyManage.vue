@@ -52,6 +52,69 @@
       </div>
     </div>
 
+    <!-- 选单核销区 -->
+    <el-card shadow="never" class="!rounded-2xl border-blue-100 mb-8">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <el-icon><Coin /></el-icon>选单核销
+        </h3>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs text-slate-500 font-bold">回款池</span>
+          <el-select v-model="allocatePoolId" placeholder="选择要核销的回款记录" class="!w-72" size="default">
+            <el-option
+              v-for="s in pools"
+              :key="s.id"
+              :label="`回款 #${s.id} ¥${s.amount.toFixed(2)}（余 ¥${poolRemainingOf(s).toFixed(2)}）`"
+              :value="s.id"
+              :disabled="poolRemainingOf(s) <= 0.005"
+            />
+          </el-select>
+          <span class="text-xs text-slate-500 font-bold">本笔核销总额</span>
+          <el-input-number v-model="allocateTotal" :min="0" :precision="2" :controls="false" class="!w-36" placeholder="金额" />
+          <el-button class="!rounded-xl" :disabled="selectedOrders.length === 0" @click="autoAllocate">按待回额自动分配</el-button>
+          <el-button type="primary" class="!rounded-xl" :loading="submittingAllocate" :disabled="!canSubmitAllocate" @click="submitAllocation">提交核销</el-button>
+        </div>
+      </div>
+      <el-table
+        ref="allocateTableRef"
+        :data="pendingOrders"
+        v-loading="loadingOrders"
+        style="width: 100%"
+        @selection-change="onAllocateSelectionChange"
+      >
+        <el-table-column type="selection" width="45" />
+        <el-table-column prop="order_no" label="单号" min-width="150" />
+        <el-table-column prop="customer_name" label="客户姓名" min-width="110" />
+        <el-table-column label="录单日期" width="120">
+          <template #default="{ row }">
+            <span class="text-slate-600">{{ formatDate(row.created_at) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="待回金额" width="130">
+          <template #default="{ row }">
+            <span class="font-black text-orange-600">¥{{ remainingOf(row).toFixed(2) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="本笔核销金额" width="170">
+          <template #default="{ row }">
+            <el-input-number
+              v-model="allocAmounts[row.id]"
+              :min="0"
+              :max="remainingOf(row)"
+              :precision="2"
+              :controls="false"
+              size="small"
+              class="!w-full"
+              placeholder="0.00"
+            />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="text-[11px] text-slate-400 mt-3">
+        * 勾选订单后输入本笔核销总额可自动按录单顺序逐单匹配（可手调）；收满的订单自动标记为"已回款"。核销只做回款池到订单的分配，不重复记账。
+      </div>
+    </el-card>
+
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <!-- Left: Settlement History -->
       <div class="lg:col-span-2">
@@ -116,6 +179,35 @@
       </div>
     </div>
 
+    <!-- 已核销记录 -->
+    <el-card shadow="never" class="!rounded-2xl border-slate-100 overflow-hidden mt-8" body-class="!p-0">
+      <div class="flex items-center justify-between p-5 pb-3">
+        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <el-icon><CircleCheck /></el-icon>已核销记录（按单）
+        </h3>
+      </div>
+      <el-table :data="receipts" v-loading="loadingReceipts" style="width: 100%">
+        <el-table-column label="核销时间" width="180">
+          <template #default="{ row }">
+            <span class="text-slate-600">{{ new Date(row.created_at).toLocaleString() }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="order_no" label="单号" min-width="150" />
+        <el-table-column prop="customer_name" label="客户姓名" min-width="110" />
+        <el-table-column label="核销金额" min-width="130">
+          <template #default="{ row }">
+            <span class="font-black text-green-600">¥{{ Number(row.allocated_amt || 0).toFixed(2) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="来源回款池" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" effect="plain" class="!rounded-lg">回款 #{{ row.settlement_id }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_by" label="操作人" width="120" />
+      </el-table>
+    </el-card>
+
     <!-- Settle Dialog -->
     <el-dialog
       v-model="dialogVisible"
@@ -148,7 +240,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { Plus, PieChart, Checked, Timer, List, DocumentChecked } from '@element-plus/icons-vue'
+import { Plus, PieChart, Checked, Timer, List, DocumentChecked, Coin, CircleCheck } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '../utils/request'
 
@@ -159,6 +251,17 @@ const summary = ref({})
 const settlements = ref([])
 const accounts = ref([])
 const orders = ref([]) // 用于计算资料进度
+
+// 选单核销状态
+const loadingOrders = ref(false)
+const loadingReceipts = ref(false)
+const submittingAllocate = ref(false)
+const pendingOrders = ref([])   // status=2 且仍有待回款的订单（录单日期升序）
+const selectedOrders = ref([])  // 表格勾选行
+const allocatePoolId = ref(null)
+const allocateTotal = ref(0)
+const allocAmounts = ref({})    // order_id -> 本笔核销金额
+const receipts = ref([])        // 已核销记录
 
 const form = ref({
   amount: 0,
@@ -200,6 +303,140 @@ const fetchOrders = async () => {
   const res = await request.get('/api/orders')
   if (res.data.code === 200) {
     orders.value = res.data.data.filter(o => o.subsidy_amount > 0 && o.order_status === 1)
+  }
+}
+
+// ---------- 选单核销 ----------
+
+const formatDate = (value) => {
+  if (!value) return ''
+  return new Date(value).toLocaleDateString()
+}
+
+// 订单剩余待回金额 = subsidy_pending_amount - subsidy_received_amt（统一口径）
+const remainingOf = (order) => {
+  const remaining = Number(order.subsidy_pending_amount || 0) - Number(order.subsidy_received_amt || 0)
+  return Math.max(0, Math.round(remaining * 100) / 100)
+}
+
+// 回款池列表：附剩余可核销额度
+const pools = computed(() => settlements.value)
+
+const poolRemainingOf = (settlement) => {
+  const remaining = Number(settlement.amount || 0) - Number(settlement.allocated_amt || 0)
+  return Math.max(0, Math.round(remaining * 100) / 100)
+}
+
+const selectedPool = computed(() =>
+  pools.value.find(s => s.id === allocatePoolId.value) || null
+)
+
+const canSubmitAllocate = computed(() => {
+  if (!allocatePoolId.value || selectedOrders.value.length === 0) return false
+  return allocationItems.value.length > 0
+})
+
+const allocationItems = computed(() =>
+  selectedOrders.value
+    .map(order => ({
+      order_id: order.id,
+      amount: Math.round(Number(allocAmounts.value[order.id] || 0) * 100) / 100
+    }))
+    .filter(item => item.amount > 0)
+)
+
+const fetchPendingOrders = async () => {
+  loadingOrders.value = true
+  try {
+    const res = await request.get('/api/orders', { params: { subsidy_status: 2 } })
+    if (res.data.code === 200) {
+      pendingOrders.value = (res.data.data || [])
+        .filter(o => o.order_status === 1 && remainingOf(o) > 0.005)
+        .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    }
+  } finally {
+    loadingOrders.value = false
+  }
+}
+
+const fetchReceipts = async () => {
+  loadingReceipts.value = true
+  try {
+    const res = await request.get('/api/subsidy/receipts')
+    if (res.data.code === 200) {
+      receipts.value = res.data.data || []
+    }
+  } finally {
+    loadingReceipts.value = false
+  }
+}
+
+const onAllocateSelectionChange = (rows) => {
+  selectedOrders.value = rows
+}
+
+// 按录单顺序逐单吃满：输入本笔核销总额后自动分配（可手调）
+const autoAllocate = () => {
+  const pool = selectedPool.value
+  if (!pool) return ElMessage.warning('请先选择回款池')
+  if (!allocateTotal.value || allocateTotal.value <= 0) return ElMessage.warning('请输入本笔核销总额')
+  const poolRemaining = poolRemainingOf(pool)
+  if (allocateTotal.value > poolRemaining + 0.005) {
+    return ElMessage.warning(`回款池仅剩可核销 ¥${poolRemaining.toFixed(2)}`)
+  }
+  let left = Math.min(allocateTotal.value, poolRemaining)
+  const amounts = {}
+  for (const order of selectedOrders.value) {
+    if (left <= 0.005) break
+    const alloc = Math.min(remainingOf(order), left)
+    amounts[order.id] = Number(alloc.toFixed(2))
+    left = Math.round((left - alloc) * 100) / 100
+  }
+  allocAmounts.value = amounts
+  if (left > 0.005) {
+    ElMessage.info(`已按选中订单待回额分配 ¥${(Number(allocateTotal.value) - left).toFixed(2)}，剩余金额超出选中订单待回总额`)
+  }
+}
+
+const submitAllocation = async () => {
+  const pool = selectedPool.value
+  if (!pool) return ElMessage.warning('请先选择回款池')
+  const items = allocationItems.value
+  if (!items.length) return ElMessage.warning('请至少为一笔订单填写核销金额')
+  const total = items.reduce((s, i) => s + i.amount, 0)
+  if (total > poolRemainingOf(pool) + 0.005) {
+    return ElMessage.warning(`核销总额超出回款池剩余 ¥${poolRemainingOf(pool).toFixed(2)}`)
+  }
+  try {
+    await ElMessageBox.confirm(
+      `确认从回款 #${pool.id} 核销 ¥${total.toFixed(2)} 到 ${items.length} 笔订单吗？`,
+      '确认核销',
+      { confirmButtonText: '确认核销', cancelButtonText: '取消', type: 'warning' }
+    )
+    submittingAllocate.value = true
+    const res = await request.post('/api/subsidy/allocate', {
+      settlement_id: pool.id,
+      allocations: items
+    })
+    if (res.data.code === 200) {
+      ElMessage.success(res.data.msg || '核销成功')
+      allocAmounts.value = {}
+      selectedOrders.value = []
+      allocateTotal.value = 0
+      fetchSummary()
+      fetchSettlements()
+      fetchPendingOrders()
+      fetchReceipts()
+      fetchOrders()
+    } else {
+      ElMessage.error(res.data.msg || '核销失败')
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.response?.data?.msg || '核销失败，请稍后重试')
+    }
+  } finally {
+    submittingAllocate.value = false
   }
 }
 
@@ -255,6 +492,8 @@ onMounted(() => {
   fetchSettlements()
   fetchAccounts()
   fetchOrders()
+  fetchPendingOrders()
+  fetchReceipts()
 })
 </script>
 
