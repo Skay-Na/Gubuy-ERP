@@ -136,7 +136,7 @@
               <div class="mt-8 p-4 bg-blue-50/50 rounded-2xl border border-blue-100 mb-6">
                 <div class="flex justify-between items-center">
                   <span class="text-sm text-blue-700 font-medium">本批库存成本</span>
-                  <span class="text-xl font-bold text-blue-700">¥ {{ totalCost.toFixed(2) }}</span>
+                  <span class="text-xl font-bold text-blue-700">¥ {{ formatMoney(totalCost) }}</span>
                 </div>
               </div>
 
@@ -194,7 +194,7 @@
               </el-table-column>
               <el-table-column label="最新进价" width="120" align="right">
                 <template #default="scope">
-                  <span class="font-mono font-bold text-blue-600">¥{{ (scope.row.latest_cost || 0).toFixed(2) }}</span>
+                  <span class="font-mono font-bold text-blue-600">¥{{ formatMoney(scope.row.latest_cost) }}</span>
                 </template>
               </el-table-column>
               <el-table-column label="操作" width="100" align="center">
@@ -236,7 +236,7 @@
                   <el-table-column prop="remark" label="备注" min-width="120" />
                   <el-table-column prop="created_at" label="日期" width="160">
                     <template #default="scope">
-                      {{ new Date(scope.row.created_at).toLocaleString() }}
+                      {{ formatDateTime(scope.row.created_at) }}
                     </template>
                   </el-table-column>
                   <el-table-column label="操作" width="120" align="center" fixed="right">
@@ -281,6 +281,7 @@ import {
   approvePendingInbound,
   rejectPendingInbound
 } from '../api/inventory'
+import { formatMoney, formatDateTime } from '../utils/format'
 
 const allProducts = ref([])
 const searchKeyword = ref('')
@@ -328,7 +329,7 @@ const mobileStockRows = computed(() => {
 })
 
 const warehouseName = (warehouseType) => ({ 1: '主仓', 2: '门店', 3: '云仓' }[warehouseType] || '未知仓库')
-const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—'
+const formatDate = (value) => value ? formatDateTime(value) : '—'
 const syncViewport = () => {
   isMobile.value = window.innerWidth < 768
   if (!isMobile.value) mobileManualEntryOpen.value = false

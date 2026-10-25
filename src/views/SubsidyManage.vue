@@ -21,7 +21,7 @@
             </div>
             <div>
               <div class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">累计应回款</div>
-              <div class="text-2xl font-black text-slate-900">¥{{ summary.total_generated?.toLocaleString() || '0.00' }}</div>
+              <div class="text-2xl font-black text-slate-900">¥{{ formatMoney(summary.total_generated) }}</div>
             </div>
           </div>
         </el-card>
@@ -33,7 +33,7 @@
             </div>
             <div>
               <div class="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">已回款金额</div>
-              <div class="text-2xl font-black text-slate-900">¥{{ summary.total_received?.toLocaleString() || '0.00' }}</div>
+              <div class="text-2xl font-black text-slate-900">¥{{ formatMoney(summary.total_received) }}</div>
             </div>
           </div>
         </el-card>
@@ -45,7 +45,7 @@
             </div>
             <div>
               <div class="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">待收回款余额</div>
-              <div class="text-2xl font-black text-orange-600">¥{{ summary.pending_balance?.toLocaleString() || '0.00' }}</div>
+              <div class="text-2xl font-black text-orange-600">¥{{ formatMoney(summary.pending_balance) }}</div>
             </div>
           </div>
         </el-card>
@@ -64,7 +64,7 @@
             <el-option
               v-for="s in pools"
               :key="s.id"
-              :label="`回款 #${s.id} ¥${s.amount.toFixed(2)}（余 ¥${poolRemainingOf(s).toFixed(2)}）`"
+              :label="`回款 #${s.id} ¥${formatMoney(s.amount)}（余 ¥${formatMoney(poolRemainingOf(s))}）`"
               :value="s.id"
               :disabled="poolRemainingOf(s) <= 0.005"
             />
@@ -92,7 +92,7 @@
         </el-table-column>
         <el-table-column label="待回金额" width="130">
           <template #default="{ row }">
-            <span class="font-black text-orange-600">¥{{ remainingOf(row).toFixed(2) }}</span>
+            <span class="font-black text-orange-600">¥{{ formatMoney(remainingOf(row)) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="本笔核销金额" width="170">
@@ -128,12 +128,12 @@
           <el-table :data="settlements" v-loading="loading" style="width: 100%">
             <el-table-column label="回款日期" width="180">
               <template #default="{ row }">
-                <span class="text-slate-600">{{ new Date(row.created_at).toLocaleString() }}</span>
+                <span class="text-slate-600">{{ formatDateTime(row.created_at) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="回款金额" min-width="150">
               <template #default="{ row }">
-                <span class="font-black text-slate-900">¥{{ row.amount.toFixed(2) }}</span>
+                <span class="font-black text-slate-900">¥{{ formatMoney(row.amount) }}</span>
               </template>
             </el-table-column>
             <el-table-column label="收款账户" width="150">
@@ -158,7 +158,7 @@
             <div v-for="item in docProgress" :key="item.label" class="flex flex-col gap-2">
               <div class="flex justify-between items-end">
                 <span class="text-sm font-bold text-slate-600">{{ item.label }}</span>
-                <span class="text-xs text-slate-400">¥{{ item.amount.toLocaleString() }}</span>
+                <span class="text-xs text-slate-400">¥{{ formatMoney(item.amount) }}</span>
               </div>
               <el-progress 
                 :percentage="getProgressPercentage(item.amount)" 
@@ -190,14 +190,14 @@
       <el-table :data="receipts" v-loading="loadingReceipts" style="width: 100%">
         <el-table-column label="核销时间" width="180">
           <template #default="{ row }">
-            <span class="text-slate-600">{{ new Date(row.created_at).toLocaleString() }}</span>
+            <span class="text-slate-600">{{ formatDateTime(row.created_at) }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="order_no" label="单号" min-width="150" />
         <el-table-column prop="customer_name" label="客户姓名" min-width="110" />
         <el-table-column label="核销金额" min-width="130">
           <template #default="{ row }">
-            <span class="font-black text-green-600">¥{{ Number(row.allocated_amt || 0).toFixed(2) }}</span>
+            <span class="font-black text-green-600">¥{{ formatMoney(row.allocated_amt || 0) }}</span>
           </template>
         </el-table-column>
         <el-table-column label="来源回款池" width="120">
@@ -246,6 +246,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchSubsidySummary, fetchSubsidySettlements, fetchSubsidyReceipts, allocateSubsidy, settleSubsidy } from '../api/subsidy'
 import { fetchAccounts as fetchAccountsApi } from '../api/finance'
 import { fetchOrders as fetchOrdersApi } from '../api/orders'
+import { formatMoney, formatDate, formatDateTime } from '../utils/format'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -311,10 +312,6 @@ const fetchOrders = async () => {
 
 // ---------- 选单核销 ----------
 
-const formatDate = (value) => {
-  if (!value) return ''
-  return new Date(value).toLocaleDateString()
-}
 
 // 订单剩余待回金额 = subsidy_pending_amount - subsidy_received_amt（统一口径）
 const remainingOf = (order) => {
@@ -385,7 +382,7 @@ const autoAllocate = () => {
   if (!allocateTotal.value || allocateTotal.value <= 0) return ElMessage.warning('请输入本笔核销总额')
   const poolRemaining = poolRemainingOf(pool)
   if (allocateTotal.value > poolRemaining + 0.005) {
-    return ElMessage.warning(`回款池仅剩可核销 ¥${poolRemaining.toFixed(2)}`)
+    return ElMessage.warning(`回款池仅剩可核销 ¥${formatMoney(poolRemaining)}`)
   }
   let left = Math.min(allocateTotal.value, poolRemaining)
   const amounts = {}
@@ -397,7 +394,7 @@ const autoAllocate = () => {
   }
   allocAmounts.value = amounts
   if (left > 0.005) {
-    ElMessage.info(`已按选中订单待回额分配 ¥${(Number(allocateTotal.value) - left).toFixed(2)}，剩余金额超出选中订单待回总额`)
+    ElMessage.info(`已按选中订单待回额分配 ¥${formatMoney(Number(allocateTotal.value) - left)}，剩余金额超出选中订单待回总额`)
   }
 }
 
@@ -408,20 +405,20 @@ const submitAllocation = async () => {
   if (!items.length) return ElMessage.warning('请至少为一笔订单填写核销金额')
   const total = items.reduce((s, i) => s + i.amount, 0)
   if (total > poolRemainingOf(pool) + 0.005) {
-    return ElMessage.warning(`核销总额超出回款池剩余 ¥${poolRemainingOf(pool).toFixed(2)}`)
+    return ElMessage.warning(`核销总额超出回款池剩余 ¥${formatMoney(poolRemainingOf(pool))}`)
   }
   try {
     // 软提醒：录入金额明显大于选中订单待回补贴合计（如政府打款全额）时再次确认
     const selectedPendingSum = selectedOrders.value.reduce((sum, order) => sum + remainingOf(order), 0)
     if (selectedPendingSum > 0 && allocateTotal.value > selectedPendingSum * 2) {
       await ElMessageBox.confirm(
-        `录入金额 ¥${Number(allocateTotal.value).toFixed(2)} 明显大于选中订单待回补贴合计 ¥${selectedPendingSum.toFixed(2)}，多余部分会留在回款池。确认录入的是补贴部分、无误？`,
+        `录入金额 ¥${formatMoney(allocateTotal.value)} 明显大于选中订单待回补贴合计 ¥${formatMoney(selectedPendingSum)}，多余部分会留在回款池。确认录入的是补贴部分、无误？`,
         '金额核对',
         { confirmButtonText: '确认无误', cancelButtonText: '再检查一下', type: 'warning' }
       )
     }
     await ElMessageBox.confirm(
-      `确认从回款 #${pool.id} 核销 ¥${total.toFixed(2)} 到 ${items.length} 笔订单吗？`,
+      `确认从回款 #${pool.id} 核销 ¥${formatMoney(total)} 到 ${items.length} 笔订单吗？`,
       '确认核销',
       { confirmButtonText: '确认核销', cancelButtonText: '取消', type: 'warning' }
     )

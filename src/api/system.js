@@ -17,8 +17,8 @@ export const activateAIProvider = provider => request.put('/api/system/ai/active
 
 // ---------- 备份与恢复 ----------
 
-// 查询备份记录
-export const fetchBackupLogs = params => request.get('/api/system/backup', { params })
+// 查询备份记录（config 透传：responseType: 'blob' + 放宽超时）
+export const fetchBackupLogs = config => request.get('/api/system/backup', config)
 
 // 恢复备份（formData 上传，需放宽超时）
 export const restoreBackup = (formData, config = {}) => request.post('/api/system/restore', formData, config)

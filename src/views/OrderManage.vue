@@ -152,23 +152,23 @@
                 </el-table-column>
                 <el-table-column label="单价" width="100" align="center">
                   <template #default="scope">
-                    <span :class="{'line-through text-slate-400': scope.row.is_gift, 'font-bold': !scope.row.is_gift}">¥{{ scope.row.unit_price.toFixed(2) }}</span>
+                    <span :class="{'line-through text-slate-400': scope.row.is_gift, 'font-bold': !scope.row.is_gift}">¥{{ formatMoney(scope.row.unit_price) }}</span>
                     <el-tag v-if="scope.row.is_gift" size="small" type="danger" effect="dark" class="ml-1">赠</el-tag>
                   </template>
                 </el-table-column>
                 <el-table-column prop="quantity" label="数量" width="70" align="center" />
                 <el-table-column label="小计" width="90" align="right">
                   <template #default="scope">
-                    <span class="font-bold text-slate-700">¥{{ (scope.row.unit_price * scope.row.quantity).toFixed(2) }}</span>
+                    <span class="font-bold text-slate-700">¥{{ formatMoney(scope.row.unit_price * scope.row.quantity) }}</span>
                   </template>
                 </el-table-column>
                 <el-table-column label="成本核算" min-width="170" align="right">
                   <template #default="scope">
                     <div class="flex flex-col text-[11px] leading-tight">
                       <template v-if="getItemProductCost(scope.row) !== null">
-                        <span class="font-bold text-blue-600">货品成本 ¥{{ getItemProductCost(scope.row).toFixed(2) }}</span>
-                        <span class="text-slate-400">单件成本 ¥{{ getItemUnitCost(scope.row).toFixed(2) }}</span>
-                        <span class="text-emerald-600">毛利 ¥{{ getItemGrossProfit(scope.row).toFixed(2) }}</span>
+                        <span class="font-bold text-blue-600">货品成本 ¥{{ formatMoney(getItemProductCost(scope.row)) }}</span>
+                        <span class="text-slate-400">单件成本 ¥{{ formatMoney(getItemUnitCost(scope.row)) }}</span>
+                        <span class="text-emerald-600">毛利 ¥{{ formatMoney(getItemGrossProfit(scope.row)) }}</span>
                       </template>
                       <span v-else class="font-bold text-amber-600">成本待核</span>
                     </div>
@@ -179,11 +179,11 @@
                     <div v-if="scope.row.is_delivered" class="flex flex-col text-[11px] leading-tight">
                       <span class="text-blue-600 font-bold">🚚 已送货</span>
                       <span class="text-slate-500">送货: {{ scope.row.delivery_person?.name || '-' }} <el-tag v-if="scope.row.delivery_person?.is_outsourced" size="small" type="warning" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
-                      <span class="text-slate-400">运费: ¥{{ (scope.row.delivery_fee || 0).toFixed(2) }}</span>
+                      <span class="text-slate-400">运费: ¥{{ formatMoney(scope.row.delivery_fee) }}</span>
                     </div>
                     <div v-else class="text-slate-400">⏳ 待送货</div>
                     <div v-if="row.order_status !== 2" class="flex items-center gap-1 text-[11px]">
-                      <span v-if="!scope.row.is_delivered" class="text-slate-400">费用: ¥{{ (scope.row.delivery_fee || 0).toFixed(2) }}</span>
+                      <span v-if="!scope.row.is_delivered" class="text-slate-400">费用: ¥{{ formatMoney(scope.row.delivery_fee) }}</span>
                       <el-button text type="primary" size="small" class="!px-1" @click="openDeliveryFeeDialog(scope.row, row)">
                         {{ scope.row.delivery_fee > 0 ? '调整费用' : '填写费用' }}
                       </el-button>
@@ -195,11 +195,11 @@
                     <div v-if="scope.row.is_installed" class="flex flex-col text-[11px] leading-tight">
                       <span class="text-green-600 font-bold">✅ 已完成安装</span>
                       <span class="text-slate-500">师傅: {{ scope.row.installer?.name || '-' }} <el-tag v-if="scope.row.installer?.is_outsourced" size="small" type="success" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
-                      <span class="text-slate-400">费用: ¥{{ (scope.row.installation_fee || 0).toFixed(2) }}</span>
+                      <span class="text-slate-400">费用: ¥{{ formatMoney(scope.row.installation_fee) }}</span>
                     </div>
                     <div v-else class="text-slate-400">⏳ 待安装</div>
                     <div v-if="row.order_status !== 2" class="flex items-center gap-1 text-[11px]">
-                      <span v-if="!scope.row.is_installed" class="text-slate-400">费用: ¥{{ (scope.row.installation_fee || 0).toFixed(2) }}</span>
+                      <span v-if="!scope.row.is_installed" class="text-slate-400">费用: ¥{{ formatMoney(scope.row.installation_fee) }}</span>
                       <el-button text type="primary" size="small" class="!px-1" @click="openInstallationFeeDialog(scope.row, row)">
                         {{ scope.row.installation_fee > 0 ? '调整费用' : '填写费用' }}
                       </el-button>
@@ -222,13 +222,13 @@
                 <!-- 核心财务信息 -->
                 <el-descriptions title="核心账务" :column="1" border size="small" class="bg-white p-3 rounded-xl shadow-sm">
                   <el-descriptions-item label="订单总额">
-                    <span class="font-bold text-slate-900">¥{{ row.total_amount.toFixed(2) }}</span>
+                    <span class="font-bold text-slate-900">¥{{ formatMoney(row.total_amount) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="客户应付">
-                    <span class="font-bold text-slate-900">¥{{ row.actual_pay_amount.toFixed(2) }}</span>
+                    <span class="font-bold text-slate-900">¥{{ formatMoney(row.actual_pay_amount) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="实收金额">
-                    <span class="text-blue-600 font-bold">¥{{ row.payment_status === 2 ? row.actual_pay_amount.toFixed(2) : row.deposit_amount.toFixed(2) }}</span>
+                    <span class="text-blue-600 font-bold">¥{{ row.payment_status === 2 ? formatMoney(row.actual_pay_amount) : formatMoney(row.deposit_amount) }}</span>
                     <el-tag size="small" class="ml-2" :type="row.payment_status === 2 ? 'success' : 'warning'">
                       {{ row.payment_status === 2 ? '已结清' : '仅付定金' }}
                     </el-tag>
@@ -250,20 +250,20 @@
                 <!-- 成本核算 -->
                 <el-descriptions title="成本核算" :column="1" border size="small" class="bg-white p-3 rounded-xl shadow-sm">
                   <el-descriptions-item label="货品成本">
-                    <span v-if="getOrderProductCost(row) !== null" class="font-bold text-blue-600">¥{{ getOrderProductCost(row).toFixed(2) }}</span>
+                    <span v-if="getOrderProductCost(row) !== null" class="font-bold text-blue-600">¥{{ formatMoney(getOrderProductCost(row)) }}</span>
                     <span v-else class="font-bold text-amber-600">成本待核</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="履约成本">
-                    <span class="font-bold text-orange-600">¥{{ getOrderFulfillmentCost(row).toFixed(2) }}</span>
+                    <span class="font-bold text-orange-600">¥{{ formatMoney(getOrderFulfillmentCost(row)) }}</span>
                     <span class="text-slate-400 text-[10px] ml-1">配送+安装</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="其他成本">
-                    <span class="font-bold text-orange-600">¥{{ getOrderOtherCost(row).toFixed(2) }}</span>
+                    <span class="font-bold text-orange-600">¥{{ formatMoney(getOrderOtherCost(row)) }}</span>
                     <span class="text-slate-400 text-[10px] ml-1">渠道+换新</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="综合毛利">
                     <template v-if="getOrderGrossProfit(row) !== null">
-                      <span :class="getOrderGrossProfit(row) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ getOrderGrossProfit(row).toFixed(2) }}</span>
+                      <span :class="getOrderGrossProfit(row) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ formatMoney(getOrderGrossProfit(row)) }}</span>
                       <span v-if="getOrderGrossMargin(row) !== null" class="text-slate-400 text-[10px] ml-1">毛利率 {{ getOrderGrossMargin(row).toFixed(1) }}%</span>
                     </template>
                     <span v-else class="font-bold text-amber-600">成本待核，暂不计算毛利</span>
@@ -285,14 +285,14 @@
                     <el-tag v-if="row.delivery_person?.is_outsourced" size="small" type="warning" effect="plain" class="ml-2 !rounded-md">外包</el-tag>
                   </el-descriptions-item>
                   <el-descriptions-item label="送货费用" v-if="row.is_delivered">
-                    <span class="font-bold text-orange-600">¥{{ (row.delivery_fee || 0).toFixed(2) }}</span>
+                    <span class="font-bold text-orange-600">¥{{ formatMoney(row.delivery_fee) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装人员" v-if="row.is_installed">
                     <span>{{ row.installer?.name || '-' }}</span>
                     <el-tag v-if="row.installer?.is_outsourced" size="small" type="success" effect="plain" class="ml-2 !rounded-md">外包</el-tag>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装费用" v-if="row.is_installed">
-                    <span class="font-bold text-orange-600">¥{{ (row.installation_fee || 0).toFixed(2) }}</span>
+                    <span class="font-bold text-orange-600">¥{{ formatMoney(row.installation_fee) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装时间" v-if="row.is_installed">
                     {{ formatDate(row.install_time) }}
@@ -306,7 +306,7 @@
                     {{ row.subsidy_amount > 0 ? '是' : '否' }}
                   </el-descriptions-item>
                   <el-descriptions-item label="补贴金额" v-if="row.subsidy_amount > 0">
-                    <span class="text-orange-500 font-bold">¥{{ row.subsidy_amount.toFixed(2) }}</span>
+                    <span class="text-orange-500 font-bold">¥{{ formatMoney(row.subsidy_amount) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="资料进度" v-if="row.subsidy_amount > 0">
                     <el-tag :type="getSubsidyType(row.subsidy_status)">{{ getSubsidyLabel(row.subsidy_status) }}</el-tag>
@@ -316,7 +316,7 @@
                 <!-- 以旧换新 -->
                 <el-descriptions v-if="row.trade_in_amount > 0" title="以旧换新" :column="1" border size="small" class="bg-white p-3 rounded-xl shadow-sm">
                   <el-descriptions-item label="支出金额">
-                    <span class="text-emerald-600 font-bold">¥{{ row.trade_in_amount.toFixed(2) }}</span>
+                    <span class="text-emerald-600 font-bold">¥{{ formatMoney(row.trade_in_amount) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="旧件品类">
                     <el-tag size="small" type="success" effect="plain" class="!rounded-md">{{ row.trade_in_type || '未指定' }}</el-tag>
@@ -339,7 +339,7 @@
                     <span class="font-bold text-amber-600">老板自带客户</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="渠道奖励">
-                    ¥{{ (row.referral_fee || 0).toFixed(2) }} 
+                    ¥{{ formatMoney(row.referral_fee) }} 
                     <el-tag v-if="row.referral_fee > 0" size="small" :type="row.is_referral_fee_paid ? 'success' : 'info'" class="ml-2">
                       {{ row.is_referral_fee_paid ? '已支出' : '待支出' }}
                     </el-tag>
@@ -367,9 +367,9 @@
         <el-table-column label="金额 / 提成" min-width="110" align="right">
           <template #default="{ row }">
             <div class="flex flex-col items-end gap-1">
-              <span class="font-bold text-slate-900">¥{{ row.total_amount.toFixed(2) }}</span>
+              <span class="font-bold text-slate-900">¥{{ formatMoney(row.total_amount) }}</span>
               <div class="flex items-center gap-1 group text-xs" :class="row.order_type === 2 ? '' : 'cursor-pointer'" @click="row.order_type !== 2 && openCommissionDialog(row)">
-                <span class="text-slate-400">提成</span><span class="font-bold text-orange-600">¥{{ displayedCommissionAmount(row).toFixed(2) }}</span>
+                <span class="text-slate-400">提成</span><span class="font-bold text-orange-600">¥{{ formatMoney(displayedCommissionAmount(row)) }}</span>
               <el-icon v-if="row.order_type !== 2" class="text-slate-300 group-hover:text-blue-500 transition-colors"><Edit /></el-icon>
               </div>
             </div>
@@ -426,7 +426,7 @@
               <span class="truncate text-sm font-bold text-slate-900">{{ row.customer_name || '散客' }}</span>
               <span v-if="isBossCustomerOrder(row)" class="shrink-0 text-[10px] text-amber-600">老板客</span>
             </button>
-            <span class="shrink-0 text-sm font-bold tabular-nums text-slate-900">¥{{ row.total_amount.toFixed(2) }}</span>
+            <span class="shrink-0 text-sm font-bold tabular-nums text-slate-900">¥{{ formatMoney(row.total_amount) }}</span>
           </div>
           <button class="mt-1 block w-full truncate text-left text-xs text-slate-600" @click="openOrderDetail(row)">{{ getOrderProductSummary(row) }}</button>
           <div class="mt-1 flex flex-wrap gap-x-2 text-[10px] text-slate-400">
@@ -454,7 +454,7 @@
         <el-descriptions :column="1" border class="mb-4">
           <el-descriptions-item label="订单号">{{ balanceTargetOrder.order_no }}</el-descriptions-item>
           <el-descriptions-item label="客户">{{ balanceTargetOrder.customer_name || '散客' }}</el-descriptions-item>
-          <el-descriptions-item label="待收全款"><span class="text-green-600 font-bold">¥{{ balanceTargetOrder.actual_pay_amount.toFixed(2) }}</span></el-descriptions-item>
+          <el-descriptions-item label="待收全款"><span class="text-green-600 font-bold">¥{{ formatMoney(balanceTargetOrder.actual_pay_amount) }}</span></el-descriptions-item>
         </el-descriptions>
         <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
           <label class="block text-sm font-bold text-slate-700 mb-2">确认全款支付方式</label>
@@ -593,7 +593,7 @@
         <el-alert title="提示" type="warning" :closable="false" show-icon class="!rounded-xl">请根据与店长/员工商定的最终结果进行手动调整。</el-alert>
         <div class="bg-slate-50 p-4 rounded-xl border border-slate-100">
           <div class="text-xs text-slate-400 mb-2 uppercase font-bold tracking-wider">订单号: {{ commissionTargetOrder.order_no }}</div>
-          <div class="text-sm font-bold text-slate-700 mb-4">当前订单总额: ¥{{ commissionTargetOrder.total_amount.toFixed(2) }}</div>
+          <div class="text-sm font-bold text-slate-700 mb-4">当前订单总额: ¥{{ formatMoney(commissionTargetOrder.total_amount) }}</div>
           
           <label class="block text-sm font-bold text-slate-700 mb-2">最终提成金额 (元)</label>
           <el-input-number v-model="newCommissionAmount" :min="0" :precision="2" class="!w-full" controls-position="right" />
@@ -615,7 +615,7 @@
             <div class="text-xs text-slate-400 mb-2 font-bold">订单号</div>
             <div class="font-mono text-xs text-slate-600 break-all mb-4">{{ commissionTargetOrder.order_no }}</div>
             <div class="text-xs text-slate-400 mb-1 font-bold">订单总额</div>
-            <div class="text-xl font-black text-slate-900 mb-4">¥{{ commissionTargetOrder.total_amount.toFixed(2) }}</div>
+            <div class="text-xl font-black text-slate-900 mb-4">¥{{ formatMoney(commissionTargetOrder.total_amount) }}</div>
             <label class="block text-sm font-bold text-slate-700 mb-2">最终提成金额</label>
             <el-input-number v-model="newCommissionAmount" :min="0" :precision="2" class="!w-full" controls-position="right" />
           </div>
@@ -641,7 +641,7 @@
           <label class="block text-sm font-bold text-slate-700 mb-2">推荐人/渠道</label>
           <el-input v-model="newReferrerName" maxlength="100" show-word-limit :disabled="referrerTargetOrder.is_referral_fee_paid" placeholder="请输入推荐人或推荐渠道" />
           <div class="text-xs text-slate-500 mt-3">名称包含“老板”时会影响员工绩效分类，请核对。</div>
-          <div class="text-sm font-bold text-slate-700 mt-4">渠道奖励支出：¥{{ Number(referrerTargetOrder.referral_fee || 0).toFixed(2) }}</div>
+          <div class="text-sm font-bold text-slate-700 mt-4">渠道奖励支出：¥{{ formatMoney(referrerTargetOrder.referral_fee || 0) }}</div>
         </div>
       </div>
       <template #footer>
@@ -666,7 +666,7 @@
             <label class="block text-xs text-slate-400 mb-1 font-bold">推荐人/渠道</label>
             <el-input v-model="newReferrerName" maxlength="100" show-word-limit :disabled="referrerTargetOrder.is_referral_fee_paid" placeholder="请输入推荐人或推荐渠道" class="mb-1" />
             <div class="text-xs text-slate-500 mt-3">名称包含“老板”时会影响员工绩效分类，请核对。</div>
-            <div class="text-sm font-bold text-slate-700 mt-4">渠道奖励支出：¥{{ Number(referrerTargetOrder.referral_fee || 0).toFixed(2) }}</div>
+            <div class="text-sm font-bold text-slate-700 mt-4">渠道奖励支出：¥{{ formatMoney(referrerTargetOrder.referral_fee || 0) }}</div>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-2 pt-3 pb-[env(safe-area-inset-bottom)]">
@@ -730,7 +730,7 @@
             <div class="text-xs text-slate-400 mt-1">{{ detailOrder.customer_phone || '-' }}</div>
           </div>
           <div class="text-right shrink-0">
-            <div class="font-black text-xl text-slate-950">¥{{ detailOrder.total_amount.toFixed(2) }}</div>
+            <div class="font-black text-xl text-slate-950">¥{{ formatMoney(detailOrder.total_amount) }}</div>
             <el-button size="small" text @click="orderDetailVisible = false">关闭</el-button>
           </div>
         </div>
@@ -741,11 +741,11 @@
             <div v-for="item in detailOrder.order_items" :key="item.id" class="flex justify-between gap-3 py-2 border-b border-slate-100 last:border-0">
               <div class="min-w-0">
                 <div class="font-bold text-sm text-slate-800">{{ item.product?.name || '未知商品' }}</div>
-                <div class="text-xs text-slate-400">x{{ item.quantity }} · ¥{{ item.unit_price.toFixed(2) }}</div>
-                <div v-if="getItemProductCost(item) !== null" class="text-[10px] text-blue-500 mt-0.5">成本 ¥{{ getItemProductCost(item).toFixed(2) }} · 毛利 ¥{{ getItemGrossProfit(item).toFixed(2) }}</div>
+                <div class="text-xs text-slate-400">x{{ item.quantity }} · ¥{{ formatMoney(item.unit_price) }}</div>
+                <div v-if="getItemProductCost(item) !== null" class="text-[10px] text-blue-500 mt-0.5">成本 ¥{{ formatMoney(getItemProductCost(item)) }} · 毛利 ¥{{ formatMoney(getItemGrossProfit(item)) }}</div>
                 <div v-else class="text-[10px] text-amber-600 mt-0.5">成本待核，暂不计算毛利</div>
-                <div class="text-xs text-slate-500 mt-1">送货费 ¥{{ (item.delivery_fee || 0).toFixed(2) }}</div>
-                <div class="text-xs text-slate-500 mt-1">安装费 ¥{{ (item.installation_fee || 0).toFixed(2) }}</div>
+                <div class="text-xs text-slate-500 mt-1">送货费 ¥{{ formatMoney(item.delivery_fee) }}</div>
+                <div class="text-xs text-slate-500 mt-1">安装费 ¥{{ formatMoney(item.installation_fee) }}</div>
               </div>
               <div class="flex flex-col items-end gap-1 shrink-0">
                 <el-button v-if="detailOrder.order_status !== 2" size="small" text type="primary" @click="openDeliveryFeeDialog(item, detailOrder)">送货费</el-button>
@@ -761,7 +761,7 @@
           <div class="grid grid-cols-2 gap-2">
             <div class="bg-white border border-slate-100 rounded-xl p-3">
               <div class="text-xs text-slate-400">客户应付</div>
-              <div class="font-black text-slate-900">¥{{ detailOrder.actual_pay_amount.toFixed(2) }}</div>
+              <div class="font-black text-slate-900">¥{{ formatMoney(detailOrder.actual_pay_amount) }}</div>
             </div>
             <div class="bg-white border border-slate-100 rounded-xl p-3">
               <div class="text-xs text-slate-400">支付状态</div>
@@ -777,13 +777,13 @@
             </div>
             <div class="bg-white border border-slate-100 rounded-xl p-3">
               <div class="text-xs text-slate-400">货品成本</div>
-              <div v-if="getOrderProductCost(detailOrder) !== null" class="font-black text-blue-600">¥{{ getOrderProductCost(detailOrder).toFixed(2) }}</div>
+              <div v-if="getOrderProductCost(detailOrder) !== null" class="font-black text-blue-600">¥{{ formatMoney(getOrderProductCost(detailOrder)) }}</div>
               <div v-else class="font-black text-amber-600">成本待核</div>
             </div>
             <div class="bg-white border border-slate-100 rounded-xl p-3">
               <div class="text-xs text-slate-400">综合毛利</div>
               <template v-if="getOrderGrossProfit(detailOrder) !== null">
-                <div :class="getOrderGrossProfit(detailOrder) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ getOrderGrossProfit(detailOrder).toFixed(2) }}</div>
+                <div :class="getOrderGrossProfit(detailOrder) >= 0 ? 'text-emerald-600' : 'text-red-600'" class="font-black">¥{{ formatMoney(getOrderGrossProfit(detailOrder)) }}</div>
                 <div v-if="getOrderGrossMargin(detailOrder) !== null" class="text-[10px] text-slate-400">毛利率 {{ getOrderGrossMargin(detailOrder).toFixed(1) }}%</div>
               </template>
               <div v-else class="font-black text-amber-600">成本待核</div>
@@ -830,6 +830,7 @@ import ReceiptPreview from '../components/ReceiptPreview.vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, InfoFilled, MoreFilled, Edit } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
+import { formatMoney } from '../utils/format'
 
 const route = useRoute()
 
@@ -1142,7 +1143,7 @@ const getPaymentBreakdownText = (breakdown) => {
     const items = JSON.parse(breakdown)
     if (!Array.isArray(items)) return ''
     return items
-      .map(item => `${getPaymentMethodLabel(item.payment_method)} ¥${Number(item.amount || 0).toFixed(2)}`)
+      .map(item => `${getPaymentMethodLabel(item.payment_method)} ¥${formatMoney(item.amount || 0)}`)
       .join(' / ')
   } catch (error) {
     return ''

@@ -153,16 +153,16 @@
             <div class="flex flex-col items-end gap-0.5">
               <div class="flex items-center gap-1">
                 <span class="text-[10px] text-slate-400">平均:</span>
-                <span v-if="Number(row.avg_cost) > 0" class="font-mono text-xs font-bold text-blue-600">¥{{ Number(row.avg_cost).toFixed(2) }}</span>
+                <span v-if="Number(row.avg_cost) > 0" class="font-mono text-xs font-bold text-blue-600">¥{{ formatMoney(row.avg_cost) }}</span>
                 <span v-else class="font-mono text-xs font-bold text-amber-600">待核</span>
               </div>
               <div class="flex items-center gap-1">
                 <span class="text-[10px] text-slate-400">最新:</span>
-                <span class="font-mono text-xs text-slate-500">¥{{ row.latest_cost.toFixed(2) }}</span>
+                <span class="font-mono text-xs text-slate-500">¥{{ formatMoney(row.latest_cost) }}</span>
               </div>
               <div class="mt-1 pt-1 border-t border-slate-50 w-full text-right">
                 <span class="font-mono font-bold" :class="isSpecialActive(row) ? 'text-red-500' : 'text-slate-800'">
-                  ¥{{ (isSpecialActive(row) ? row.special_price : (row.avg_cost || row.latest_cost) / (1 - row.margin_rate)).toFixed(0) }}
+                  ¥{{ formatMoney(isSpecialActive(row) ? row.special_price : (row.avg_cost || row.latest_cost) / (1 - row.margin_rate)) }}
                 </span>
                 <el-tag v-if="isSpecialActive(row)" size="small" type="danger" effect="dark" class="ml-1 !scale-75 !px-1">特价</el-tag>
               </div>
@@ -230,7 +230,7 @@
               </div>
             </div>
             <div class="text-right flex-shrink-0 mt-0.5">
-              <div class="text-green-600 font-black text-base leading-none">¥{{ row.latest_cost.toFixed(2) }}</div>
+              <div class="text-green-600 font-black text-base leading-none">¥{{ formatMoney(row.latest_cost) }}</div>
               <div class="text-[9px] text-slate-400 mt-1">进价</div>
             </div>
           </div>
@@ -346,7 +346,7 @@
         </el-form-item>
         <el-form-item label="固定毛利率 (小数，如 0.15 代表 15%)" prop="margin_rate">
           <el-input-number v-model="productForm.margin_rate" :precision="2" :step="0.01" :min="0" :max="1" style="width: 100%" />
-          <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? ((productForm.avg_cost || 0) / (1 - productForm.margin_rate)).toFixed(2) : '0.00' }}</div>
+          <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? formatMoney((productForm.avg_cost || 0) / (1 - productForm.margin_rate)) : '0.00' }}</div>
         </el-form-item>
         <el-form-item label="销售提成" prop="no_commission">
           <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
@@ -580,7 +580,7 @@
       >
         <el-table-column prop="created_at" label="时间" width="160">
           <template #default="{ row }">
-            {{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}
+            {{ formatDateTime(row.created_at) }}
           </template>
         </el-table-column>
         <el-table-column label="仓库" width="80" align="center">
@@ -604,7 +604,7 @@
         </el-table-column>
         <el-table-column label="单价/进价" width="100" align="right">
           <template #default="{ row }">
-            <span v-if="Number(row.unit_cost) > 0" class="font-mono text-xs text-slate-600">¥{{ Number(row.unit_cost).toFixed(2) }}</span>
+            <span v-if="Number(row.unit_cost) > 0" class="font-mono text-xs text-slate-600">¥{{ formatMoney(row.unit_cost) }}</span>
             <span v-else class="text-xs font-bold text-amber-600">成本待核</span>
           </template>
         </el-table-column>
@@ -639,7 +639,7 @@
         <div v-else class="space-y-3 mt-2">
           <div v-for="row in currentLogs" :key="row.id" class="bg-white rounded-xl p-3 border border-slate-100 shadow-sm relative">
             <div class="flex justify-between items-center mb-2">
-              <span class="text-xs font-medium text-slate-500">{{ new Date(row.created_at).toLocaleString('zh-CN', { hour12: false }) }}</span>
+              <span class="text-xs font-medium text-slate-500">{{ formatDateTime(row.created_at) }}</span>
               <el-tag size="small" :type="getLogTypeTag(row.log_type).type" effect="dark" class="!rounded-md">{{ getLogTypeTag(row.log_type).label }}</el-tag>
             </div>
             <div class="flex justify-between items-center bg-slate-50 rounded-lg p-2.5 mb-2">
@@ -651,7 +651,7 @@
                 <div class="font-bold text-lg" :class="row.change_qty > 0 ? 'text-blue-600' : 'text-red-500'">
                   {{ row.change_qty > 0 ? '+' : '' }}{{ row.change_qty }}
                 </div>
-                <div v-if="Number(row.unit_cost) > 0" class="font-mono text-[10px] text-slate-400 mt-1">¥{{ Number(row.unit_cost).toFixed(2) }}</div>
+                <div v-if="Number(row.unit_cost) > 0" class="font-mono text-[10px] text-slate-400 mt-1">¥{{ formatMoney(row.unit_cost) }}</div>
                 <div v-else class="text-[10px] text-amber-600 font-bold mt-1">成本待核</div>
               </div>
             </div>
@@ -753,6 +753,7 @@ import {
   stocktakeProduct,
   recalculateProductCosts
 } from '../api/products'
+import { formatMoney, formatDateTime } from '../utils/format'
 import { downloadExcel } from '../utils/export'
 import { ElMessage, ElMessageBox } from 'element-plus'
 

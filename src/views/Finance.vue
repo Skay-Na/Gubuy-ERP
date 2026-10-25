@@ -9,6 +9,7 @@ import {
   transferAccounts,
   calibrateAccount as calibrateAccountApi
 } from '../api/finance'
+import { formatMoney, formatDateTime } from '../utils/format'
 
 // ---------- 资金工作台聚合数据 ----------
 const currentMonth = () => {
@@ -55,12 +56,8 @@ const todayLabel = computed(() => {
   const weekdays = ['日', '一', '二', '三', '四', '五', '六']
   return `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日 星期${weekdays[now.getDay()]}`
 })
-const money = value => `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-const formatTime = value => {
-  if (!value) return ''
-  const date = new Date(value)
-  return `${date.getMonth() + 1}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
-}
+const money = value => `¥${formatMoney(value)}`
+const formatTime = value => formatDateTime(value)
 
 // ---------- 待我处理 ----------
 const todos = computed(() => {
@@ -275,8 +272,8 @@ onMounted(refreshAll)
     </el-drawer>
 
     <el-dialog v-model="accountDialogVisible" title="新增资金账户" width="440px" destroy-on-close><el-form ref="accountFormRef" :model="accountForm" label-width="92px"><el-form-item label="账户名称" prop="name" :rules="[{ required: true, message: '请输入账户名称' }]"><el-input v-model="accountForm.name" placeholder="例如：支付宝、对公账户、备用金" /></el-form-item><el-form-item label="初始余额"><el-input-number v-model="accountForm.balance" :min="0" :precision="2" class="full-width" /></el-form-item></el-form><template #footer><el-button @click="accountDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="createAccount">创建账户</el-button></template></el-dialog>
-    <el-dialog v-model="transferDialogVisible" title="账户资金划拨" width="500px" destroy-on-close><el-alert title="划拨只移动账户间资金，不计入收入或支出。" type="info" :closable="false" show-icon class="dialog-alert" /><el-form ref="transferFormRef" :model="transferForm" label-width="92px"><el-form-item label="转出账户" prop="from_account_id" :rules="[{ required: true, message: '请选择转出账户' }]"><el-select v-model="transferForm.from_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" /></el-select></el-form-item><el-form-item label="转入账户" prop="to_account_id" :rules="[{ required: true, message: '请选择转入账户' }]"><el-select v-model="transferForm.to_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="account.name" :value="account.id" /></el-select></el-form-item><el-form-item label="划拨金额" prop="amount" :rules="[{ required: true, message: '请输入划拨金额' }]"><el-input-number v-model="transferForm.amount" :min="0.01" :precision="2" class="full-width" /></el-form-item><el-form-item label="备注"><el-input v-model="transferForm.remark" placeholder="例如：补充备用金" /></el-form-item></el-form><template #footer><el-button @click="transferDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="transferFunds">确认划拨</el-button></template></el-dialog>
-    <el-dialog v-model="calibrateDialogVisible" :title="`核对余额：${calibrateForm.accountName}`" width="460px" destroy-on-close><el-alert title="校准会将账面余额对齐为实际余额，并自动保留一条校准审计记录。" type="warning" :closable="false" show-icon class="dialog-alert" /><el-form :model="calibrateForm" label-position="top"><el-form-item label="当前账面余额"><strong class="current-balance">¥{{ calibrateForm.currentBalance.toFixed(2) }}</strong></el-form-item><el-form-item label="实际余额"><el-input-number v-model="calibrateForm.realBalance" :min="0" :precision="2" class="full-width" /><small v-if="calibrateDiff" :class="calibrateDiff > 0 ? 'diff-positive' : 'diff-negative'">差异 {{ calibrateDiff > 0 ? '+' : '' }}¥{{ calibrateDiff.toFixed(2) }}</small></el-form-item><el-form-item label="备注"><el-input v-model="calibrateForm.remark" placeholder="例如：月末对账" /></el-form-item></el-form><template #footer><el-button @click="calibrateDialogVisible = false">取消</el-button><el-button type="warning" :loading="submitting" :disabled="!calibrateDiff" @click="calibrateAccount">确认校准</el-button></template></el-dialog>
+    <el-dialog v-model="transferDialogVisible" title="账户资金划拨" width="500px" destroy-on-close><el-alert title="划拨只移动账户间资金，不计入收入或支出。" type="info" :closable="false" show-icon class="dialog-alert" /><el-form ref="transferFormRef" :model="transferForm" label-width="92px"><el-form-item label="转出账户" prop="from_account_id" :rules="[{ required: true, message: '请选择转出账户' }]"><el-select v-model="transferForm.from_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（${formatMoney(account.balance || 0)}）`" :value="account.id" /></el-select></el-form-item><el-form-item label="转入账户" prop="to_account_id" :rules="[{ required: true, message: '请选择转入账户' }]"><el-select v-model="transferForm.to_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="account.name" :value="account.id" /></el-select></el-form-item><el-form-item label="划拨金额" prop="amount" :rules="[{ required: true, message: '请输入划拨金额' }]"><el-input-number v-model="transferForm.amount" :min="0.01" :precision="2" class="full-width" /></el-form-item><el-form-item label="备注"><el-input v-model="transferForm.remark" placeholder="例如：补充备用金" /></el-form-item></el-form><template #footer><el-button @click="transferDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="transferFunds">确认划拨</el-button></template></el-dialog>
+    <el-dialog v-model="calibrateDialogVisible" :title="`核对余额：${calibrateForm.accountName}`" width="460px" destroy-on-close><el-alert title="校准会将账面余额对齐为实际余额，并自动保留一条校准审计记录。" type="warning" :closable="false" show-icon class="dialog-alert" /><el-form :model="calibrateForm" label-position="top"><el-form-item label="当前账面余额"><strong class="current-balance">¥{{ formatMoney(calibrateForm.currentBalance) }}</strong></el-form-item><el-form-item label="实际余额"><el-input-number v-model="calibrateForm.realBalance" :min="0" :precision="2" class="full-width" /><small v-if="calibrateDiff" :class="calibrateDiff > 0 ? 'diff-positive' : 'diff-negative'">差异 {{ calibrateDiff > 0 ? '+' : '' }}¥{{ formatMoney(calibrateDiff) }}</small></el-form-item><el-form-item label="备注"><el-input v-model="calibrateForm.remark" placeholder="例如：月末对账" /></el-form-item></el-form><template #footer><el-button @click="calibrateDialogVisible = false">取消</el-button><el-button type="warning" :loading="submitting" :disabled="!calibrateDiff" @click="calibrateAccount">确认校准</el-button></template></el-dialog>
   </main>
 </template>
 

@@ -142,4 +142,9 @@ router.beforeEach((to, from, next) => {
   }
 })
 
+// 统一页面标题："页面名 - 美的智慧家ERP"（取路由 meta.title）
+router.afterEach(to => {
+  document.title = to.meta?.title ? `${to.meta.title} - 美的智慧家ERP` : '美的智慧家ERP'
+})
+
 export default router
