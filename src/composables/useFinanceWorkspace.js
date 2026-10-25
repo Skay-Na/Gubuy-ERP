@@ -18,7 +18,9 @@ export function useFinanceWorkspace() {
   const ledgerLoading = ref(false)
 
   const totalBalance = computed(() =>
-    (summary.value.accounts || []).reduce((total, account) => total + Number(account.balance || 0), 0)
+    (summary.value.accounts || [])
+      .filter((account) => account.name !== '经营开销')
+      .reduce((total, account) => total + Number(account.balance || 0), 0)
   )
   const netCashFlow = computed(() => Number(summary.value.total_income || 0) - Number(summary.value.total_expense || 0))
   const attentionCount = computed(() =>

@@ -19,7 +19,9 @@ export function useBookkeeping() {
     Number(summary.value.total_income || 0) - Number(summary.value.total_expense || 0)
   )
   const totalBalance = computed(() =>
-    accounts.value.reduce((sum, account) => sum + Number(account.balance || 0), 0)
+    accounts.value
+      .filter((account) => account.name !== '经营开销')
+      .reduce((sum, account) => sum + Number(account.balance || 0), 0)
   )
 
   async function loadSummary(period = 'month', customRange = []) {

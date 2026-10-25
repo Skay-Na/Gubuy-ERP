@@ -13,7 +13,9 @@ export function useDashboard() {
   const employeeOffboardingAlertsLoading = shallowRef(false)
   let requestID = 0
 
-  const totalBalance = computed(() => (summary.value.accounts || []).reduce((sum, account) => sum + Number(account.balance || 0), 0))
+  const totalBalance = computed(() => (summary.value.accounts || [])
+    .filter((account) => account.name !== '经营开销')
+    .reduce((sum, account) => sum + Number(account.balance || 0), 0))
 
   async function load(period, dates = []) {
     if (period === 'custom' && (!dates[0] || !dates[1])) return
