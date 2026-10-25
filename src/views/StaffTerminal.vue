@@ -1133,7 +1133,26 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Wallet, Close, Lightning, Menu, Calendar, Refresh , Document, Star, Money} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import {
+  fetchAttendanceLogs as fetchAttendanceLogsApi,
+  checkIn as checkInApi,
+  checkOut as checkOutApi,
+  verifyPin as verifyPinApi,
+  fetchSimpleEmployees as fetchSimpleEmployeesApi
+} from '../api/employees'
+import {
+  fetchOrders as fetchOrdersApi,
+  confirmSubsidyReceived,
+  deliverOrderItem,
+  installOrderItem,
+  createOrder as createOrderApi
+} from '../api/orders'
+import {
+  fetchCategories as fetchCategoriesApi,
+  fetchProducts as fetchProductsApi,
+  createProduct as createProductApi
+} from '../api/products'
+import { fetchAccounts as fetchAccountsApi } from '../api/finance'
 import dayjs from 'dayjs'
 import StaffPhotoOrder from '../components/employee/StaffPhotoOrder.vue'
 
@@ -1215,9 +1234,7 @@ const fetchTodayAttendance = async () => {
   attendanceLoadFailed.value = false
   try {
     const today = dayjs().format('YYYY-MM-DD')
-    const res = await request.get('/api/employees/attendance-logs', {
-      params: { employee_id: currentEmployee.value.id, month: today.substring(0, 7) }
-    })
+    const res = await fetchAttendanceLogsApi({ employee_id: currentEmployee.value.id, month: today.substring(0, 7) })
     if (res.data.code === 200) {
       todayAttendance.value = res.data.data.find(log => log.date === today) || null
       forceCheckInVisible.value = !todayAttendance.value?.check_in
@@ -1237,7 +1254,7 @@ const fetchTodayAttendance = async () => {
 const handleCheckIn = async () => {
   attendanceLoading.value = true
   try {
-    const res = await request.post('/api/employees/check-in', {
+    const res = await checkInApi({
       employee_id: currentEmployee.value.id
     })
     if (res.data.code === 200) {
@@ -1258,7 +1275,7 @@ const handleCheckIn = async () => {
 const handleCheckOut = async () => {
   attendanceLoading.value = true
   try {
-    const res = await request.post('/api/employees/check-out', {
+    const res = await checkOutApi({
       employee_id: currentEmployee.value.id
     })
     if (res.data.code === 200) {
@@ -1370,7 +1387,7 @@ const fetchMyOrders = async () => {
     if (paymentFilter.value) params.payment_status = paymentFilter.value
     if (fulfillmentFilter.value) params.fulfillment_status = fulfillmentFilter.value
 
-    const res = await request.get('/api/orders', { params })
+    const res = await fetchOrdersApi(params)
     if (res.data.code === 200) {
       myOrders.value = res.data.data.filter(o => o.employee_id === currentEmployee.value.id)
     }
@@ -1393,7 +1410,7 @@ const handleStaffDeliver = (item) => {
 const confirmStaffDeliver = async () => {
   if (!selectedDeliveryPersonId.value) return
   try {
-    const res = await request.put(`/api/order-items/${deliveryTargetItem.value.id}/deliver`, {
+    const res = await deliverOrderItem(deliveryTargetItem.value.id, {
       delivery_person_id: selectedDeliveryPersonId.value,
       delivery_time: selectedDeliveryTime.value,
       delivery_fee: selectedDeliveryFee.value
@@ -1420,7 +1437,7 @@ const handleStaffInstall = (item) => {
 const confirmStaffInstall = async () => {
   if (!selectedInstallerId.value) return
   try {
-    const res = await request.put(`/api/order-items/${installTargetItem.value.id}/install`, {
+    const res = await installOrderItem(installTargetItem.value.id, {
       installer_id: selectedInstallerId.value,
       install_time: selectedInstallTime.value,
       installation_fee: selectedInstallationFee.value
@@ -1449,7 +1466,7 @@ const getSubsidyType = (status) => {
 const confirmSubsidy = (order) => {
   ElMessageBox.confirm('确认已在政府系统提交该订单的补贴资料？', '资料提交确认').then(async () => {
     try {
-      const res = await request.put(`/api/orders/${order.id}/subsidy`, { target_status: 2 })
+      const res = await confirmSubsidyReceived(order.id)
       if (res.data.code === 200) {
         ElMessage.success('状态更新成功')
         fetchMyOrders()
@@ -1466,14 +1483,14 @@ const showOrderDetail = (order) => {
 }
 
 const fetchEmployees = async () => {
-  const res = await request.get('/api/employees/simple')
+  const res = await fetchSimpleEmployeesApi()
   employees.value = res.data.data || []
 }
 
 const accounts = ref([])
 const fetchAccounts = async () => {
   try {
-    const res = await request.get('/api/accounts')
+    const res = await fetchAccountsApi()
     if (res.data.code === 200) accounts.value = res.data.data || []
   } catch (error) {
     console.error('Fetch accounts error:', error)
@@ -1488,7 +1505,7 @@ const verifyPin = async () => {
   if (pin.value.length < 4) return
   verifying.value = true
   try {
-    const res = await request.post('/api/employees/verify-pin', {
+    const res = await verifyPinApi({
       employee_id: selectedEmployee.value.id,
       pin_code: pin.value
     })
@@ -1641,7 +1658,7 @@ const submitStaffProduct = async () => {
       special_price_end: null
     }
 
-    const res = await request.post('/api/products', payload)
+    const res = await createProductApi(payload)
     if (res.data.code === 200) {
       ElMessage.success('商品创建成功')
       staffProductDialogVisible.value = false
@@ -1664,7 +1681,7 @@ const submitStaffProduct = async () => {
 
 const fetchCategories = async () => {
   try {
-    const res = await request.get('/api/categories')
+    const res = await fetchCategoriesApi()
     if (res.data.code === 200) {
       categories.value = res.data.data
     }
@@ -1706,12 +1723,10 @@ const getProductCost = (product) => Number(product.avg_cost) > 0 ? Number(produc
 const fetchProducts = async () => {
   loading.value = true
   try {
-    const res = await request.get('/api/products', {
-      params: {
-        keyword: searchQuery.value,
-        category_id: selectedCategoryId.value,
-        only_special: onlySpecial.value ? 1 : 0
-      }
+    const res = await fetchProductsApi({
+      keyword: searchQuery.value,
+      category_id: selectedCategoryId.value,
+      only_special: onlySpecial.value ? 1 : 0
     })
     if (res.data.code === 200) {
       blindStocktakeMode.value = Boolean(res.data.blind_stocktake_mode)
@@ -2015,7 +2030,7 @@ const handleCheckout = async () => {
       order_type: orderType.value,
       client_request_id: clientRequestId
     }
-    const res = await request.post('/api/orders', payload)
+    const res = await createOrderApi(payload)
     if (res.data.code === 200) {
       ElMessage.success('开单成功！')
       cart.value = []

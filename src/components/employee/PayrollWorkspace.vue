@@ -1,7 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { fetchPayrollConfirmations, confirmPayroll } from '../../api/employees'
 
 const props = defineProps({
   month: { type: String, required: true },
@@ -52,7 +52,7 @@ const confirmTotal = computed(() =>
 const fetchConfirmations = async () => {
   confirmationsLoading.value = true
   try {
-    const res = await request.get('/api/payroll/confirmations', { params: { month: props.month } })
+    const res = await fetchPayrollConfirmations({ month: props.month })
     if (res.data.code === 200) confirmations.value = res.data.data || []
   } catch {
     confirmations.value = []
@@ -86,7 +86,7 @@ const submitConfirm = async () => {
       { confirmButtonText: '确认发放', cancelButtonText: '取消', type: 'warning' }
     )
     confirming.value = true
-    const res = await request.post('/api/payroll/confirm', { month: props.month, items })
+    const res = await confirmPayroll({ month: props.month, items })
     if (res.data.code === 200) {
       ElMessage.success(res.data.msg || '工资确认成功')
       confirmDialogVisible.value = false

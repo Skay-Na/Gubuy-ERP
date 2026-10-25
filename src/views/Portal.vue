@@ -120,7 +120,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Management, Monitor, Right } from '@element-plus/icons-vue'
-import request from '../utils/request'
+import { fetchAdminStatus, verifyAdmin, initAdmin } from '../api/auth'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -133,7 +133,7 @@ const loggingIn = ref(false)
 
 const checkAdminStatus = async () => {
   try {
-    const res = await request.get('/api/admin/status')
+    const res = await fetchAdminStatus()
     if (res.data.code === 200) {
       isInitialized.value = res.data.initialized
     }
@@ -154,7 +154,7 @@ const handleAdminLogin = async () => {
   
   loggingIn.value = true
   try {
-    const res = await request.post('/api/admin/verify', {
+    const res = await verifyAdmin({
       password: adminPassword.value
     })
     if (res.data.code === 200) {
@@ -180,7 +180,7 @@ const handleAdminInit = async () => {
 
   initializing.value = true
   try {
-    const res = await request.post('/api/admin/init', {
+    const res = await initAdmin({
       username: adminUsername.value,
       password: adminPassword.value
     })

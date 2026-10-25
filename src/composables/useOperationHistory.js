@@ -1,6 +1,6 @@
 import { shallowRef } from 'vue'
 import { ElMessage } from 'element-plus'
-import request from '../utils/request'
+import { fetchOperations as fetchOperationsApi, undoOperation as undoOperationApi } from '../api/system'
 
 export function useOperationHistory() {
   const operations = shallowRef([])
@@ -10,7 +10,7 @@ export function useOperationHistory() {
   async function loadOperations() {
     loading.value = true
     try {
-      const response = await request.get('/api/operations')
+      const response = await fetchOperationsApi()
       operations.value = response.data?.data || []
     } catch {
       operations.value = []
@@ -22,7 +22,7 @@ export function useOperationHistory() {
   async function undoOperation(operation) {
     undoingId.value = operation.id
     try {
-      await request.post(`/api/operations/${operation.id}/undo`)
+      await undoOperationApi(operation.id)
       ElMessage.success('操作已撤销')
       await loadOperations()
       return true

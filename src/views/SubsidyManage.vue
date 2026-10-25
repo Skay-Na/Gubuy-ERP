@@ -243,7 +243,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { Plus, PieChart, Checked, Timer, List, DocumentChecked, Coin, CircleCheck } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import { fetchSubsidySummary, fetchSubsidySettlements, fetchSubsidyReceipts, allocateSubsidy, settleSubsidy } from '../api/subsidy'
+import { fetchAccounts as fetchAccountsApi } from '../api/finance'
+import { fetchOrders as fetchOrdersApi } from '../api/orders'
 
 const loading = ref(false)
 const submitting = ref(false)
@@ -277,7 +279,7 @@ const getProgressPercentage = (amount) => {
 }
 
 const fetchSummary = async () => {
-  const res = await request.get('/api/subsidy/summary')
+  const res = await fetchSubsidySummary()
   if (res.data.code === 200) {
     summary.value = res.data.data
   }
@@ -285,7 +287,7 @@ const fetchSummary = async () => {
 
 const fetchSettlements = async () => {
   loading.value = true
-  const res = await request.get('/api/subsidy/settlements')
+  const res = await fetchSubsidySettlements()
   if (res.data.code === 200) {
     settlements.value = res.data.data
   }
@@ -293,7 +295,7 @@ const fetchSettlements = async () => {
 }
 
 const fetchAccounts = async () => {
-  const res = await request.get('/api/accounts')
+  const res = await fetchAccountsApi()
   if (res.data.code === 200) {
     accounts.value = res.data.data
   }
@@ -301,7 +303,7 @@ const fetchAccounts = async () => {
 
 const fetchOrders = async () => {
   // 获取所有带国补的订单来计算进度
-  const res = await request.get('/api/orders')
+  const res = await fetchOrdersApi()
   if (res.data.code === 200) {
     orders.value = res.data.data.filter(o => o.subsidy_amount > 0 && o.order_status === 1)
   }
@@ -349,7 +351,7 @@ const allocationItems = computed(() =>
 const fetchPendingOrders = async () => {
   loadingOrders.value = true
   try {
-    const res = await request.get('/api/orders', { params: { subsidy_status: 2 } })
+    const res = await fetchOrdersApi({ subsidy_status: 2 })
     if (res.data.code === 200) {
       pendingOrders.value = (res.data.data || [])
         .filter(o => o.order_status === 1 && remainingOf(o) > 0.005)
@@ -363,7 +365,7 @@ const fetchPendingOrders = async () => {
 const fetchReceipts = async () => {
   loadingReceipts.value = true
   try {
-    const res = await request.get('/api/subsidy/receipts')
+    const res = await fetchSubsidyReceipts()
     if (res.data.code === 200) {
       receipts.value = res.data.data || []
     }
@@ -424,7 +426,7 @@ const submitAllocation = async () => {
       { confirmButtonText: '确认核销', cancelButtonText: '取消', type: 'warning' }
     )
     submittingAllocate.value = true
-    const res = await request.post('/api/subsidy/allocate', {
+    const res = await allocateSubsidy({
       settlement_id: pool.id,
       allocations: items
     })
@@ -485,7 +487,7 @@ const handleSettle = async () => {
 
   try {
     submitting.value = true
-    const res = await request.post('/api/subsidy/settle', form.value)
+    const res = await settleSubsidy(form.value)
     if (res.data.code === 200) {
       ElMessage.success('录入成功')
       dialogVisible.value = false

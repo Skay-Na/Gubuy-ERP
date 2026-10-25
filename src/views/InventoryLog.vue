@@ -217,7 +217,15 @@
 import { ref, onMounted, reactive } from 'vue'
 import { Search, Right, Download } from '@element-plus/icons-vue'
 import StocktakeBatchAdminManager from '../components/inventory/StocktakeBatchAdminManager.vue'
-import request from '../utils/request'
+import {
+  fetchInventoryLogs,
+  fetchPendingStocktakes as fetchPendingStocktakesApi,
+  approvePendingStocktake as approvePendingStocktakeApi,
+  rejectPendingStocktake as rejectPendingStocktakeApi,
+  cancelInboundByLog,
+  updateInboundPrice
+} from '../api/inventory'
+import { fetchSimpleEmployees as fetchSimpleEmployeesApi } from '../api/employees'
 import { downloadExcel } from '../utils/export'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -246,9 +254,7 @@ const handleExport = () => {
 const fetchLogs = async () => {
   loading.value = true
   try {
-    const res = await request.get('/api/inventory/logs', {
-      params: { ...filters, page: page.value, page_size: pageSize }
-    })
+    const res = await fetchInventoryLogs({ ...filters, page: page.value, page_size: pageSize })
     if (res.data.code === 200) {
       logList.value = res.data.data || []
       total.value = Number(res.data.total) || 0
@@ -263,7 +269,7 @@ const fetchLogs = async () => {
 const fetchPendingStocktakes = async () => {
   pendingStocktakesLoading.value = true
   try {
-    const res = await request.get('/api/pending-stocktakes', { params: { status: 'pending' } })
+    const res = await fetchPendingStocktakesApi({ status: 'pending' })
     if (res.data.code === 200) {
       pendingStocktakes.value = res.data.data || []
       pendingStocktakeCount.value = pendingStocktakes.value.length
@@ -283,7 +289,7 @@ const openPendingStocktakes = () => {
 const approvePendingStocktake = async (row) => {
   try {
     await ElMessageBox.confirm(`确认通过「${row.product?.name || '该商品'}」的库存差异 ${row.difference > 0 ? '+' : ''}${row.difference}？`, '审核盘点差异', { type: 'warning', confirmButtonText: '通过并调整库存' })
-    const res = await request.post(`/api/pending-stocktakes/${row.id}/approve`)
+    const res = await approvePendingStocktakeApi(row.id)
     if (res.data.code === 200) {
       ElMessage.success('盘点差异已通过并应用')
       await Promise.all([fetchPendingStocktakes(), fetchLogs()])
@@ -310,7 +316,7 @@ const rejectPendingStocktake = async (row) => {
       inputPattern: /\S+/, inputErrorMessage: '驳回原因不能为空',
       inputValidator: (value) => (value || '').trim().length <= 255 || '驳回原因最多 255 个字'
     })
-    const res = await request.post(`/api/pending-stocktakes/${row.id}/reject`, { review_remark: reason.trim() })
+    const res = await rejectPendingStocktakeApi(row.id, { review_remark: reason.trim() })
     if (res.data.code === 200) {
       ElMessage.success('已驳回盘点申请')
       await fetchPendingStocktakes()
@@ -355,7 +361,7 @@ const resetFilters = () => {
 
 const fetchEmployees = async () => {
   try {
-    const res = await request.get('/api/employees/simple')
+    const res = await fetchSimpleEmployeesApi()
     if (res.data.code === 200) employees.value = (res.data.data || []).filter(employee => !employee.is_outsourced)
   } catch {
     ElMessage.error('获取员工列表失败')
@@ -382,7 +388,7 @@ const handleCancelInbound = async (row) => {
     )
 
     loading.value = true
-    const res = await request.post(`/api/inbounds/cancel-by-log/${row.id}`)
+    const res = await cancelInboundByLog(row.id)
     if (res.data.code === 200) {
       ElMessage.success(res.data.msg || '入库流水撤销成功！')
       fetchLogs()
@@ -420,7 +426,7 @@ const handleUpdatePrice = async (row) => {
     }
     
     loading.value = true
-    const res = await request.post(`/api/inbounds/update-price/${row.id}`, {
+    const res = await updateInboundPrice(row.id, {
       new_price: newPrice
     })
     

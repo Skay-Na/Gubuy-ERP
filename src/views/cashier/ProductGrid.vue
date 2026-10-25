@@ -146,7 +146,7 @@
 import { ref, onMounted } from 'vue'
 import { Plus, Lightning } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import request from '../../utils/request'
+import { fetchCategories as fetchCategoriesApi, fetchProducts as fetchProductsApi } from '../../api/products'
 import { useCartStore } from '../../store/cart'
 
 const cartStore = useCartStore()
@@ -159,7 +159,7 @@ const loading = ref(false)
 
 const fetchCategories = async () => {
   try {
-    const res = await request.get('/api/categories')
+    const res = await fetchCategoriesApi()
     if (res.code === 200) {
       categories.value = res.result
     }
@@ -176,11 +176,9 @@ const selectCategory = (id) => {
 const fetchProducts = async () => {
   loading.value = true
   try {
-    const response = await request.get('/api/products', {
-      params: { 
-        keyword: searchQuery.value,
-        category_id: selectedCategoryId.value
-      }
+    const response = await fetchProductsApi({
+      keyword: searchQuery.value,
+      category_id: selectedCategoryId.value
     })
     if (response.code === 200) {
       productList.value = response.result

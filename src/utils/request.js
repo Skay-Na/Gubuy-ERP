@@ -43,23 +43,35 @@ service.interceptors.request.use(
   }
 )
 
+// 统一 401 处理入口：业务 code===401 与 HTTP 401 双轨收敛到这里
+// 返回 true 表示已按当前路由完成提示与登出跳转，调用方需 reject；
+// 返回 false 表示 PIN 校验请求，由调用方按原逻辑自行 reject（不打扰、不跳转）
+const handleUnauthorized = (config, terminalMessage, adminMessage, isBlobRequest = false) => {
+  if (isPinVerifyRequest(config)) {
+    return false
+  }
+  if (isTerminalRoute()) {
+    if (!isBlobRequest) ElMessage.error(terminalMessage)
+    clearPosAuth()
+    router.replace('/terminal')
+    return true
+  }
+  if (!isBlobRequest) ElMessage.error(adminMessage)
+  clearAuth()
+  router.push('/')
+  return true
+}
+
 // 响应拦截器
 service.interceptors.response.use(
   response => {
     const payload = response.data
     if (payload && payload.code === 401) {
-      if (isPinVerifyRequest(response.config)) {
-        return Promise.reject(new Error(payload.msg || 'Unauthorized'))
-      }
-      if (isTerminalRoute()) {
-        ElMessage.error(payload.msg || '员工登录已过期，请重新输入 PIN')
-        clearPosAuth()
-        router.replace('/terminal')
-        return Promise.reject(new Error(payload.msg || 'Unauthorized'))
-      }
-      ElMessage.error(payload.msg || '未授权，请重新登录')
-      clearAuth()
-      router.push('/')
+      handleUnauthorized(
+        response.config,
+        payload.msg || '员工登录已过期，请重新输入 PIN',
+        payload.msg || '未授权，请重新登录'
+      )
       return Promise.reject(new Error(payload.msg || 'Unauthorized'))
     }
 
@@ -79,21 +91,15 @@ service.interceptors.response.use(
     console.error('Response error:', error?.response?.status || error?.message || '请求失败')
     const isBlobRequest = error.config?.responseType === 'blob'
     if (error.response && error.response.status === 401) {
-      if (isPinVerifyRequest(error.config)) {
-        return Promise.reject(error)
-      }
-      if (isTerminalRoute()) {
-        if (!isBlobRequest) ElMessage.error(error.response?.data?.msg || '员工登录已过期，请重新输入 PIN')
-        clearPosAuth()
-        router.replace('/terminal')
-        return Promise.reject(error)
-      }
-      if (!isBlobRequest) ElMessage.error('登录失效或无权限，请重新登录')
-      clearAuth()
-      router.push('/')
-    } else {
-      if (!isBlobRequest) ElMessage.error(error.response?.data?.msg || error.message || '网络请求错误')
+      handleUnauthorized(
+        error.config,
+        error.response?.data?.msg || '员工登录已过期，请重新输入 PIN',
+        '登录失效或无权限，请重新登录',
+        isBlobRequest
+      )
+      return Promise.reject(error)
     }
+    if (!isBlobRequest) ElMessage.error(error.response?.data?.msg || error.message || '网络请求错误')
     return Promise.reject(error)
   }
 )

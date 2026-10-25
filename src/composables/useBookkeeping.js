@@ -1,5 +1,5 @@
 import { computed, readonly, ref } from 'vue'
-import request from '../utils/request'
+import { fetchFinanceSummary, fetchFinanceLogs, createBookkeepingEntry } from '../api/finance'
 
 const emptySummary = {
   accounts: [],
@@ -32,7 +32,7 @@ export function useBookkeeping() {
         params.start_date = customRange[0]
         params.end_date = customRange[1]
       }
-      const response = await request.get('/api/finance/summary', { params })
+      const response = await fetchFinanceSummary(params)
       summary.value = response.data.code === 200 ? response.data.data : emptySummary
     } finally {
       loading.value = false
@@ -42,7 +42,7 @@ export function useBookkeeping() {
   async function loadEntries(filters = {}) {
     ledgerLoading.value = true
     try {
-      const response = await request.get('/api/finance/logs', { params: filters })
+      const response = await fetchFinanceLogs(filters)
       entries.value = response.data.data || []
       total.value = Number(response.data.total || 0)
     } finally {
@@ -51,7 +51,7 @@ export function useBookkeeping() {
   }
 
   async function createEntry(payload) {
-    const response = await request.post('/api/bookkeeping/entries', payload)
+    const response = await createBookkeepingEntry(payload)
     if (response.data.code !== 200) {
       throw new Error(response.data.msg || '记账失败')
     }

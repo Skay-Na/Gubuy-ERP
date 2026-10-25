@@ -592,7 +592,9 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import { Delete, Promotion, Wallet, User, Warning, Files, Shop, Cloudy, CreditCard, OfficeBuilding, Refresh, Document, Star , Close, Setting, Money } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { fetchEmployees as fetchEmployeesApi } from '../../api/employees'
+import { fetchAccounts as fetchAccountsApi } from '../../api/finance'
+import { createOrder as createOrderApi } from '../../api/orders'
 import { buildReceiptFromCheckout } from '../../utils/receipt'
 import { useCartStore } from '../../store/cart'
 
@@ -747,7 +749,7 @@ watch(mixedPaymentTarget, (newTotal) => {
 
 const fetchEmployees = async () => {
   try {
-    const response = await request.get('/api/employees')
+    const response = await fetchEmployeesApi()
     if (response.code === 200) {
       employees.value = (response.result || []).filter(employee => !employee.is_outsourced)
     }
@@ -758,7 +760,7 @@ const fetchEmployees = async () => {
 
 const fetchAccounts = async () => {
   try {
-    const response = await request.get('/api/accounts')
+    const response = await fetchAccountsApi()
     if (response.code === 200) {
       accounts.value = response.result
     }
@@ -880,7 +882,7 @@ const handleCheckout = async () => {
       client_request_id: clientRequestId
     }
     
-    const response = await request.post('/api/orders', payload)
+    const response = await createOrderApi(payload)
     
     if (response.code === 200) {
       const receipt = createReceiptSnapshot(response.data?.order_no || response.order_no || response.result?.order_no, paymentSplits)

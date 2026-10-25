@@ -2,7 +2,13 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ArrowRight, Management, Plus, Switch } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import request from '../utils/request'
+import {
+  fetchFinanceWorkspace,
+  fetchFinanceLogs,
+  createAccount as createAccountApi,
+  transferAccounts,
+  calibrateAccount as calibrateAccountApi
+} from '../api/finance'
 
 // ---------- 资金工作台聚合数据 ----------
 const currentMonth = () => {
@@ -18,7 +24,7 @@ const fetchWorkspace = async () => {
   wsLoading.value = true
   try {
     const month = monthMode.value === 'cumulative' ? 'cumulative' : currentMonth()
-    const res = await request.get('/api/finance/workspace', { params: { month } })
+    const res = await fetchFinanceWorkspace({ month })
     if (res.data.code === 200) {
       ws.value = res.data.data
     }
@@ -82,7 +88,7 @@ const openFlows = async (title, params) => {
   flowsDrawer.title = title
   flowsDrawer.loading = true
   try {
-    const res = await request.get('/api/finance/logs', { params: { page_size: 20, ...params } })
+    const res = await fetchFinanceLogs({ page_size: 20, ...params })
     if (res.data.code === 200) {
       flowsDrawer.rows = res.data.data?.logs || res.data.data || []
       flowsDrawer.total = res.data.total ?? flowsDrawer.rows.length
@@ -114,18 +120,18 @@ function openCalibrate(account) { Object.assign(calibrateForm, { accountId: acco
 async function createAccount() {
   if (!accountFormRef.value || !await accountFormRef.value.validate().catch(() => false)) return
   submitting.value = true
-  try { const response = await request.post('/api/accounts', accountForm); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '创建失败'); ElMessage.success('账户已创建'); accountDialogVisible.value = false; Object.assign(accountForm, { name: '', balance: 0 }); await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '创建失败') } finally { submitting.value = false }
+  try { const response = await createAccountApi(accountForm); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '创建失败'); ElMessage.success('账户已创建'); accountDialogVisible.value = false; Object.assign(accountForm, { name: '', balance: 0 }); await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '创建失败') } finally { submitting.value = false }
 }
 async function transferFunds() {
   if (!transferFormRef.value || !await transferFormRef.value.validate().catch(() => false)) return
   if (transferForm.from_account_id === transferForm.to_account_id) return ElMessage.warning('转出和转入账户不能相同')
   submitting.value = true
-  try { const response = await request.post('/api/accounts/transfer', transferForm); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '划拨失败'); ElMessage.success('资金划拨成功'); transferDialogVisible.value = false; Object.assign(transferForm, { from_account_id: null, to_account_id: null, amount: 0, remark: '' }); await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '划拨失败') } finally { submitting.value = false }
+  try { const response = await transferAccounts(transferForm); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '划拨失败'); ElMessage.success('资金划拨成功'); transferDialogVisible.value = false; Object.assign(transferForm, { from_account_id: null, to_account_id: null, amount: 0, remark: '' }); await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '划拨失败') } finally { submitting.value = false }
 }
 async function calibrateAccount() {
   if (!calibrateDiff.value) return
   submitting.value = true
-  try { const response = await request.put(`/api/accounts/${calibrateForm.accountId}/calibrate`, { real_balance: calibrateForm.realBalance, remark: calibrateForm.remark }); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '校准失败'); ElMessage.success('账户余额已校准，并保留审计记录'); calibrateDialogVisible.value = false; await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '校准失败') } finally { submitting.value = false }
+  try { const response = await calibrateAccountApi(calibrateForm.accountId, { real_balance: calibrateForm.realBalance, remark: calibrateForm.remark }); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '校准失败'); ElMessage.success('账户余额已校准，并保留审计记录'); calibrateDialogVisible.value = false; await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '校准失败') } finally { submitting.value = false }
 }
 onMounted(refreshAll)
 </script>

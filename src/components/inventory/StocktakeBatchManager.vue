@@ -2,7 +2,15 @@
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Document, Printer, Refresh } from '@element-plus/icons-vue'
-import request from '../../utils/request'
+import {
+  fetchStocktakeBatches,
+  createStocktakeBatch,
+  fetchStocktakeBatch,
+  updateStocktakeBatchItems,
+  submitStocktakeBatch,
+  refreshStocktakeBatchItem,
+  printStocktakeBatch
+} from '../../api/inventory'
 import StocktakePrintSheet from './StocktakePrintSheet.vue'
 
 const props = defineProps({
@@ -54,7 +62,7 @@ const activeBatchEditable = computed(() => activeBatch.value?.status === 'in_pro
 const loadBatches = async () => {
   batchesLoading.value = true
   try {
-    const res = await request.get('/api/stocktake-batches')
+    const res = await fetchStocktakeBatches()
     if (res.data.code === 200) {
       batches.value = res.data.data || []
       blindStocktakeMode.value = Boolean(res.data.blind_stocktake_mode) || hasOwnActiveBatch.value
@@ -71,7 +79,7 @@ const createBatch = async () => {
   if (creating.value) return
   creating.value = true
   try {
-    const res = await request.post('/api/stocktake-batches', {
+    const res = await createStocktakeBatch({
       warehouse_type: props.warehouseType,
       category_id: props.categoryId ? String(props.categoryId) : undefined,
       keyword: props.keyword.trim()
@@ -102,7 +110,7 @@ const setActiveBatch = (batch) => {
 
 const openBatch = async (id) => {
   try {
-    const res = await request.get(`/api/stocktake-batches/${id}`)
+    const res = await fetchStocktakeBatch(id)
     if (res.data.code !== 200) {
       ElMessage.error(res.data.msg || '获取盘库单详情失败')
       return
@@ -117,7 +125,7 @@ const openBatch = async (id) => {
 
 const refreshActiveBatch = async () => {
   if (!activeBatch.value) return
-  const res = await request.get(`/api/stocktake-batches/${activeBatch.value.id}`)
+  const res = await fetchStocktakeBatch(activeBatch.value.id)
   if (res.data.code === 200) setActiveBatch(res.data.data)
 }
 
@@ -141,7 +149,7 @@ const saveItems = async (showMessage = true) => {
 
   saving.value = true
   try {
-    const res = await request.put(`/api/stocktake-batches/${activeBatch.value.id}/items`, {
+    const res = await updateStocktakeBatchItems(activeBatch.value.id, {
       stocktake_type: stocktakeTypeDraft.value,
       items
     })
@@ -170,7 +178,7 @@ const submitBatch = async () => {
   if (!saved) return
   submitting.value = true
   try {
-    const res = await request.post(`/api/stocktake-batches/${activeBatch.value.id}/submit`)
+    const res = await submitStocktakeBatch(activeBatch.value.id)
     if (res.data.code !== 200) {
       ElMessage.error(res.data.msg || '提交盘点结果失败')
       return
@@ -204,7 +212,7 @@ const refreshConflict = async (item) => {
       '重新清点',
       { confirmButtonText: '刷新并重盘', cancelButtonText: '暂不处理', type: 'warning' }
     )
-    const res = await request.post(`/api/stocktake-batches/${activeBatch.value.id}/items/${item.id}/refresh`)
+    const res = await refreshStocktakeBatchItem(activeBatch.value.id, item.id)
     if (res.data.code === 200) {
       ElMessage.success(res.data.msg || '已刷新，请重新清点')
       await Promise.all([refreshActiveBatch(), loadBatches()])
@@ -234,7 +242,7 @@ const handleAfterPrint = async () => {
       '确认打印结果',
       { confirmButtonText: '已成功打印', cancelButtonText: '取消或失败', distinguishCancelAndClose: true, type: 'info' }
     )
-    const res = await request.post(`/api/stocktake-batches/${batchId}/print`, { confirmed: true })
+    const res = await printStocktakeBatch(batchId, { confirmed: true })
     if (res.data.code !== 200) {
       ElMessage.error(res.data.msg || '记录打印状态失败')
       return

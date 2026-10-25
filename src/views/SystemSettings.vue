@@ -226,7 +226,13 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { Setting, Monitor, Lock, Warning, Delete, Download, Search } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import {
+  fetchBackupLogs as fetchBackupLogsApi,
+  restoreBackup,
+  resetSystem,
+  fetchHistoricalCostCandidates,
+  repairHistoricalCost
+} from '../api/system'
 import AIProviderSettings from '../components/settings/AIProviderSettings.vue'
 
 const showResetConfirm = ref(false)
@@ -288,7 +294,7 @@ const handleDownloadBackup = async () => {
 
   backupDownloading.value = true
   try {
-    const res = await request.get('/api/system/backup', {
+    const res = await fetchBackupLogsApi({
       responseType: 'blob',
       timeout: 135000
     })
@@ -337,7 +343,7 @@ const handleRestoreUpload = async ({ file }) => {
   restoreAdminPassword = ''
 
   try {
-    const res = await request.post('/api/system/restore', formData, {
+    const res = await restoreBackup(formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
       },
@@ -368,7 +374,7 @@ const handleFactoryReset = async () => {
 
   resetting.value = true
   try {
-    const res = await request.post('/api/system/reset', {
+    const res = await resetSystem({
       confirm: confirmText.value
     })
     if (res.data.code === 200) {
@@ -436,7 +442,7 @@ const openHistoricalCostRepair = async () => {
   historicalRepairVisible.value = true
   historicalRepairLoading.value = true
   try {
-    const res = await request.get('/api/system/historical-cost-repair/candidates')
+    const res = await fetchHistoricalCostCandidates()
     if (res.data.code === 200) {
       historicalRepairCandidates.value = res.data.data || []
       repairUnitCosts.value = Object.fromEntries(historicalRepairCandidates.value.map(row => [historicalRepairCandidateKey(row), undefined]))
@@ -509,7 +515,7 @@ const submitHistoricalCostRepair = async (row) => {
 
   historicalRepairSubmittingId.value = candidateKey
   try {
-    const res = await request.post('/api/system/historical-cost-repair', {
+    const res = await repairHistoricalCost({
       candidate_type: row.candidate_type,
       ...(isProductCandidate ? { product_id: row.product_id } : isOrderItemCandidate ? { order_item_id: row.order_item_id } : { log_id: row.id }),
       unit_cost: unitCost,

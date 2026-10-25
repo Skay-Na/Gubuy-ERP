@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import request from '../../utils/request'
+import { fetchAccounts } from '../../api/finance'
+import { fetchProducts } from '../../api/products'
 
 const props = defineProps({ action: { type: Object, required: true }, submit: { type: Function, required: true } })
 const form = reactive(JSON.parse(props.action.payload))
@@ -14,10 +15,10 @@ const valid = computed(() => props.action.kind === 'expense'
 
 onMounted(async () => {
   try {
-    const accountResponse = await request.get('/api/accounts')
+    const accountResponse = await fetchAccounts()
     accounts.value = accountResponse.result || []
     if (props.action.kind === 'order') {
-      const productResponse = await request.get('/api/products', { params: { all: 1 } })
+      const productResponse = await fetchProducts({ all: 1 })
       products.value = productResponse.result || []
       for (const item of form.items) {
         const matches = products.value.filter(product => product.name === item.name)

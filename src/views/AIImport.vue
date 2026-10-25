@@ -2,7 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import { fetchAIImports, fetchAIImport, fetchAIImportImage, createAIImport, deleteAIImport } from '../api/agent'
+import { searchBookkeepingOrders, createBookkeepingEntry, fetchAccounts } from '../api/finance'
+import { createOrder } from '../api/orders'
+import { fetchProducts } from '../api/products'
+import { fetchEmployees } from '../api/employees'
 import { normalizeAIOrderFields } from '../utils/aiOrderImport'
 import AIImportRecentList from '../components/ai-import/AIImportRecentList.vue'
 
@@ -65,7 +69,7 @@ function chooseFile(event) {
 }
 
 async function loadRecent() {
-  const response = await request.get('/api/ai/imports', { params: { kind: kind.value } })
+  const response = await fetchAIImports({ kind: kind.value })
   recentImports.value = response.data.data || []
 }
 
@@ -88,7 +92,7 @@ async function deleteImport(item) {
   }
   deletingID.value = item.id
   try {
-    await request.delete(`/api/ai/imports/${item.id}`)
+    await deleteAIImport(item.id)
     recentImports.value = recentImports.value.filter(record => record.id !== item.id)
     if (draftID.value === item.id) clearDraft()
     ElMessage.success(`${recordLabel}及原图已删除`)
@@ -134,7 +138,7 @@ async function analyze() {
     data.append('kind', kind.value)
     data.append('image', file.value)
     data.append('description', description.value)
-    const response = await request.post('/api/ai/imports', data, { timeout: 120000 })
+    const response = await createAIImport(data)
     draftID.value = response.data.data.id
     applyFields(response.data.data.fields)
     localStorage.setItem(storageKey(), String(draftID.value))
@@ -150,13 +154,13 @@ async function analyze() {
 }
 
 async function restore(id) {
-  const response = await request.get(`/api/ai/imports/${id}`)
+  const response = await fetchAIImport(id)
   kind.value = response.data.data.kind
   draftID.value = response.data.data.id
   saved.value = response.data.data.status === 'saved'
   targetID.value = response.data.data.target_id
   applyFields(response.data.data.fields)
-  const image = await request.get(`/api/ai/imports/${id}/image`, { responseType: 'blob' })
+  const image = await fetchAIImportImage(id)
   setImage(image.data)
   localStorage.setItem(storageKey(), String(id))
   await loadRecent().catch(() => {})
@@ -165,7 +169,7 @@ async function restore(id) {
 async function searchOrders(keyword) {
   searchingOrders.value = true
   try {
-    const response = await request.get('/api/bookkeeping/orders', { params: { q: keyword } })
+    const response = await searchBookkeepingOrders({ q: keyword })
     orders.value = response.data.data || []
   } finally { searchingOrders.value = false }
 }
@@ -190,14 +194,14 @@ async function save() {
         employee_id: order.employee_id || undefined,
         deposit_amount: order.payment_mode === 'full' ? 0 : Number(order.deposit_amount)
       }
-      const response = await request.post('/api/orders', payload)
+      const response = await createOrder(payload)
       targetID.value = response.data.data.order.id
     } else {
       const payload = {
         ...expense, ai_import_id: draftID.value, amount: Number(expense.amount),
         order_id: expense.order_id || undefined, occurred_at: expense.occurred_at ? `${expense.occurred_at} 12:00:00` : ''
       }
-      const response = await request.post('/api/bookkeeping/entries', payload)
+      const response = await createBookkeepingEntry(payload)
       targetID.value = response.data.data.entry.id
     }
     saved.value = true
@@ -210,7 +214,7 @@ async function save() {
 
 onMounted(async () => {
   try {
-    const [productResponse, accountResponse, employeeResponse] = await Promise.all([request.get('/api/products', { params: { all: 1 } }), request.get('/api/accounts'), request.get('/api/employees')])
+    const [productResponse, accountResponse, employeeResponse] = await Promise.all([fetchProducts({ all: 1 }), fetchAccounts(), fetchEmployees()])
     products.value = productResponse.data.data || []
     accounts.value = accountResponse.data.data || []
     employees.value = (employeeResponse.data.data || []).filter(employee => !employee.is_outsourced)

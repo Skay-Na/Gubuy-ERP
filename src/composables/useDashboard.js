@@ -1,5 +1,6 @@
 import { computed, shallowRef } from 'vue'
-import request from '../utils/request'
+import { fetchFinanceSummary } from '../api/finance'
+import { fetchOffboardingAlerts } from '../api/employees'
 
 const emptySummary = () => ({ accounts: [], top_products: [], employee_rankings: [], sales_trend: [] })
 
@@ -29,7 +30,7 @@ export function useDashboard() {
       params.end_date = dates[1]
     }
     try {
-      const response = await request.get('/api/finance/summary', { params })
+      const response = await fetchFinanceSummary(params)
       if (currentID !== requestID) return
       if (response.data.code !== 200) throw new Error('接口返回异常')
       summary.value = response.data.data || emptySummary()
@@ -48,7 +49,7 @@ export function useDashboard() {
     employeeOffboardingAlertsLoading.value = true
     employeeOffboardingAlertsError.value = ''
     try {
-      const response = await request.get('/api/employee-offboarding-alerts')
+      const response = await fetchOffboardingAlerts()
       if (response.data.code !== 200) throw new Error('离职订单提醒加载失败')
       employeeOffboardingAlerts.value = response.data.data || []
     } catch (cause) {

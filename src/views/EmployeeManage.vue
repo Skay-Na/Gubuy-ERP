@@ -163,7 +163,15 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import request from '../utils/request'
+import {
+  fetchEmployees as fetchEmployeesApi,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee,
+  fetchAttendanceLogs as fetchAttendanceLogsApi,
+  fetchCommissionReport,
+  recordAttendance
+} from '../api/employees'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { downloadExcel } from '../utils/export'
@@ -261,11 +269,9 @@ const fetchAttendanceLogs = async () => {
   if (!selectedEmpForAttendance.value) return
   logsLoading.value = true
   try {
-    const res = await request.get('/api/employees/attendance-logs', {
-      params: {
-        employee_id: selectedEmpForAttendance.value.id,
-        month: attendanceMonth.value
-      }
+    const res = await fetchAttendanceLogsApi({
+      employee_id: selectedEmpForAttendance.value.id,
+      month: attendanceMonth.value
     })
     if (res.data.code === 200) {
       attendanceLogs.value = res.data.data
@@ -309,7 +315,7 @@ const fetchReport = async () => {
   const month = reportMonth.value
   reportLoading.value = true
   try {
-    const res = await request.get(`/api/employees/commission-report?month=${month}`)
+    const res = await fetchCommissionReport(month)
     if (requestId === reportRequestId && res.data.code === 200) {
       reportData.value = res.data.data
     }
@@ -325,7 +331,7 @@ const updateLeaveDays = async (row, days) => {
   leaveSaving.value = true
   const month = reportMonth.value
   try {
-    await request.post('/api/employees/attendance', {
+    await recordAttendance({
       employee_id: row.employee_id,
       month,
       leave_days: days
@@ -342,7 +348,7 @@ const updateLeaveDays = async (row, days) => {
 const fetchEmployees = async () => {
   loading.value = true
   try {
-    const res = await request.get('/api/employees', { params: { include_departed: true } })
+    const res = await fetchEmployeesApi({ include_departed: true })
     if (res.data.code === 200) {
       employees.value = res.data.data
     }
@@ -423,10 +429,10 @@ const handleSave = async () => {
     }
 
     if (isEdit.value) {
-      await request.put(`/api/employees/${form.value.id}`, payload)
+      await updateEmployee(form.value.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await request.post('/api/employees', payload)
+      await createEmployee(payload)
       ElMessage.success('创建成功')
     }
     
@@ -450,7 +456,7 @@ const handleDelete = (row) => {
     }
   ).then(async () => {
     try {
-      await request.delete(`/api/employees/${row.id}`)
+      await deleteEmployee(row.id)
       ElMessage.success('删除成功')
       fetchEmployees()
     } catch (error) {

@@ -2,7 +2,12 @@
 import { computed, ref, watch } from 'vue'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
-import request from '../../utils/request'
+import {
+  fetchOffboardings,
+  createOffboarding,
+  updateOffboardingTask,
+  settleOffboarding
+} from '../../api/employees'
 
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
@@ -47,7 +52,7 @@ async function loadCase() {
   tasks.value = []
   alerts.value = []
   try {
-    const response = await request.get(`/api/employees/${props.employee.id}/offboardings`)
+    const response = await fetchOffboardings(props.employee.id)
     if (response.data.code !== 200) throw new Error('交接记录加载失败')
     const data = response.data.data
     if (data) {
@@ -69,7 +74,7 @@ async function startOffboarding() {
   if (!form.value.last_working_date) return ElMessage.warning('请选择最后工作日')
   saving.value = true
   try {
-    const response = await request.post(`/api/employees/${props.employee.id}/offboardings`, form.value)
+    const response = await createOffboarding(props.employee.id, form.value)
     if (response.data.code !== 200) throw new Error(response.data.msg || '发起交接失败')
     ElMessage.success('离职交接已发起')
     emit('updated')
@@ -86,7 +91,7 @@ async function updateTask(task, done) {
   if (done && !notes) return ElMessage.warning('请填写验收说明后再完成任务')
   saving.value = true
   try {
-    const response = await request.put(`/api/employee-offboardings/${caseData.value.id}/tasks/${task.id}`, { done, notes })
+    const response = await updateOffboardingTask(caseData.value.id, task.id, { done, notes })
     if (response.data.code !== 200) throw new Error(response.data.msg || '任务更新失败')
     await loadCase()
     emit('updated')
@@ -100,7 +105,7 @@ async function updateTask(task, done) {
 async function settle() {
   saving.value = true
   try {
-    const response = await request.post(`/api/employee-offboardings/${caseData.value.id}/settlement`)
+    const response = await settleOffboarding(caseData.value.id)
     if (response.data.code !== 200) throw new Error(response.data.msg || '结算确认失败')
     ElMessage.success('离职交接与应付金额已确认')
     caseData.value = response.data.data

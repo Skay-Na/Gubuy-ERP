@@ -274,7 +274,13 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { Download, Search, Shop, Cloudy } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import { fetchProducts as fetchProductsApi } from '../api/products'
+import {
+  createInbound,
+  fetchPendingInbounds as fetchPendingInboundsApi,
+  approvePendingInbound,
+  rejectPendingInbound
+} from '../api/inventory'
 
 const allProducts = ref([])
 const searchKeyword = ref('')
@@ -330,9 +336,9 @@ const syncViewport = () => {
 
 const fetchProducts = async () => {
   try {
-    const response = await request.get('/api/products', {
+    const response = await fetchProductsApi({
       // 入库页必须能查到零库存商品，与员工增库时的商品范围保持一致。
-      params: { keyword: searchKeyword.value, all: 1 }
+      keyword: searchKeyword.value, all: 1
     })
     if (response.data.code === 200) {
       allProducts.value = response.data.data
@@ -350,7 +356,7 @@ const submitInbound = async () => {
     if (valid) {
       submitting.value = true
       try {
-        const response = await request.post('/api/inbounds', {
+        const response = await createInbound({
           product_id: form.value.product_id,
           quantity: form.value.quantity,
           unit_cost: form.value.unit_cost,
@@ -392,7 +398,7 @@ const preFillForm = (product) => {
 
 const fetchPendingInbounds = async () => {
   try {
-    const response = await request.get('/api/pending-inbounds?status=pending')
+    const response = await fetchPendingInboundsApi()
     if (response.data.code === 200) {
       pendingInbounds.value = response.data.data || []
       if (pendingInbounds.value.length > 0) {
@@ -417,7 +423,7 @@ const submitApprove = async () => {
     if (valid) {
       approveSubmitting.value = true
       try {
-        const response = await request.post(`/api/pending-inbounds/${currentPendingRow.value.id}/approve`, {
+        const response = await approvePendingInbound(currentPendingRow.value.id, {
           unit_cost: approveForm.value.unit_cost
         })
         if (response.data.code === 200) {
@@ -448,7 +454,7 @@ const rejectPending = async (row) => {
       inputType: 'textarea',
       inputValidator: (value) => (value || '').trim().length <= 255 || '拒绝原因最多 255 个字'
     })
-    const response = await request.post(`/api/pending-inbounds/${row.id}/reject`, { reason: reason.trim() })
+    const response = await rejectPendingInbound(row.id, { reason: reason.trim() })
     if (response.data.code === 200) {
       ElMessage.success('已拒绝申请')
       fetchPendingInbounds()

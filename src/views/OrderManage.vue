@@ -809,7 +809,21 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, nextTick, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import request from '../utils/request'
+import {
+  fetchOrders as fetchOrdersApi,
+  confirmPayBalance as confirmPayBalanceApi,
+  confirmSubsidyReceived,
+  cancelOrder,
+  reversalCancelOrder,
+  setOrderCommission,
+  setOrderReferrer,
+  deliverOrderItem,
+  updateDeliveryFee,
+  installOrderItem,
+  updateInstallationFee
+} from '../api/orders'
+import { fetchCategories as fetchCategoriesApi } from '../api/products'
+import { fetchEmployees as fetchEmployeesApi } from '../api/employees'
 import { downloadExcel } from '../utils/export'
 import { buildReceiptFromOrder } from '../utils/receipt'
 import ReceiptPreview from '../components/ReceiptPreview.vue'
@@ -943,7 +957,7 @@ const handleExport = () => {
 
 const fetchCategories = async () => {
   try {
-    const res = await request.get('/api/categories')
+    const res = await fetchCategoriesApi()
     if (res.code === 200) {
       categories.value = res.result || []
     }
@@ -957,7 +971,7 @@ const fetchOrders = async () => {
   try {
     const params = buildOrderQueryParams()
 
-    const res = await request.get('/api/orders', { params })
+    const res = await fetchOrdersApi(params)
     if (res.data.code === 200) {
       let rawData = (res.data.data || []).filter(order => (
         activeTab.value === 'archive' ? Number(order.order_status) === 2 : Number(order.order_status) !== 2
@@ -1209,7 +1223,7 @@ const handleSubmitSubsidy = (row) => {
     if (subsidySubmitting.value) return
     subsidySubmitting.value = true
     try {
-      const res = await request.put(`/api/orders/${row.id}/subsidy`, { target_status: 2 })
+      const res = await confirmSubsidyReceived(row.id)
       if (res.data.code === 200) { fetchOrders(); ElMessage.success('提交成功') }
     } catch (error) { ElMessage.error('操作失败') } finally { subsidySubmitting.value = false }
   })
@@ -1236,7 +1250,7 @@ const confirmPayBalance = async () => {
   if (!balanceTargetOrder.value || payBalanceLoading.value) return
   payBalanceLoading.value = true
   try {
-    const res = await request.put(`/api/orders/${balanceTargetOrder.value.id}/balance`, {
+    const res = await confirmPayBalanceApi(balanceTargetOrder.value.id, {
       final_payment_method: finalPaymentMethod.value
     })
     if (res.data.code === 200) {
@@ -1250,7 +1264,7 @@ const confirmPayBalance = async () => {
 const handleCancel = (row) => {
   ElMessageBox.confirm(`确认取消订单 ${row.order_no}？此操作将退还已收金额并回滚库存！`, '高危操作', { type: 'error' }).then(async () => {
     try {
-      const res = await request.put(`/api/orders/${row.id}/cancel`)
+      const res = await cancelOrder(row.id)
       if (res.data.code === 200) { fetchOrders(); ElMessage.success('订单已取消') }
     } catch (error) { ElMessage.error(error.response?.data?.msg || '取消失败') }
   })
@@ -1267,7 +1281,7 @@ const handleReversalCancel = (row) => {
     }
   ).then(async () => {
     try {
-      const res = await request.put(`/api/orders/${row.id}/reversal-cancel`)
+      const res = await reversalCancelOrder(row.id)
       if (res.data.code === 200) {
         fetchOrders()
         ElMessage.success(res.data.msg || '订单已红冲')
@@ -1321,7 +1335,7 @@ const installerOptions = computed(() => {
 
 const fetchEmployees = async () => {
   try {
-    const res = await request.get('/api/employees')
+    const res = await fetchEmployeesApi()
     if (res.data.code === 200) employees.value = res.data.data
   } catch (error) {}
 }
@@ -1339,7 +1353,7 @@ const confirmDeliver = async () => {
   if (!selectedDeliveryPersonId.value || deliverySubmitting.value) return
   deliverySubmitting.value = true
   try {
-    const res = await request.put(`/api/order-items/${deliveryTargetItem.value.id}/deliver`, {
+    const res = await deliverOrderItem(deliveryTargetItem.value.id, {
       delivery_person_id: selectedDeliveryPersonId.value,
       delivery_fee: deliveryFee.value,
       delivery_time: selectedDeliveryTime.value
@@ -1368,7 +1382,7 @@ const confirmUpdateDeliveryFee = async () => {
   deliveryFeeSaving.value = true
   try {
     const target = deliveryFeeTarget.value
-    const res = await request.put(`/api/order-items/${target.itemId}/delivery-fee`, {
+    const res = await updateDeliveryFee(target.itemId, {
       delivery_fee: editingDeliveryFee.value
     })
     if (res.data.code === 200) {
@@ -1401,7 +1415,7 @@ const confirmInstall = async () => {
   if (!selectedInstallerId.value || installSubmitting.value) return
   installSubmitting.value = true
   try {
-    const res = await request.put(`/api/order-items/${installTargetItem.value.id}/install`, {
+    const res = await installOrderItem(installTargetItem.value.id, {
       installer_id: selectedInstallerId.value,
       install_time: selectedInstallTime.value,
       installation_fee: installationFee.value
@@ -1430,7 +1444,7 @@ const confirmUpdateInstallationFee = async () => {
   installationFeeSaving.value = true
   try {
     const target = installationFeeTarget.value
-    const res = await request.put(`/api/order-items/${target.itemId}/installation-fee`, {
+    const res = await updateInstallationFee(target.itemId, {
       installation_fee: editingInstallationFee.value
     })
     if (res.data.code === 200) {
@@ -1466,7 +1480,7 @@ const confirmUpdateCommission = async () => {
   if (commissionSaving.value) return
   commissionSaving.value = true
   try {
-    const res = await request.put(`/api/orders/${commissionTargetOrder.value.id}/commission`, {
+    const res = await setOrderCommission(commissionTargetOrder.value.id, {
       commission_amount: newCommissionAmount.value
     })
     if (res.data.code === 200) {
@@ -1493,7 +1507,7 @@ const openReferrerDialog = (row) => {
 const confirmUpdateReferrer = async () => {
   if (referrerTargetOrder.value?.is_referral_fee_paid) return
   try {
-    const res = await request.put(`/api/orders/${referrerTargetOrder.value.id}/referrer`, {
+    const res = await setOrderReferrer(referrerTargetOrder.value.id, {
       referrer_name: newReferrerName.value
     })
     if (res.data.code === 200) {

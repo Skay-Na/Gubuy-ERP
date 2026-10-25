@@ -740,7 +740,19 @@
 <script setup>
 import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
 import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit, Box } from '@element-plus/icons-vue'
-import request from '../utils/request'
+import {
+  fetchCategories as fetchCategoriesApi,
+  fetchProducts as fetchProductsApi,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  createProduct,
+  updateProduct,
+  fetchProductLogs,
+  transferProduct,
+  stocktakeProduct,
+  recalculateProductCosts
+} from '../api/products'
 import { downloadExcel } from '../utils/export'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
@@ -849,7 +861,7 @@ const formRules = {
 
 const fetchCategories = async () => {
   try {
-    const res = await request.get('/api/categories')
+    const res = await fetchCategoriesApi()
     if (res.data.code === 200) {
       categories.value = res.data.data.map(c => ({ ...c, isEditing: false, editName: c.name }))
     }
@@ -870,16 +882,14 @@ const handleExport = () => {
 const fetchProducts = async () => {
   loading.value = true
   try {
-    const res = await request.get('/api/products', {
-      params: { 
-        keyword: searchQuery.value,
-        category_id: selectedCategoryId.value,
-        only_special: onlySpecial.value ? 1 : 0,
-        stock_filter: onlyInStock.value ? 'available' : '',
-        all: 1,
-        page: currentPage.value,
-        page_size: pageSize.value
-      }
+    const res = await fetchProductsApi({
+      keyword: searchQuery.value,
+      category_id: selectedCategoryId.value,
+      only_special: onlySpecial.value ? 1 : 0,
+      stock_filter: onlyInStock.value ? 'available' : '',
+      all: 1,
+      page: currentPage.value,
+      page_size: pageSize.value
     })
     if (res.data.code === 200) {
       productList.value = res.data.data
@@ -906,7 +916,7 @@ const openCategoryManage = () => categoryDialogVisible.value = true
 const handleAddCategory = async () => {
   if (!newCategoryName.value) return
   try {
-    const res = await request.post('/api/categories', { name: newCategoryName.value })
+    const res = await createCategory({ name: newCategoryName.value })
     if (res.data.code === 200) {
       ElMessage.success('添加成功')
       newCategoryName.value = ''
@@ -924,7 +934,7 @@ const startCategoryEdit = (row) => {
 
 const saveCategoryEdit = async (row) => {
   try {
-    const res = await request.put(`/api/categories/${row.id}`, { name: row.editName })
+    const res = await updateCategory(row.id, { name: row.editName })
     if (res.data.code === 200) {
       ElMessage.success('修改成功')
       fetchCategories()
@@ -936,7 +946,7 @@ const saveCategoryEdit = async (row) => {
 
 const handleDeleteCategory = async (id) => {
   try {
-    const res = await request.delete(`/api/categories/${id}`)
+    const res = await deleteCategory(id)
     if (res.data.code === 200) {
       ElMessage.success('删除成功')
       fetchCategories()
@@ -967,7 +977,7 @@ const handleRecalculateCosts = async () => {
     )
     
     loading.value = true
-    const res = await request.post('/api/products/recalculate-costs')
+    const res = await recalculateProductCosts()
     if (res.data.code === 200) {
       ElMessage.success(res.data.msg)
       fetchProducts()
@@ -1101,10 +1111,8 @@ const fetchLogs = async () => {
   if (!currentLogProductId.value) return
   loadingLogs.value = true
   try {
-    const res = await request.get(`/api/products/${currentLogProductId.value}/logs`, {
-      params: {
-        warehouse_type: logWarehouseType.value
-      }
+    const res = await fetchProductLogs(currentLogProductId.value, {
+      warehouse_type: logWarehouseType.value
     })
     if (res.data.code === 200) {
       currentLogs.value = res.data.data
@@ -1138,7 +1146,7 @@ const submitTransfer = async () => {
   if (transferForm.quantity <= 0) return
   transferring.value = true
   try {
-    const res = await request.put(`/api/products/${transferForm.productId}/transfer`, {
+    const res = await transferProduct(transferForm.productId, {
       action: transferForm.action,
       quantity: transferForm.quantity
     })
@@ -1163,7 +1171,7 @@ const submitStocktake = async () => {
   }
   stocktaking.value = true
   try {
-    const res = await request.post(`/api/products/${stocktakeForm.productId}/stocktake`, {
+    const res = await stocktakeProduct(stocktakeForm.productId, {
       warehouse_type: stocktakeForm.warehouse_type,
       actual_stock: stocktakeForm.actual_stock,
       expected_stock: stocktakeForm.expected_stock,
@@ -1204,9 +1212,9 @@ const submitProduct = async () => {
 
         let res
         if (isEdit.value) {
-          res = await request.put(`/api/products/${currentEditId.value}`, submitData)
+          res = await updateProduct(currentEditId.value, submitData)
         } else {
-          res = await request.post('/api/products', submitData)
+          res = await createProduct(submitData)
         }
         
         if (res.data.code === 200) {

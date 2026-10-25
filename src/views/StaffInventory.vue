@@ -347,7 +347,17 @@ import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ArrowLeft, Search, User } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../utils/request'
+import {
+  fetchProducts as fetchProductsApi,
+  fetchCategories as fetchCategoriesApi,
+  fetchProductLogs as fetchProductLogsApi,
+  stocktakeProduct
+} from '../api/products'
+import {
+  fetchInventoryLogs as fetchInventoryLogsApi,
+  fetchMyPendingInbounds,
+  fetchMyPendingStocktakes
+} from '../api/inventory'
 import StocktakeBatchManager from '../components/inventory/StocktakeBatchManager.vue'
 
 const router = useRouter()
@@ -425,15 +435,13 @@ const readCurrentEmployee = () => {
 const fetchProducts = async () => {
   productsLoading.value = true
   try {
-    const res = await request.get('/api/products', {
-      params: {
-        all: 1,
-        keyword: productKeyword.value,
-        category_id: productFilters.category_id,
-        stock_filter: productFilters.stock_filter,
-        page: productPage.value,
-        page_size: productPageSize
-      }
+    const res = await fetchProductsApi({
+      all: 1,
+      keyword: productKeyword.value,
+      category_id: productFilters.category_id,
+      stock_filter: productFilters.stock_filter,
+      page: productPage.value,
+      page_size: productPageSize
     })
     if (res.data.code === 200) {
       if (res.data.blind_stocktake_mode) handleBlindModeChange(true)
@@ -480,7 +488,7 @@ const handleBlindModeChange = (enabled) => {
 
 const fetchCategories = async () => {
   try {
-    const res = await request.get('/api/categories')
+    const res = await fetchCategoriesApi()
     if (res.data.code === 200) categories.value = res.data.data || []
   } catch {
     ElMessage.error('获取商品分类失败')
@@ -495,9 +503,7 @@ const fetchLogs = async () => {
   }
   logsLoading.value = true
   try {
-    const res = await request.get('/api/inventory/logs', {
-      params: { ...logFilters, page: logPage.value, page_size: logPageSize }
-    })
+    const res = await fetchInventoryLogsApi({ ...logFilters, page: logPage.value, page_size: logPageSize })
     if (res.data.code === 200) {
       logs.value = res.data.data || []
       logTotal.value = Number(res.data.total) || 0
@@ -516,7 +522,7 @@ const fetchMyApplications = async () => {
   }
   applicationsLoading.value = true
   try {
-    const res = await request.get('/api/pending-inbounds/mine', { params: { status: applicationStatus.value || undefined } })
+    const res = await fetchMyPendingInbounds({ status: applicationStatus.value || undefined })
     if (res.data.code === 200) applications.value = res.data.data || []
   } catch {
     ElMessage.error('获取入库申请失败')
@@ -532,7 +538,7 @@ const fetchMyStocktakeRequests = async () => {
   }
   stocktakeRequestsLoading.value = true
   try {
-    const res = await request.get('/api/pending-stocktakes/mine', { params: { status: applicationStatus.value || undefined } })
+    const res = await fetchMyPendingStocktakes({ status: applicationStatus.value || undefined })
     if (res.data.code === 200) stocktakeRequests.value = res.data.data || []
   } catch {
     ElMessage.error('获取盘点审核进度失败')
@@ -624,7 +630,7 @@ const submitStocktake = async () => {
 
   stocktakeSubmitting.value = true
   try {
-    const res = await request.post(`/api/products/${selectedProduct.value.id}/stocktake`, {
+    const res = await stocktakeProduct(selectedProduct.value.id, {
       warehouse_type: stocktakeWarehouse.value,
       actual_stock: nextStock,
       expected_stock: expectedStock.value,
@@ -672,7 +678,7 @@ const submitBatchStocktake = async () => {
   const failed = []
   for (const product of products.value) {
     try {
-      const res = await request.post(`/api/products/${product.id}/stocktake`, {
+      const res = await stocktakeProduct(product.id, {
         warehouse_type: stocktakeWarehouse.value,
         actual_stock: Number(batchActuals[product.id]),
         expected_stock: stockFor(product, stocktakeWarehouse.value),
@@ -707,8 +713,8 @@ const fetchProductLogs = async () => {
   if (blindStockMode.value || !productLogProduct.value) return
   productLogsLoading.value = true
   try {
-    const res = await request.get(`/api/products/${productLogProduct.value.id}/logs`, {
-      params: { page: productLogPage.value, page_size: productLogPageSize }
+    const res = await fetchProductLogsApi(productLogProduct.value.id, {
+      page: productLogPage.value, page_size: productLogPageSize
     })
     if (res.data.code === 200) {
       productLogs.value = res.data.data || []

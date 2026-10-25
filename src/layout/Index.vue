@@ -164,7 +164,8 @@ import {
   Wallet
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import request, { clearAuth } from '../utils/request'
+import { updateAdminPassword } from '../api/auth'
+import { clearAuth } from '../utils/request'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -271,7 +272,7 @@ const handleUpdatePwd = async () => {
 
   pwdLoading.value = true
   try {
-    const res = await request.put('/api/admin/password', {
+    const res = await updateAdminPassword({
       old_password: pwdForm.value.old,
       new_password: pwdForm.value.new
     })

@@ -1,5 +1,5 @@
 import { computed, readonly, ref } from 'vue'
-import request from '../utils/request'
+import { fetchFinanceSummary, fetchFinanceLogs } from '../api/finance'
 
 const emptySummary = {
   accounts: [],
@@ -30,7 +30,7 @@ export function useFinanceWorkspace() {
   async function loadWorkspace(period) {
     loading.value = true
     try {
-      const response = await request.get('/api/finance/summary', { params: { period } })
+      const response = await fetchFinanceSummary({ period })
       summary.value = response.data.code === 200 ? response.data.data : emptySummary
     } finally {
       loading.value = false
@@ -40,7 +40,7 @@ export function useFinanceWorkspace() {
   async function loadLedger(filters = {}) {
     ledgerLoading.value = true
     try {
-      const response = await request.get('/api/finance/logs', { params: filters })
+      const response = await fetchFinanceLogs(filters)
       ledger.value = response.data.data || []
       ledgerTotal.value = Number(response.data.total || 0)
     } finally {

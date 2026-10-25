@@ -2,7 +2,11 @@
 import { ref } from 'vue'
 import { Delete, Document, Refresh } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import {
+  fetchAdminStocktakeBatches,
+  terminateStocktakeBatch,
+  deleteStocktakeBatch
+} from '../../api/inventory'
 
 const visible = ref(false)
 const loading = ref(false)
@@ -20,7 +24,7 @@ const formatDate = (value) => value ? new Date(value).toLocaleString('zh-CN', { 
 const loadBatches = async () => {
   loading.value = true
   try {
-    const res = await request.get('/api/admin/stocktake-batches')
+    const res = await fetchAdminStocktakeBatches()
     if (res.data.code !== 200) {
       ElMessage.error(res.data.msg || '获取盘库单失败')
       return
@@ -46,7 +50,7 @@ const terminateBatch = async (batch) => {
       { confirmButtonText: '确认终止', cancelButtonText: '返回', type: 'warning' }
     )
     actionBatchId.value = batch.id
-    const res = await request.post(`/api/admin/stocktake-batches/${batch.id}/terminate`)
+    const res = await terminateStocktakeBatch(batch.id)
     if (res.data.code !== 200) {
       ElMessage.error(res.data.msg || '终止盘库单失败')
       return
@@ -70,7 +74,7 @@ const deleteBatch = async (batch) => {
       { confirmButtonText: '永久删除', cancelButtonText: '取消', type: 'warning', confirmButtonClass: 'el-button--danger' }
     )
     actionBatchId.value = batch.id
-    const res = await request.delete(`/api/admin/stocktake-batches/${batch.id}`)
+    const res = await deleteStocktakeBatch(batch.id)
     if (res.data.code !== 200) {
       ElMessage.error(res.data.msg || '删除盘库单失败')
       return

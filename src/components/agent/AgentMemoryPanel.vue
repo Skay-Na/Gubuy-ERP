@@ -1,6 +1,11 @@
 <script setup>
 import { onMounted, ref } from 'vue'
-import request from '../../utils/request'
+import {
+  fetchAgentMemories,
+  createAgentMemory,
+  updateAgentMemory,
+  deleteAgentMemory
+} from '../../api/agent'
 
 const emit = defineEmits(['close'])
 const memories = ref([])
@@ -17,7 +22,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const response = await request.get('/api/ai/agent/memories')
+    const response = await fetchAgentMemories()
     memories.value = response.result || []
   } catch {
     error.value = '读取长期记忆失败。'
@@ -44,8 +49,8 @@ async function save() {
   error.value = ''
   try {
     const body = { kind: kind.value, content: content.value.trim() }
-    if (editingId.value) await request.put(`/api/ai/agent/memories/${editingId.value}`, body)
-    else await request.post('/api/ai/agent/memories', body)
+    if (editingId.value) await updateAgentMemory(editingId.value, body)
+    else await createAgentMemory(body)
     clearForm()
     await load()
   } catch (cause) {
@@ -58,7 +63,7 @@ async function save() {
 async function remove(item) {
   error.value = ''
   try {
-    await request.delete(`/api/ai/agent/memories/${item.id}`)
+    await deleteAgentMemory(item.id)
     if (editingId.value === item.id) clearForm()
     await load()
   } catch (cause) {

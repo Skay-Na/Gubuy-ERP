@@ -1,7 +1,14 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import {
+  fetchAIImports,
+  fetchAIImport,
+  fetchAIImportImage,
+  createAIImport,
+  deleteAIImport
+} from '../../api/agent'
+import { fetchProducts } from '../../api/products'
 import { normalizeAIOrderFields } from '../../utils/aiOrderImport'
 import AIImportRecentList from '../ai-import/AIImportRecentList.vue'
 
@@ -59,7 +66,7 @@ function applyFields(fields) {
 }
 
 async function loadRecent() {
-  const response = await request.get('/api/ai/imports', { params: { kind: 'order' } })
+  const response = await fetchAIImports({ kind: 'order' })
   recent.value = response.result || []
   const current = recent.value.find(item => item.id === draftID.value)
   if (current) draftStatus.value = current.status
@@ -69,8 +76,8 @@ async function restore(id) {
   working.value = true
   try {
     const [draftResponse, imageResponse] = await Promise.all([
-      request.get(`/api/ai/imports/${id}`),
-      request.get(`/api/ai/imports/${id}/image`, { responseType: 'blob' })
+      fetchAIImport(id),
+      fetchAIImportImage(id)
     ])
     resetDraft()
     draftID.value = draftResponse.result.id
@@ -90,7 +97,7 @@ async function analyze() {
     data.append('kind', 'order')
     data.append('image', file.value)
     data.append('description', description.value)
-    const response = await request.post('/api/ai/imports', data, { timeout: 120000 })
+    const response = await createAIImport(data)
     draftID.value = response.result.id
     draftStatus.value = 'pending'
     applyFields(response.result.fields)
@@ -121,7 +128,7 @@ async function deleteDraft(item) {
 
   deletingID.value = item.id
   try {
-    await request.delete(`/api/ai/imports/${item.id}`)
+    await deleteAIImport(item.id)
     recent.value = recent.value.filter(record => record.id !== item.id)
     if (draftID.value === item.id) resetDraft()
     ElMessage.success(`${recordLabel}及原图已删除`)
@@ -148,7 +155,7 @@ function applyToCheckout() {
 watch(visible, async isOpen => {
   if (!isOpen) return
   try {
-    const [productResponse] = await Promise.all([request.get('/api/products', { params: { all: 1 } }), loadRecent()])
+    const [productResponse] = await Promise.all([fetchProducts({ all: 1 }), loadRecent()])
     products.value = productResponse.result || []
   } catch { ElMessage.warning('商品或草稿加载失败，请重试') }
 })

@@ -1,14 +1,12 @@
 import { readonly, shallowRef } from 'vue'
-import request from '../utils/request'
+import { searchBookkeepingOrders } from '../api/finance'
 
 export function useBookkeepingOrderSearch() {
   const orderOptions = shallowRef([])
   const orderSearchLoading = shallowRef(false)
 
   async function fetchOrders(keyword = '') {
-    const response = await request.get('/api/bookkeeping/orders', {
-      params: { q: keyword.trim() }
-    })
+    const response = await searchBookkeepingOrders({ q: keyword.trim() })
     return response.data.code === 200 ? response.data.data || [] : []
   }
 

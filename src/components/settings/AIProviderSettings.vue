@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { fetchAIProviders, saveAIProvider, deleteAIProvider, activateAIProvider } from '../../api/system'
 
 const providers = ref([])
 const selected = ref('deepseek')
@@ -27,7 +27,7 @@ watch(selected, syncForm)
 async function load() {
   loading.value = true
   try {
-    const response = await request.get('/api/system/ai/providers')
+    const response = await fetchAIProviders()
     const data = response.data.data
     providers.value = data.providers || []
     active.value = data.active
@@ -44,7 +44,7 @@ async function load() {
 
 async function activate(provider) {
   try {
-    await request.put('/api/system/ai/active', { provider })
+    await activateAIProvider(provider)
     await load()
     ElMessage.success('已切换拍照识别服务')
   } catch (error) {
@@ -56,11 +56,11 @@ async function save(activateAfterSave) {
   if (!form.model.trim()) return ElMessage.warning('请填写模型名称')
   saving.value = true
   try {
-    await request.put(`/api/system/ai/providers/${selected.value}`, {
+    await saveAIProvider(selected.value, {
       api_key: form.api_key.trim(), model: form.model.trim(), region: form.region
     })
     form.api_key = ''
-    if (activateAfterSave) await request.put('/api/system/ai/active', { provider: selected.value })
+    if (activateAfterSave) await activateAIProvider(selected.value)
     await load()
     ElMessage.success(activateAfterSave ? '配置已保存并启用' : '配置已保存')
   } catch (error) {
@@ -73,7 +73,7 @@ async function removeKey() {
     await ElMessageBox.confirm(`删除 ${current.value?.name} 的密钥？`, '删除 API Key', { type: 'warning' })
   } catch { return }
   try {
-    await request.delete(`/api/system/ai/providers/${selected.value}`)
+    await deleteAIProvider(selected.value)
     await load()
     ElMessage.success('密钥已删除')
   } catch (error) {

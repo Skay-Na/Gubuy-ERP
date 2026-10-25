@@ -3,7 +3,7 @@ import { computed, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
 import { Refresh, Right } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '../../utils/request'
+import { resolveOffboardingAlert } from '../../api/employees'
 import { useDashboard } from '../../composables/useDashboard'
 import { formatCurrency } from '../../utils/dashboard'
 import DashboardImportantReminders from '../../components/dashboard/DashboardImportantReminders.vue'
@@ -71,7 +71,7 @@ async function resolveAlert(alert) {
       confirmButtonText: '保存复核', cancelButtonText: '取消', inputType: 'textarea',
       inputValidator: value => Boolean(String(value || '').trim()) || '请填写复核说明'
     })
-    const response = await request.post(`/api/employee-offboarding-alerts/${alert.id}/resolve`, { resolution: value })
+    const response = await resolveOffboardingAlert(alert.id, { resolution: value })
     if (response.data.code !== 200) throw new Error(response.data.msg || '告警处理失败')
     ElMessage.success('复核记录已保存')
     await loadEmployeeOffboardingAlerts()
