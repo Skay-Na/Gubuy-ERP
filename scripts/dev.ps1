@@ -57,6 +57,8 @@ $AirOutLog  = Join-Path $StateDir "air.out.log"
 $AirErrLog  = Join-Path $StateDir "air.err.log"
 $ViteOutLog = Join-Path $StateDir "vite.out.log"
 $ViteErrLog = Join-Path $StateDir "vite.err.log"
+$AgentOutLog = Join-Path $StateDir "agent.out.log"
+$AgentErrLog = Join-Path $StateDir "agent.err.log"
 $script:LockFile = Join-Path $StateDir "control.lock"
 $script:LockStream = $null
 
@@ -380,9 +382,31 @@ function Start-DevStack {
   }
   if (-not $script:ViteProc) { Write-Fail "Vite 进程启动失败，请查看日志：$ViteErrLog" }
 
+  # pi 核心 Agent 服务（agent-service，默认 8082）
+  $devAgentPort = [int](Get-DotEnv "DEV_AGENT_PORT" "8082")
+  $env:AGENT_SERVICE_PORT = "$devAgentPort"
+  $env:VITE_AGENT_PROXY_TARGET = "http://127.0.0.1:$devAgentPort"
+  $AgentDir = Join-Path $RepoRoot "agent-service"
+  if (-not (Test-Path (Join-Path $AgentDir "node_modules"))) {
+    Write-Step "首次启动需要安装 agent-service 依赖"
+    Push-Location $AgentDir
+    try { & $nodeExe (Join-Path $RepoRoot "node_modules\npm\bin\npm-cli.js") install --no-audit --no-fund | Out-Null } finally { Pop-Location }
+    if ($LASTEXITCODE -ne 0) { Write-Fail "agent-service 依赖安装失败，请检查网络后重试。" }
+  }
+  Write-Step "启动 Agent 服务（pi 核心，http://127.0.0.1:$devAgentPort）"
+  $agentEntry = Join-Path $AgentDir "node_modules\tsx\dist\cli.mjs"
+  $startArgs = @{ FilePath = $nodeExe; ArgumentList = "`"$agentEntry`"", "src/server.ts"; WorkingDirectory = $AgentDir; PassThru = $true }
+  if ($RunMode) {
+    $script:AgentProc = Start-Process @startArgs -WindowStyle Hidden -RedirectStandardOutput $AgentOutLog -RedirectStandardError $AgentErrLog
+  } else {
+    $script:AgentProc = Start-Process @startArgs -NoNewWindow
+  }
+  if (-not $script:AgentProc) { Write-Fail "Agent 服务进程启动失败，请查看日志：$AgentErrLog" }
+
   # 就绪探测
   Wait-ForHttp -Service "Go API" -Url "http://127.0.0.1:$devApiPort/api/admin/status" -Proc $script:AirProc
   Wait-ForHttp -Service "Vite" -Url "http://localhost:$devVitePort/" -Proc $script:ViteProc
+  Wait-ForHttp -Service "Agent 服务" -Url "http://127.0.0.1:$devAgentPort/api/ai/agent/brief" -Proc $script:AgentProc
   if (-not (Test-Url "http://localhost:$devVitePort/api/admin/status")) {
     Write-Fail "Vite 已启动，但 API 代理请求失败，请检查 vite.config.js 中的代理配置。"
   }
@@ -439,6 +463,7 @@ function Invoke-Runner {
 
   $script:AirProc = $null
   $script:ViteProc = $null
+  $script:AgentProc = $null
   $exitCode = 0
   try {
     Start-DevStack
@@ -456,6 +481,9 @@ function Invoke-Runner {
       if ($script:ViteProc.HasExited) {
         throw "Vite 已退出（状态码 $($script:ViteProc.ExitCode)）。"
       }
+      if ($script:AgentProc -and $script:AgentProc.HasExited) {
+        throw "Agent 服务已退出（状态码 $($script:AgentProc.ExitCode)）。"
+      }
       Start-Sleep -Seconds 1
     }
   } catch {
@@ -471,7 +499,7 @@ function Invoke-Runner {
     }
     $exitCode = 1
   } finally {
-    foreach ($p in @($script:ViteProc, $script:AirProc)) {
+    foreach ($p in @($script:ViteProc, $script:AirProc, $script:AgentProc)) {
       if ($p -and -not $p.HasExited) { Stop-ProcessTree $p.Id }
     }
     Remove-RunnerPidIfOwned
