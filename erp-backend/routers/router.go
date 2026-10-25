@@ -40,8 +40,8 @@ func SetupRouter() *gin.Engine {
 	r.Static("/assets", "./dist/assets")
 	r.StaticFile("/favicon.ico", "./dist/favicon.ico")
 
-	// Swagger UI 路由
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger UI 路由（生产文档不裸奔：挂管理员鉴权）
+	r.GET("/swagger/*any", middlewares.AdminAuthRequired(), ginSwagger.WrapHandler(swaggerFiles.Handler))
 
 	api := r.Group("/api")
 	{

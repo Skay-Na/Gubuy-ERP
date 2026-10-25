@@ -346,6 +346,22 @@ func UpdateExpense(c *gin.Context) {
 		return
 	}
 
+	// 退款上限重校验（编辑场景）：新口径累计 = 该订单现有累计退款 − 本记录旧贡献 + 新金额。
+	// 若本次编辑把退款改到另一订单或改成非退款类型，按全新增量校验新关联订单；
+	// 旧关联订单只减不增，无需回查。
+	refundDelta := req.Amount
+	if strings.Contains(expense.ExpenseType, "退款") && expense.RelatedNo == req.RelatedNo {
+		refundDelta = req.Amount - expense.Amount
+	}
+	if err := checkRefundLimit(tx, req.RelatedNo, req.ExpenseType, refundDelta); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
 	// 确定新的时间
 	var occurredAt time.Time
 	if req.OccurredAt != "" {

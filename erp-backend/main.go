@@ -14,6 +14,7 @@ import (
 	"os"
 
 	_ "erp-backend/docs"
+	"github.com/gin-gonic/gin"
 )
 
 // @title           ERP Backend API
@@ -25,6 +26,10 @@ import (
 // @name Authorization
 // @description Use the value: Bearer {token}
 func main() {
+	// 生产环境关闭 gin 调试模式（不打印路由调试信息与告警横幅）
+	if os.Getenv("APP_ENV") == "production" {
+		gin.SetMode(gin.ReleaseMode)
+	}
 	if err := middlewares.LoadJWTSecretFromEnvironment(); err != nil {
 		log.Fatal("invalid JWT configuration: JWT_SECRET must be set to a secret of at least 32 bytes")
 	}

@@ -54,12 +54,10 @@ func UpdateAdminPassword(c *gin.Context) {
 		return
 	}
 
-	// 密码使用 bcrypt 对比，并兼容明文密码
+	// 密码使用 bcrypt 对比（存量明文已在登录路径一次性升级，此处不再保留明文回退）
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(req.OldPassword)); err != nil {
-		if admin.Password != req.OldPassword {
-			FailUnauthorized(c, "旧密码错误")
-			return
-		}
+		FailUnauthorized(c, "旧密码错误")
+		return
 	}
 
 	// 加密新密码
@@ -100,18 +98,10 @@ func VerifyAdminPassword(c *gin.Context) {
 		return
 	}
 
-	// 密码使用 bcrypt 对比，并兼容明文密码的自动哈希升级
+	// 密码使用 bcrypt 对比（已确认 erp_db.admin_users 全部为 bcrypt 哈希，删除明文兼容回退）
 	if err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(req.Password)); err != nil {
-		if admin.Password == req.Password {
-			// 明文匹配成功！自动升级为 bcrypt 强哈希
-			hashedPassword, hashErr := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-			if hashErr == nil {
-				config.DB.Model(&admin).Update("password", string(hashedPassword))
-			}
-		} else {
-			FailUnauthorized(c, "密码错误")
-			return
-		}
+		FailUnauthorized(c, "密码错误")
+		return
 	}
 
 	// 生成 JWT Token

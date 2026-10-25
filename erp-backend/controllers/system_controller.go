@@ -313,18 +313,15 @@ func createPreRestoreSnapshot(ctx context.Context) (string, error) {
 	return snapshotPath, nil
 }
 
-// verifyRestoreAdminPassword 校验恢复操作的管理员密码，
-// 与 VerifyAdminPassword 登录验证保持一致的 bcrypt/明文兼容逻辑。
+// verifyRestoreAdminPassword 校验恢复操作的管理员密码（bcrypt），
+// 与 VerifyAdminPassword 登录验证保持一致。
+// 存量明文密码已在登录路径一次性升级为 bcrypt，此处不再保留明文回退。
 func verifyRestoreAdminPassword(password string) bool {
 	var admin models.AdminUser
 	if err := config.DB.First(&admin).Error; err != nil {
 		return false
 	}
-	if err := bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(password)); err == nil {
-		return true
-	}
-	// 兼容历史明文密码（登录逻辑同样保留该兼容分支）
-	return admin.Password == password
+	return bcrypt.CompareHashAndPassword([]byte(admin.Password), []byte(password)) == nil
 }
 
 // recordRestoreOperationHistory 将一次恢复操作写入 operation_histories，
