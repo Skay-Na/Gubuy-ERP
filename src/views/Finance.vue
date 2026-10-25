@@ -1,60 +1,115 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
-import { Management, Plus, Switch, TrendCharts } from '@element-plus/icons-vue'
+import { ArrowRight, Management, Plus, Switch } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
-import FinanceWorkspace from '../components/finance/FinanceWorkspace.vue'
-import { useFinanceWorkspace } from '../composables/useFinanceWorkspace'
 import request from '../utils/request'
 
-const period = ref('month')
+// ---------- 资金工作台聚合数据 ----------
+const currentMonth = () => {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+const ws = ref(null)
+const wsLoading = ref(false)
+const monthMode = ref('current') // current | cumulative，只作用于经营概况卡
+const dismissAlertTypes = ref([]) // 用户手动关闭的异常类型
+
+const fetchWorkspace = async () => {
+  wsLoading.value = true
+  try {
+    const month = monthMode.value === 'cumulative' ? 'cumulative' : currentMonth()
+    const res = await request.get('/api/finance/workspace', { params: { month } })
+    if (res.data.code === 200) {
+      ws.value = res.data.data
+    }
+  } catch {
+    // 静默失败，卡片显示占位
+  } finally {
+    wsLoading.value = false
+  }
+}
+
+const visibleAlerts = computed(() =>
+  (ws.value?.alerts || []).filter(alert => !dismissAlertTypes.value.includes(alert.type))
+)
+const dismissAlert = (alert) => {
+  dismissAlertTypes.value = [...dismissAlertTypes.value, alert.type]
+}
+
+// ---------- 问候与格式化 ----------
+const greeting = computed(() => {
+  const hour = new Date().getHours()
+  if (hour < 6) return '夜深了'
+  if (hour < 12) return '早上好'
+  if (hour < 18) return '下午好'
+  return '晚上好'
+})
+const todayLabel = computed(() => {
+  const now = new Date()
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+  return `${now.getFullYear()} 年 ${now.getMonth() + 1} 月 ${now.getDate()} 日 星期${weekdays[now.getDay()]}`
+})
+const money = value => `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const formatTime = value => {
+  if (!value) return ''
+  const date = new Date(value)
+  return `${date.getMonth() + 1}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+// ---------- 待我处理 ----------
+const todos = computed(() => {
+  const raw = ws.value?.todos || {}
+  return [
+    { key: 'subsidy_to_allocate', label: '国补到账待核销', count: raw.subsidy_to_allocate?.count || 0, amount: raw.subsidy_to_allocate?.amount || 0, to: '/admin/subsidy' },
+    { key: 'subsidy_to_submit', label: '国补资料待提交', count: raw.subsidy_to_submit?.count || 0, amount: raw.subsidy_to_submit?.amount || 0, to: '/admin/subsidy' },
+    { key: 'balance_due', label: '尾款待收', count: raw.balance_due?.count || 0, amount: raw.balance_due?.amount || 0, to: '/admin/orders' }
+  ]
+})
+
+// ---------- 钱在哪 ----------
+const funds = computed(() => ws.value?.funds || { accounts: [], frozen: { count: 0, amount: 0 }, available: 0, total: 0 })
+
+// ---------- 经营概况 ----------
+const monthData = computed(() => ws.value?.month || {})
+
+// ---------- 最近流水 ----------
+const recentFlows = computed(() => ws.value?.recent_flows || [])
+
+// ---------- 流水明细抽屉（点击账户/流水时复用财务流水接口） ----------
+const flowsDrawer = reactive({ visible: false, title: '', loading: false, rows: [], total: 0 })
+const openFlows = async (title, params) => {
+  flowsDrawer.visible = true
+  flowsDrawer.title = title
+  flowsDrawer.loading = true
+  try {
+    const res = await request.get('/api/finance/logs', { params: { page_size: 20, ...params } })
+    if (res.data.code === 200) {
+      flowsDrawer.rows = res.data.data?.logs || res.data.data || []
+      flowsDrawer.total = res.data.total ?? flowsDrawer.rows.length
+    }
+  } catch {
+    ElMessage.error('流水查询失败，请稍后重试')
+  } finally {
+    flowsDrawer.loading = false
+  }
+}
+const openAccountFlows = (account) => openFlows(`${account.name} · 最近流水`, { account_id: account.id })
+const openFlowDetail = (flow) => openFlows(flow.related_no ? `流水明细 · ${flow.related_no}` : `流水明细 · ${flow.category}`, { keyword: flow.related_no || flow.category })
+
+// ---------- 账户操作（既有功能区保留） ----------
 const accountDialogVisible = ref(false)
 const transferDialogVisible = ref(false)
 const calibrateDialogVisible = ref(false)
 const submitting = ref(false)
 const accountFormRef = ref()
 const transferFormRef = ref()
-const { summary, loading, totalBalance, netCashFlow, attentionCount, loadWorkspace } = useFinanceWorkspace()
-
-// ---------- 真实净利润 ----------
-const currentMonth = () => {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-}
-const realProfitMonth = ref(currentMonth())
-const realProfit = ref(null)
-const realProfitLoading = ref(false)
-const realProfitDrawerVisible = ref(false)
-
-const fetchRealProfit = async () => {
-  realProfitLoading.value = true
-  try {
-    const res = await request.get('/api/finance/real-profit', { params: { month: realProfitMonth.value } })
-    if (res.data.code === 200) {
-      realProfit.value = res.data.data
-    }
-  } catch {
-    realProfit.value = null
-  } finally {
-    realProfitLoading.value = false
-  }
-}
-
-const realProfitTone = computed(() => {
-  const value = Number(realProfit.value?.real_profit || 0)
-  if (value > 0) return 'profit-positive'
-  if (value < 0) return 'profit-negative'
-  return 'profit-zero'
-})
-const money = value => `¥${Number(value || 0).toLocaleString({ minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-
-const periodLabel = computed(() => ({ today: '今日', month: '本月', all: '累计' })[period.value] || '本期')
-const accounts = computed(() => summary.value.accounts || [])
+const accounts = computed(() => funds.value.accounts || [])
 const accountForm = reactive({ name: '', balance: 0 })
 const transferForm = reactive({ from_account_id: null, to_account_id: null, amount: 0, remark: '' })
 const calibrateForm = reactive({ accountId: null, accountName: '', currentBalance: 0, realBalance: 0, remark: '' })
 const calibrateDiff = computed(() => calibrateForm.realBalance - calibrateForm.currentBalance)
 
-async function refreshAll() { try { await loadWorkspace(period.value) } catch { ElMessage.error('财务数据加载失败，请稍后重试') } }
+async function refreshAll() { await fetchWorkspace() }
 function openCalibrate(account) { Object.assign(calibrateForm, { accountId: account.id, accountName: account.name, currentBalance: Number(account.balance || 0), realBalance: Number(account.balance || 0), remark: '' }); calibrateDialogVisible.value = true }
 async function createAccount() {
   if (!accountFormRef.value || !await accountFormRef.value.validate().catch(() => false)) return
@@ -72,55 +127,210 @@ async function calibrateAccount() {
   submitting.value = true
   try { const response = await request.put(`/api/accounts/${calibrateForm.accountId}/calibrate`, { real_balance: calibrateForm.realBalance, remark: calibrateForm.remark }); if (response.data.code !== 200) return ElMessage.error(response.data.msg || '校准失败'); ElMessage.success('账户余额已校准，并保留审计记录'); calibrateDialogVisible.value = false; await refreshAll() } catch (error) { ElMessage.error(error.response?.data?.msg || '校准失败') } finally { submitting.value = false }
 }
-onMounted(() => { refreshAll(); fetchRealProfit() })
+onMounted(refreshAll)
 </script>
 
 <template>
   <main class="finance-page">
-    <header class="finance-header"><div><div class="page-kicker">FINANCE WORKSPACE</div><h1>资金工作台</h1><p>聚焦账户余额、待回资金和资金调拨；日常收支请前往“记账”。</p></div><div class="header-actions"><el-radio-group v-model="period" size="small" @change="refreshAll"><el-radio-button value="today">今日</el-radio-button><el-radio-button value="month">本月</el-radio-button><el-radio-button value="all">累计</el-radio-button></el-radio-group><el-button type="primary" @click="$router.push('/admin/bookkeeping')">前往记账</el-button><el-dropdown trigger="click"><el-button :icon="Plus">账户操作</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item :icon="Switch" @click="transferDialogVisible = true">资金划拨</el-dropdown-item><el-dropdown-item :icon="Management" @click="accountDialogVisible = true">新增资金账户</el-dropdown-item></el-dropdown-menu></template></el-dropdown></div></header>
-    <!-- 真实净利润 -->
-    <section class="real-profit-card" v-loading="realProfitLoading">
-      <div class="real-profit-main">
-        <div class="real-profit-head">
-          <div class="page-kicker">REAL PROFIT / 真实净利润</div>
-          <el-date-picker v-model="realProfitMonth" type="month" format="YYYY-MM" value-format="YYYY-MM" :clearable="false" size="small" style="width: 130px" @change="fetchRealProfit" />
-        </div>
-        <div class="real-profit-value" :class="realProfitTone">{{ money(realProfit?.real_profit) }}</div>
-        <div class="real-profit-lines">
-          <span>毛利 {{ money(realProfit?.gross_profit) }}</span>
-          <span>经营开销 {{ money(realProfit?.expense_total) }}</span>
-          <span>工资 {{ money(realProfit?.payroll_total) }}</span>
-        </div>
-        <div v-if="realProfit?.uncosted_order_item_count > 0" class="real-profit-warn">* 本月有 {{ realProfit.uncosted_order_item_count }} 个商品未录成本，毛利可能偏高</div>
+    <header class="finance-header">
+      <div>
+        <div class="page-kicker">FINANCE WORKSPACE</div>
+        <h1>{{ greeting }}，老板</h1>
+        <p>{{ todayLabel }} · 本月已记账 <b class="hl">{{ ws?.month?.booked_count ?? '—' }}</b> 笔</p>
       </div>
-      <div class="real-profit-side">
-        <el-button :icon="TrendCharts" @click="realProfitDrawerVisible = true">费用分类明细</el-button>
+      <div class="header-actions">
+        <el-button type="primary" :icon="Plus" @click="$router.push('/admin/bookkeeping')">记一笔</el-button>
+        <el-button @click="$router.push('/admin/subsidy')">核销国补</el-button>
+        <el-button @click="$router.push('/admin/orders')">记尾款</el-button>
+        <el-button link type="primary" @click="$router.push('/admin/bookkeeping')">前往记账</el-button>
+        <el-dropdown trigger="click">
+          <el-button :icon="Management">账户操作</el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item :icon="Switch" @click="transferDialogVisible = true">资金划拨</el-dropdown-item>
+              <el-dropdown-item :icon="Plus" @click="accountDialogVisible = true">新增资金账户</el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
       </div>
-    </section>
+    </header>
 
-    <FinanceWorkspace :summary="summary" :total-balance="totalBalance" :net-cash-flow="netCashFlow" :attention-count="attentionCount" :period-label="periodLabel" :loading="loading" @open-orders="$router.push('/admin/orders')" @open-subsidy="$router.push('/admin/subsidy')" @open-bookkeeping="$router.push('/admin/bookkeeping')" @open-calibrate="openCalibrate" />
+    <!-- 异常横幅 -->
+    <el-alert
+      v-for="alert in visibleAlerts"
+      :key="alert.type"
+      :title="alert.message"
+      type="warning"
+      show-icon
+      closable
+      class="ws-alert"
+      @close="dismissAlert(alert)"
+    />
 
-    <el-drawer v-model="realProfitDrawerVisible" :title="`${realProfitMonth} 费用分类明细（经营开销账）`" size="420px">
-      <el-table :data="realProfit?.breakdown || []" size="small" style="width: 100%" empty-text="本月经营开销账暂无记录">
-        <el-table-column label="分类" min-width="120">
+    <!-- 待我处理 -->
+    <el-card shadow="never" class="ws-card" v-loading="wsLoading">
+      <div class="ws-card-title">待我处理</div>
+      <div class="todo-rows">
+        <div v-for="todo in todos" :key="todo.key" class="todo-row" @click="$router.push(todo.to)">
+          <span class="todo-label">{{ todo.label }}</span>
+          <span class="todo-count">{{ todo.count }} 笔</span>
+          <b class="todo-amount">{{ money(todo.amount) }}</b>
+          <span class="todo-go">去处理 <el-icon><ArrowRight /></el-icon></span>
+        </div>
+      </div>
+    </el-card>
+
+    <!-- 钱在哪 -->
+    <el-card shadow="never" class="ws-card" v-loading="wsLoading">
+      <div class="funds-grid">
+        <div class="funds-main">
+          <div class="ws-card-title">钱在哪</div>
+          <div class="funds-available">{{ money(funds.available) }}</div>
+          <div class="funds-sub">可用资金</div>
+          <el-tag v-if="funds.frozen?.count > 0" type="warning" effect="plain" class="funds-frozen" size="small">
+            公户冻结 {{ money(funds.frozen.amount) }} · {{ funds.frozen.count }} 笔
+          </el-tag>
+          <div class="funds-total">4 账户账面合计 <b>{{ money(funds.total) }}</b></div>
+        </div>
+        <div class="funds-list">
+          <div v-for="account in accounts" :key="account.id" class="funds-account" @click="openAccountFlows(account)">
+            <span class="funds-account-name">{{ account.name }}</span>
+            <b>{{ money(account.balance) }}</b>
+            <el-icon class="funds-account-go"><ArrowRight /></el-icon>
+          </div>
+        </div>
+      </div>
+    </el-card>
+
+    <!-- 本月经营概况 -->
+    <el-card shadow="never" class="ws-card" v-loading="wsLoading">
+      <div class="month-head">
+        <div class="ws-card-title">经营概况</div>
+        <el-radio-group v-model="monthMode" size="small" @change="fetchWorkspace">
+          <el-radio-button value="current">本月</el-radio-button>
+          <el-radio-button value="cumulative">累计</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div class="profit-grid">
+        <div class="profit-cell">
+          <span class="profit-label">净利润<small>毛利扣费用</small></span>
+          <b :class="Number(monthData.net_profit || 0) >= 0 ? 'pos' : 'neg'">{{ money(monthData.net_profit) }}</b>
+        </div>
+        <div class="profit-cell">
+          <span class="profit-label">真实净利润<small>扣完费用工资</small></span>
+          <b :class="Number(monthData.real_profit || 0) >= 0 ? 'pos' : 'neg'">{{ money(monthData.real_profit) }}</b>
+        </div>
+      </div>
+      <div class="bridge-rows">
+        <div class="bridge-row"><span>国补未回款</span><b>{{ money(monthData.bridge?.subsidy_unreceived) }}</b></div>
+        <div class="bridge-row"><span>经营开销（工资 {{ money(monthData.payroll_total) }}）</span><b>{{ money(monthData.bridge?.operating_expense) }}</b></div>
+        <div class="bridge-row"><span>净现金流</span><b>{{ money(monthData.net_cash_flow) }}</b></div>
+        <div class="bridge-row muted"><span>净利润-净现金流差异</span><b>{{ money(monthData.bridge?.profit_cash_gap) }}</b></div>
+      </div>
+      <div v-if="monthData.uncosted_order_item_count > 0" class="ws-warn">* 本期有 {{ monthData.uncosted_order_item_count }} 个商品未录成本，毛利可能偏高</div>
+    </el-card>
+
+    <!-- 最近流水 -->
+    <el-card shadow="never" class="ws-card" v-loading="wsLoading" body-class="!p-0">
+      <div class="ws-card-title recent-title">最近流水</div>
+      <el-table :data="recentFlows" size="small" style="width: 100%" empty-text="暂无资金流水" @row-click="openFlowDetail">
+        <el-table-column label="时间" width="110">
+          <template #default="{ row }"><span class="muted-cell">{{ formatTime(row.created_at) }}</span></template>
+        </el-table-column>
+        <el-table-column prop="account_name" label="账户" width="100" />
+        <el-table-column prop="category" label="分类" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="customer_name" label="客户" min-width="100" show-overflow-tooltip />
+        <el-table-column label="金额" align="right" width="140">
           <template #default="{ row }">
-            {{ row.category }}<el-tag v-if="row.is_payroll" size="small" type="warning" effect="plain" style="margin-left: 6px">工资</el-tag>
+            <b :class="row.flow_type === 1 ? 'pos' : 'neg'">{{ row.flow_type === 1 ? '+' : '-' }}{{ money(row.amount) }}</b>
           </template>
         </el-table-column>
-        <el-table-column label="金额" align="right">
-          <template #default="{ row }">{{ money(row.amount) }}</template>
-        </el-table-column>
+        <el-table-column prop="related_no" label="单号" min-width="130" show-overflow-tooltip />
       </el-table>
-      <div class="drawer-total">合计：毛利 {{ money(realProfit?.gross_profit) }} − 开销 {{ money(realProfit?.expense_total) }} − 工资 {{ money(realProfit?.payroll_total) }} = <b :class="realProfitTone">{{ money(realProfit?.real_profit) }}</b></div>
+    </el-card>
+
+    <!-- 流水明细抽屉 -->
+    <el-drawer v-model="flowsDrawer.visible" :title="flowsDrawer.title" size="480px">
+      <el-table :data="flowsDrawer.rows" v-loading="flowsDrawer.loading" size="small" style="width: 100%">
+        <el-table-column label="时间" width="100">
+          <template #default="{ row }"><span class="muted-cell">{{ formatTime(row.created_at) }}</span></template>
+        </el-table-column>
+        <el-table-column label="账户" width="90">
+          <template #default="{ row }">{{ row.account?.name }}</template>
+        </el-table-column>
+        <el-table-column prop="category" label="分类" min-width="90" show-overflow-tooltip />
+        <el-table-column label="金额" align="right" width="120">
+          <template #default="{ row }">
+            <b :class="row.flow_type === 1 ? 'pos' : 'neg'">{{ row.flow_type === 1 ? '+' : '-' }}{{ money(row.amount) }}</b>
+          </template>
+        </el-table-column>
+        <el-table-column prop="related_no" label="单号" min-width="120" show-overflow-tooltip />
+      </el-table>
     </el-drawer>
 
     <el-dialog v-model="accountDialogVisible" title="新增资金账户" width="440px" destroy-on-close><el-form ref="accountFormRef" :model="accountForm" label-width="92px"><el-form-item label="账户名称" prop="name" :rules="[{ required: true, message: '请输入账户名称' }]"><el-input v-model="accountForm.name" placeholder="例如：支付宝、对公账户、备用金" /></el-form-item><el-form-item label="初始余额"><el-input-number v-model="accountForm.balance" :min="0" :precision="2" class="full-width" /></el-form-item></el-form><template #footer><el-button @click="accountDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="createAccount">创建账户</el-button></template></el-dialog>
-    <el-dialog v-model="transferDialogVisible" title="账户资金划拨" width="500px" destroy-on-close><el-alert title="划拨只移动账户间资金，不计入收入或支出。" type="info" :closable="false" show-icon class="dialog-alert" /><el-form ref="transferFormRef" :model="transferForm" label-width="92px"><el-form-item label="转出账户" prop="from_account_id" :rules="[{ required: true, message: '请选择转出账户' }]"><el-select v-model="transferForm.from_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（${account.balance.toFixed(2)}）`" :value="account.id" /></el-select></el-form-item><el-form-item label="转入账户" prop="to_account_id" :rules="[{ required: true, message: '请选择转入账户' }]"><el-select v-model="transferForm.to_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="account.name" :value="account.id" /></el-select></el-form-item><el-form-item label="划拨金额" prop="amount" :rules="[{ required: true, message: '请输入划拨金额' }]"><el-input-number v-model="transferForm.amount" :min="0.01" :precision="2" class="full-width" /></el-form-item><el-form-item label="备注"><el-input v-model="transferForm.remark" placeholder="例如：补充备用金" /></el-form-item></el-form><template #footer><el-button @click="transferDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="transferFunds">确认划拨</el-button></template></el-dialog>
+    <el-dialog v-model="transferDialogVisible" title="账户资金划拨" width="500px" destroy-on-close><el-alert title="划拨只移动账户间资金，不计入收入或支出。" type="info" :closable="false" show-icon class="dialog-alert" /><el-form ref="transferFormRef" :model="transferForm" label-width="92px"><el-form-item label="转出账户" prop="from_account_id" :rules="[{ required: true, message: '请选择转出账户' }]"><el-select v-model="transferForm.from_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" /></el-select></el-form-item><el-form-item label="转入账户" prop="to_account_id" :rules="[{ required: true, message: '请选择转入账户' }]"><el-select v-model="transferForm.to_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="account.name" :value="account.id" /></el-select></el-form-item><el-form-item label="划拨金额" prop="amount" :rules="[{ required: true, message: '请输入划拨金额' }]"><el-input-number v-model="transferForm.amount" :min="0.01" :precision="2" class="full-width" /></el-form-item><el-form-item label="备注"><el-input v-model="transferForm.remark" placeholder="例如：补充备用金" /></el-form-item></el-form><template #footer><el-button @click="transferDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="transferFunds">确认划拨</el-button></template></el-dialog>
     <el-dialog v-model="calibrateDialogVisible" :title="`核对余额：${calibrateForm.accountName}`" width="460px" destroy-on-close><el-alert title="校准会将账面余额对齐为实际余额，并自动保留一条校准审计记录。" type="warning" :closable="false" show-icon class="dialog-alert" /><el-form :model="calibrateForm" label-position="top"><el-form-item label="当前账面余额"><strong class="current-balance">¥{{ calibrateForm.currentBalance.toFixed(2) }}</strong></el-form-item><el-form-item label="实际余额"><el-input-number v-model="calibrateForm.realBalance" :min="0" :precision="2" class="full-width" /><small v-if="calibrateDiff" :class="calibrateDiff > 0 ? 'diff-positive' : 'diff-negative'">差异 {{ calibrateDiff > 0 ? '+' : '' }}¥{{ calibrateDiff.toFixed(2) }}</small></el-form-item><el-form-item label="备注"><el-input v-model="calibrateForm.remark" placeholder="例如：月末对账" /></el-form-item></el-form><template #footer><el-button @click="calibrateDialogVisible = false">取消</el-button><el-button type="warning" :loading="submitting" :disabled="!calibrateDiff" @click="calibrateAccount">确认校准</el-button></template></el-dialog>
   </main>
 </template>
 
 <style scoped>
-.real-profit-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 24px; background: #fff; border: 1px solid #e4eaf2; border-radius: 16px; }.real-profit-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }.real-profit-value { font-size: 32px; font-weight: 900; letter-spacing: -.04em; }.profit-positive { color: #059669; }.profit-negative { color: #e11d48; }.profit-zero { color: #475569; }.real-profit-lines { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; color: #64748b; font-size: 12.5px; }.real-profit-warn { margin-top: 6px; color: #d97706; font-size: 11.5px; }.real-profit-side { flex: none; }.drawer-total { margin-top: 14px; padding-top: 12px; border-top: 1px solid #f1f5f9; color: #475569; font-size: 13px; }.drawer-total b { font-size: 15px; }
-.finance-page { max-width: 1320px; min-height: 100%; margin: 0 auto; padding: 28px; display: grid; gap: 20px; background: #f8fafc; }.finance-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }.page-kicker { color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: .14em; }.finance-header h1 { margin: 4px 0; color: #0f172a; font-size: 28px; letter-spacing: -.04em; }.finance-header p { margin: 0; color: #64748b; font-size: 13px; }.header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }.full-width { width: 100%; }.native-date-input { width: 100%; height: 32px; padding: 0 10px; border: 1px solid #dcdfe6; border-radius: 4px; }.dialog-alert { margin-bottom: 18px; }.current-balance { color: #334155; font-size: 22px; }.diff-positive { display: block; margin-top: 7px; color: #059669; }.diff-negative { display: block; margin-top: 7px; color: #e11d48; } @media (max-width: 760px) { .finance-page { padding: 16px 12px; gap: 14px; }.finance-header { align-items: flex-start; flex-direction: column; gap: 12px; }.header-actions { display: grid; width: 100%; grid-template-columns: 1fr auto; justify-content: stretch; }.header-actions :deep(.el-radio-group) { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); width: 100%; }.header-actions :deep(.el-radio-button), .header-actions :deep(.el-radio-button__inner) { width: 100%; }.finance-header h1 { font-size: 24px; }.finance-header p { font-size: 12px; }.header-actions :deep(.el-button) { min-height: 38px; }.header-actions :deep(.el-dropdown) { width: 100%; }.header-actions :deep(.el-dropdown .el-button) { width: 100%; } :deep(.el-dialog) { width: calc(100vw - 24px) !important; margin-top: 8vh !important; }.native-date-input { min-height: 40px; font-size: 16px; }.real-profit-card { flex-direction: column; align-items: stretch; } }
+.finance-page { max-width: 1320px; min-height: 100%; margin: 0 auto; padding: 28px; display: grid; gap: 18px; background: #f8fafc; align-content: start; }
+.finance-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.page-kicker { color: #2563eb; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+.finance-header h1 { margin: 4px 0; color: #0f172a; font-size: 28px; letter-spacing: -.04em; }
+.finance-header p { margin: 0; color: #64748b; font-size: 13px; }
+.finance-header p .hl { color: #2563eb; }
+.header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.ws-alert { border-radius: 12px; }
+.ws-card { border-radius: 16px; }
+.ws-card-title { font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 14px; }
+.recent-title { padding: 16px 16px 0; }
+.full-width { width: 100%; }
+.dialog-alert { margin-bottom: 18px; }
+.current-balance { color: #334155; font-size: 22px; }
+.diff-positive { display: block; margin-top: 7px; color: #059669; }
+.diff-negative { display: block; margin-top: 7px; color: #e11d48; }
+.pos { color: #059669; }
+.neg { color: #e11d48; }
+.muted-cell { color: #94a3b8; font-size: 12px; }
+
+.todo-rows { display: grid; gap: 6px; }
+.todo-row { display: grid; grid-template-columns: 1fr 70px minmax(110px, auto) auto; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid #f1f5f9; border-radius: 12px; cursor: pointer; transition: background .15s; }
+.todo-row:hover { background: #f0f7ff; border-color: #dbeafe; }
+.todo-label { font-weight: 700; color: #334155; }
+.todo-count { color: #64748b; font-size: 13px; }
+.todo-amount { color: #0f172a; }
+.todo-go { display: inline-flex; align-items: center; gap: 4px; color: #2563eb; font-size: 13px; font-weight: 600; }
+
+.funds-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.2fr); gap: 24px; align-items: center; }
+.funds-available { font-size: 34px; font-weight: 900; letter-spacing: -.04em; color: #0f172a; }
+.funds-sub { color: #64748b; font-size: 13px; margin-top: 2px; }
+.funds-frozen { margin-top: 10px; }
+.funds-total { margin-top: 12px; color: #64748b; font-size: 13px; }
+.funds-total b { color: #334155; }
+.funds-list { display: grid; gap: 8px; }
+.funds-account { display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid #f1f5f9; border-radius: 12px; cursor: pointer; transition: background .15s; }
+.funds-account:hover { background: #f0f7ff; border-color: #dbeafe; }
+.funds-account-name { flex: 1; font-weight: 700; color: #334155; }
+.funds-account-go { color: #cbd5e1; }
+
+.month-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
+.month-head .ws-card-title { margin-bottom: 0; }
+.profit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0; }
+.profit-cell { padding: 16px; border: 1px solid #f1f5f9; border-radius: 12px; background: #f8fafc; }
+.profit-label { display: block; color: #64748b; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
+.profit-label small { margin-left: 6px; color: #94a3b8; font-weight: 400; }
+.profit-cell b { font-size: 24px; letter-spacing: -.03em; }
+.bridge-rows { display: grid; gap: 4px; }
+.bridge-row { display: flex; justify-content: space-between; padding: 7px 14px; border-radius: 8px; color: #475569; font-size: 13px; }
+.bridge-row:nth-child(odd) { background: #f8fafc; }
+.bridge-row.muted { color: #94a3b8; }
+.ws-warn { margin-top: 10px; color: #d97706; font-size: 11.5px; }
+
+@media (max-width: 900px) {
+  .funds-grid { grid-template-columns: 1fr; }
+  .finance-header { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .header-actions { width: 100%; justify-content: flex-start; }
+}
 </style>
