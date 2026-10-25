@@ -178,15 +178,18 @@ func GetFinanceSummary(c *gin.Context) {
 	}
 	expenseDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalExpense)
 
-	// 3. 国补待回款：逐单优先使用实际待回字段，历史订单逐单回退到 subsidy_amount。
-	//    兼容两类单：系统原生单（subsidy_amount>0，国补含在订单总额内）与补录单（subsidy_amount=0、仅记 pending）。
+	// 3. 国补待回款：统一口径，逐单 pending 可用额 = subsidy_pending_amount - subsidy_received_amt。
+	//    不再对历史单回退 subsidy_amount，也不再直接用回款池入账额冲抵（未核销部分是池余额）。
 	var totalSubsidyGenerated float64
 	var totalSubsidyReceived float64
 	config.DB.Model(&models.Order{}).
-		Where("order_status = 1 AND (subsidy_amount > 0 OR subsidy_pending_amount > 0)").
-		Select("COALESCE(SUM(CASE WHEN subsidy_pending_amount > 0 THEN subsidy_pending_amount ELSE subsidy_amount END), 0)").
+		Where("order_status = 1 AND subsidy_pending_amount > 0").
+		Select("COALESCE(SUM(subsidy_pending_amount), 0)").
 		Scan(&totalSubsidyGenerated)
-	config.DB.Model(&models.SubsidySettlement{}).Select("COALESCE(SUM(amount), 0)").Scan(&totalSubsidyReceived)
+	config.DB.Model(&models.Order{}).
+		Where("order_status = 1").
+		Select("COALESCE(SUM(subsidy_received_amt), 0)").
+		Scan(&totalSubsidyReceived)
 	summary.PendingSubsidy = CalculatePendingSubsidy(totalSubsidyGenerated, totalSubsidyReceived)
 
 	// 4. 订单数 (OrderCount) - 仅正常订单
