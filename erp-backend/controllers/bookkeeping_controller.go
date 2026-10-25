@@ -39,16 +39,17 @@ var bookkeepingOrderFields = map[string]string{
 
 // CreateBookkeepingEntryRequest 手工记账请求体。
 type CreateBookkeepingEntryRequest struct {
-	AIImportID   uint    `json:"ai_import_id"`
-	EntryType    int     `json:"entry_type" binding:"required"`
-	Category     string  `json:"category" binding:"required,max=50"`
-	Amount       float64 `json:"amount" binding:"required,gt=0"`
-	AccountID    uint    `json:"account_id" binding:"required"`
-	OrderID      uint    `json:"order_id"`
-	Counterparty string  `json:"counterparty" binding:"max=100"`
-	RelatedNo    string  `json:"related_no" binding:"max=100"`
-	Remark       string  `json:"remark" binding:"max=255"`
-	OccurredAt   string  `json:"occurred_at"`
+	AIImportID      uint    `json:"ai_import_id"`
+	EntryType       int     `json:"entry_type" binding:"required"`
+	Category        string  `json:"category" binding:"required,max=50"`
+	Amount          float64 `json:"amount" binding:"required,gt=0"`
+	AccountID       uint    `json:"account_id" binding:"required"`
+	OrderID         uint    `json:"order_id"`
+	Counterparty    string  `json:"counterparty" binding:"max=100"`
+	RelatedNo       string  `json:"related_no" binding:"max=100"`
+	Remark          string  `json:"remark" binding:"max=255"`
+	OccurredAt      string  `json:"occurred_at"`
+	ClientRequestID string  `json:"client_request_id"`
 }
 
 // BookkeepingOrderOption 记账页面的订单联想选项。
@@ -242,6 +243,31 @@ func CreateBookkeepingEntry(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": err.Error()})
 		return
+	}
+
+	// 记账幂等：请求携带 client_request_id 时，事务内先按该键查询，
+	// 已存在流水则直接返回（duplicated:true），不重复更新余额。
+	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
+	if req.ClientRequestID != "" {
+		var existing models.FinancialLog
+		idempotencyErr := tx.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error
+		if idempotencyErr == nil {
+			tx.Rollback()
+			c.JSON(http.StatusOK, gin.H{
+				"code":       200,
+				"msg":        "该请求已提交过，返回已有记账流水，未重复记账",
+				"duplicated": true,
+				"data": gin.H{
+					"entry": existing,
+				},
+			})
+			return
+		}
+		if !errors.Is(idempotencyErr, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "幂等键查询失败"})
+			return
+		}
 	}
 
 	entry, linkedOrder, err := postBookkeepingEntry(tx, req, occurredAt)

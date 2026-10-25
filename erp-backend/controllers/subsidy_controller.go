@@ -3,16 +3,21 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
+// errSubsidyDuplicated 核销幂等命中：请求已提交过，事务回滚并返回已有记录。
+var errSubsidyDuplicated = errors.New("该请求已提交过，返回已有核销记录，未重复核销")
 
 type CreateSubsidySettlementRequest struct {
 	Amount    float64 `json:"amount" binding:"required,gt=0"`
@@ -143,8 +148,9 @@ type SubsidyAllocationItem struct {
 }
 
 type SubsidyAllocateRequest struct {
-	SettlementID uint                    `json:"settlement_id" binding:"required"`
-	Allocations  []SubsidyAllocationItem `json:"allocations" binding:"required,min=1,dive"`
+	SettlementID    uint                    `json:"settlement_id" binding:"required"`
+	Allocations     []SubsidyAllocationItem `json:"allocations" binding:"required,min=1,dive"`
+	ClientRequestID string                  `json:"client_request_id"`
 }
 
 // AllocateSubsidyReceipt 国补回款逐单核销
@@ -186,6 +192,21 @@ func AllocateSubsidyReceipt(c *gin.Context) {
 
 	created := make([]models.SubsidyReceipt, 0, len(orderIDs))
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		// 幂等：请求携带 client_request_id 时，事务内先按该键查询，
+		// 已存在核销记录则直接返回（duplicated:true），不重复核销。
+		req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
+		if req.ClientRequestID != "" {
+			var existing models.SubsidyReceipt
+			idempotencyErr := tx.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error
+			if idempotencyErr == nil {
+				created = append(created, existing)
+				return errSubsidyDuplicated
+			}
+			if !errors.Is(idempotencyErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("幂等键查询失败")
+			}
+		}
+
 		// a. 行锁读回款结算单
 		var settlement models.SubsidySettlement
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&settlement, req.SettlementID).Error; err != nil {
@@ -242,6 +263,9 @@ func AllocateSubsidyReceipt(c *gin.Context) {
 				CreatedBy:       operator,
 				CreatedAt:       now,
 			}
+			if req.ClientRequestID != "" {
+				receipt.ClientRequestID = &req.ClientRequestID
+			}
 			if err := tx.Create(&receipt).Error; err != nil {
 				return fmt.Errorf("写入核销记录失败")
 			}
@@ -260,6 +284,15 @@ func AllocateSubsidyReceipt(c *gin.Context) {
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, errSubsidyDuplicated) {
+			c.JSON(http.StatusOK, gin.H{
+				"code":       200,
+				"msg":        err.Error(),
+				"duplicated": true,
+				"data":       created,
+			})
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
 		return
 	}

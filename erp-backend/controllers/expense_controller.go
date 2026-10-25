@@ -16,12 +16,70 @@ import (
 
 // CreateExpenseRequest 记账请求体
 type CreateExpenseRequest struct {
-	ExpenseType string  `json:"expense_type" binding:"required"`
-	Amount      float64 `json:"amount" binding:"required,gt=0"`
-	Remark      string  `json:"remark"`
-	AccountID   uint    `json:"account_id"`
-	OccurredAt  string  `json:"occurred_at"`
-	RelatedNo   string  `json:"related_no"`
+	ExpenseType     string  `json:"expense_type" binding:"required"`
+	Amount          float64 `json:"amount" binding:"required,gt=0"`
+	Remark          string  `json:"remark"`
+	AccountID       uint    `json:"account_id"`
+	OccurredAt      string  `json:"occurred_at"`
+	RelatedNo       string  `json:"related_no"`
+	ClientRequestID string  `json:"client_request_id"`
+}
+
+// refundCapEpsilon 金额比较容差（分），避免浮点累积误差导致临界退款被误拒。
+const refundCapEpsilon = 0.005
+
+// sumOrderRefunds 统计订单已累计退款金额，覆盖两条记账路径且不重复计数：
+//  1. 支出表驱动（POST /api/expenses）：退款写入 expenses，同时写入 source_type=system 的财务流水；
+//  2. 手工记账驱动（POST /api/bookkeeping/entries）：退款只写入 source_type=manual 的财务流水。
+//
+// 因此累计退款 = SUM(expenses 中退款) + SUM(financial_logs 中 manual 来源的退款支出)。
+func sumOrderRefunds(tx *gorm.DB, orderNo string) (float64, error) {
+	var expenseTotal float64
+	if err := tx.Model(&models.Expense{}).
+		Where("related_no = ? AND expense_type LIKE ?", orderNo, "%退款%").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&expenseTotal).Error; err != nil {
+		return 0, err
+	}
+	var bookkeepingTotal float64
+	if err := tx.Model(&models.FinancialLog{}).
+		Where("related_no = ? AND flow_type = ? AND source_type = ? AND category LIKE ? AND reversal_pair_id IS NULL",
+			orderNo, bookkeepingExpense, "manual", "%退款%").
+		Select("COALESCE(SUM(amount), 0)").
+		Scan(&bookkeepingTotal).Error; err != nil {
+		return 0, err
+	}
+	return expenseTotal + bookkeepingTotal, nil
+}
+
+// checkRefundLimit 退款防重上限校验：当支出类型为退款且关联订单时，
+// 校验"已有累计退款 + 本次金额"不超过订单实付金额（ActualPayAmount）。
+// related_no 不是订单号时不做校验，保持历史行为兼容。
+func checkRefundLimit(tx *gorm.DB, relatedNo string, expenseType string, amount float64) error {
+	if !strings.Contains(expenseType, "退款") || strings.TrimSpace(relatedNo) == "" {
+		return nil
+	}
+	var order models.Order
+	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("order_no = ?", relatedNo).First(&order).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("查询退款关联订单失败: %w", err)
+	}
+	return checkRefundLimitForOrder(tx, order, amount)
+}
+
+// checkRefundLimitForOrder 基于已锁定的订单校验退款上限（供支出表与手工记账两条路径共用）。
+func checkRefundLimitForOrder(tx *gorm.DB, order models.Order, amount float64) error {
+	existing, err := sumOrderRefunds(tx, order.OrderNo)
+	if err != nil {
+		return fmt.Errorf("统计订单累计退款失败: %w", err)
+	}
+	if existing+amount > order.ActualPayAmount+refundCapEpsilon {
+		return fmt.Errorf("该订单累计退款 %.2f 元，超过实付 %.2f 元", existing+amount, order.ActualPayAmount)
+	}
+	return nil
 }
 
 // CreateExpense 接收 JSON 数据并插入 Expense 表，同步更新账户余额
@@ -51,6 +109,39 @@ func CreateExpense(c *gin.Context) {
 			tx.Rollback()
 		}
 	}()
+
+	// 记账幂等：请求携带 client_request_id 时，事务内先按该键查询，
+	// 已存在支出记录则直接返回（duplicated:true），不重复扣余额、不重复写流水。
+	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
+	if req.ClientRequestID != "" {
+		var existing models.Expense
+		idempotencyErr := tx.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error
+		if idempotencyErr == nil {
+			tx.Rollback()
+			c.JSON(http.StatusOK, gin.H{
+				"code":       200,
+				"msg":        "该请求已提交过，返回已有支出记录，未重复记账",
+				"duplicated": true,
+				"data":       existing,
+			})
+			return
+		}
+		if !errors.Is(idempotencyErr, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "幂等键查询失败"})
+			return
+		}
+	}
+
+	// 退款防重：累计退款超过订单实付金额时拒绝，防止超额退款
+	if err := checkRefundLimit(tx, req.RelatedNo, req.ExpenseType, req.Amount); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  err.Error(),
+		})
+		return
+	}
 
 	// 如果未提供 AccountID，查找默认账户
 	if req.AccountID == 0 {
@@ -121,6 +212,9 @@ func CreateExpense(c *gin.Context) {
 		AccountID:   &req.AccountID,
 		RelatedNo:   req.RelatedNo,
 		CreatedAt:   occurredAt,
+	}
+	if req.ClientRequestID != "" {
+		expense.ClientRequestID = &req.ClientRequestID
 	}
 	if err := tx.Create(&expense).Error; err != nil {
 		tx.Rollback()

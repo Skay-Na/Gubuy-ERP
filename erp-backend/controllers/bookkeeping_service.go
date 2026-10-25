@@ -69,6 +69,12 @@ func postBookkeepingEntry(
 			}
 			return models.FinancialLog{}, nil, bookkeepingFailure(status, fieldErr.Error(), fieldErr)
 		}
+		// 退款防重：累计退款超过订单实付金额时拒绝，与支出表路径共用同一上限校验。
+		if req.EntryType == bookkeepingExpense && strings.Contains(req.Category, "退款") {
+			if err := checkRefundLimitForOrder(tx, *linkedOrder, req.Amount); err != nil {
+				return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusBadRequest, err.Error(), err)
+			}
+		}
 		if field != "" && req.Category != "渠道奖励" {
 			if err := tx.Model(linkedOrder).
 				UpdateColumn(field, gorm.Expr(field+" + ?", req.Amount)).Error; err != nil {
@@ -106,6 +112,9 @@ func postBookkeepingEntry(
 		Remark:       req.Remark,
 		SourceType:   "manual",
 		CreatedAt:    occurredAt,
+	}
+	if strings.TrimSpace(req.ClientRequestID) != "" {
+		entry.ClientRequestID = &req.ClientRequestID
 	}
 	if err := tx.Create(&entry).Error; err != nil {
 		return models.FinancialLog{}, nil, bookkeepingFailure(http.StatusInternalServerError, "记账流水保存失败", err)

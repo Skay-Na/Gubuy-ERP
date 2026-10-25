@@ -16,5 +16,7 @@ type SubsidyReceipt struct {
 	// RemainingBefore 核销前订单剩余待回款快照（subsidy_pending_amount - subsidy_received_amt）
 	RemainingBefore float64   `gorm:"type:decimal(10,2);not null;default:0;comment:核销前订单剩余待回款快照" json:"remaining_before"`
 	CreatedBy       string    `gorm:"type:varchar(100);not null;default:'';comment:操作人" json:"created_by"`
+	// 客户端幂等键：核销可选携带，防重复核销（同一次核销请求的多笔分配共用同一个键）
+	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_subsidy_receipts_client_request_id;comment:客户端幂等键(防重复核销)" json:"client_request_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 }

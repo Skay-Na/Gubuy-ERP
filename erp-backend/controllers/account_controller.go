@@ -3,8 +3,10 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -76,10 +78,11 @@ func CreateAccount(c *gin.Context) {
 
 // AccountTransferRequest 转账请求
 type AccountTransferRequest struct {
-	FromAccountID uint    `json:"from_account_id" binding:"required"`
-	ToAccountID   uint    `json:"to_account_id" binding:"required"`
-	Amount        float64 `json:"amount" binding:"required,gt=0"`
-	Remark        string  `json:"remark"`
+	FromAccountID   uint    `json:"from_account_id" binding:"required"`
+	ToAccountID     uint    `json:"to_account_id" binding:"required"`
+	Amount          float64 `json:"amount" binding:"required,gt=0"`
+	Remark          string  `json:"remark"`
+	ClientRequestID string  `json:"client_request_id"`
 }
 
 // TransferFunds 账户间资金划拨
@@ -111,6 +114,29 @@ func TransferFunds(c *gin.Context) {
 			tx.Rollback()
 		}
 	}()
+
+	// 划拨幂等：请求携带 client_request_id 时，事务内先按该键查询，
+	// 已存在划拨记录则直接返回（duplicated:true），不重复扣款、入账。
+	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
+	if req.ClientRequestID != "" {
+		var existing models.TransferRecord
+		idempotencyErr := tx.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error
+		if idempotencyErr == nil {
+			tx.Rollback()
+			c.JSON(http.StatusOK, gin.H{
+				"code":       200,
+				"msg":        "该请求已提交过，返回已有划拨记录，未重复划拨",
+				"duplicated": true,
+				"data":       existing,
+			})
+			return
+		}
+		if !errors.Is(idempotencyErr, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "幂等键查询失败"})
+			return
+		}
+	}
 
 	// 1. 加锁并检查源账户（FOR UPDATE 防止并发重复扣款）
 	var fromAcc models.Account
@@ -167,6 +193,9 @@ func TransferFunds(c *gin.Context) {
 		ToAccountID:   req.ToAccountID,
 		Amount:        req.Amount,
 		Remark:        req.Remark,
+	}
+	if req.ClientRequestID != "" {
+		record.ClientRequestID = &req.ClientRequestID
 	}
 	if err := tx.Create(&record).Error; err != nil {
 		tx.Rollback()

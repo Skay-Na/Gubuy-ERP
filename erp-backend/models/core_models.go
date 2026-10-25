@@ -34,7 +34,9 @@ type TransferRecord struct {
 	Remark        string    `gorm:"type:text;comment:备注说明" json:"remark"`
 	FromAccount   *Account  `gorm:"foreignKey:FromAccountID" json:"from_account,omitempty"`
 	ToAccount     *Account  `gorm:"foreignKey:ToAccountID" json:"to_account,omitempty"`
-	CreatedAt     time.Time `json:"created_at"`
+	// 客户端幂等键：资金划拨可选携带，防重复划拨
+	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_transfer_records_client_request_id;comment:客户端幂等键(防重复划拨)" json:"client_request_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // Category 商品分类表
@@ -301,8 +303,10 @@ type Expense struct {
 	AccountID *uint     `gorm:"index;comment:支出账户ID" json:"account_id"`
 	Account   *Account  `gorm:"foreignKey:AccountID" json:"account,omitempty"`
 	RelatedNo string    `gorm:"type:varchar(100);comment:关联人员或单号" json:"related_no"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	// 客户端幂等键：可选；携带时用于防重复提交（AutoMigrate 自动加列，历史数据为 NULL 不受影响）
+	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_expenses_client_request_id;comment:客户端幂等键(防重复提交)" json:"client_request_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // FinancialLog 全口径财务流水表
@@ -319,7 +323,9 @@ type FinancialLog struct {
 	Counterparty   string    `gorm:"type:varchar(100);comment:往来对象" json:"counterparty"`
 	SourceType     string    `gorm:"type:varchar(30);not null;default:'system';index;comment:来源类型 system/manual" json:"source_type"`
 	ReversalPairID *uint     `gorm:"index;comment:冲销配对ID；配对日志(定金+退定金 / 销售+退款)汇总时排除" json:"reversal_pair_id,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
+	// 客户端幂等键：手工记账可选携带，防重复记账
+	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_financial_logs_client_request_id;comment:客户端幂等键(防重复记账)" json:"client_request_id,omitempty"`
+	CreatedAt       time.Time `json:"created_at"`
 }
 
 // InboundRecord 入库记录表
