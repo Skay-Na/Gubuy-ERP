@@ -47,7 +47,8 @@ param(
   [string]$BuildCacheMaxAge,
   [string]$SshConnectTimeout,
   [string]$SshMode,
-  [switch]$ResetPassword
+  [switch]$ResetPassword,
+  [switch]$SavePassword
 )
 
 # 用 Continue 而非 Stop：Stop 模式下原生命令写到 stderr 的正常状态行（如 compose 的
@@ -111,6 +112,7 @@ if (-not $RouterPass) {
 }
 
 $AppImage    = "erpwonchon-app:latest"
+$AppPlatform = "linux/arm64"   # 软路由是 ARM64；推错架构会导致容器 exec format error 崩溃循环
 $RemoteDir   = "/mnt/opt/docker/install"
 $RemoteTar   = "erpwonchon-app.tar"
 $script:PlinkExe   = $null
@@ -240,7 +242,19 @@ function Select-RouterHost {
 
 # ---------- 密码：DPAPI 加密存档（替代 macOS 钥匙串） ----------
 function Get-RouterPassword {
-  if ($RouterPass) { return $RouterPass }
+  if ($RouterPass) {
+    # -RouterPass 配合 -SavePassword：把密码用 DPAPI 加密存档，之后免交互
+    if ($SavePassword) {
+      try {
+        $sec = ConvertTo-SecureString $RouterPass -AsPlainText -Force
+        $sec | ConvertFrom-SecureString | Set-Content -Path $PassFile -Encoding ASCII
+        Write-Info "SSH 密码已用 DPAPI 加密存档到 scripts\.router-pass.clixml"
+      } catch {
+        Write-WarnMsg "密码存档写入失败（$PassFile）：$($_.Exception.Message)"
+      }
+    }
+    return $RouterPass
+  }
   if (-not $script:PlinkExe) {
     # OpenSSH 模式下密码由 ssh / scp 自己在终端提示，没必要在这里录入（也无处可用）
     return $null
@@ -381,26 +395,38 @@ function Invoke-Putty {
   }
   foreach ($t in $Tail) { $argsList.Add($t) }
   if ($Capture) { return (& $Exe $argsList.ToArray() 2>$null) }
-  & $Exe $argsList.ToArray()
+  # 关键：输出必须重定向到宿主控制台。若直接 `& $Exe ...`，pscp 的进度行会
+  # 混入本函数的返回值，`$code = Invoke-Putty ...` 拿到的是「进度行数组+退出码」，
+  # `if ($code -ne 0)` 对非空数组恒为真——pscp 成功也会被误判为失败。
+  & $Exe $argsList.ToArray() | Out-Host
   return $LASTEXITCODE
 }
 
 function Invoke-OpenSshCopy {
   param([string]$Source, [string]$Destination)
-  & $script:ScpExe -o "ConnectTimeout=$SshConnectTimeout" -o StrictHostKeyChecking=accept-new $Source $Destination
+  # 输出走宿主控制台，避免混入返回值（同 Invoke-Putty 的说明）
+  & $script:ScpExe -o "ConnectTimeout=$SshConnectTimeout" -o StrictHostKeyChecking=accept-new $Source $Destination | Out-Host
   return $LASTEXITCODE
 }
 
 # 远端执行一段 shell 脚本（PuTTY 走 plink，OpenSSH 走 ssh）
-function Invoke-RemoteScript {
-  param([string]$Script, [switch]$Capture)
+  # 注意：PS 5.1 把参数传给原生程序时会剥掉/错乱脚本里内嵌的双引号，
+  # 远端 ash 会报 "unterminated quoted string"。因此统一改为 base64 传输：
+  # 本地 UTF-8 编码，远端解码后交给 sh（软路由无 base64 命令，用 openssl）。
+  # 必须用 `openssl enc -d -base64 -A`：软路由 OpenSSL 3.0 的 `openssl base64 -d`
+  # 对长单行输入只解出第一个块（实测 5248 字符只解出 94 字节）。
+  function Invoke-RemoteScript {
+    param([string]$Script, [switch]$Capture)
+    $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($Script))
+    $wrapped = "echo $b64 | openssl enc -d -base64 -A | sh"
   if ($script:PlinkExe) {
-    return (Invoke-Putty -Exe $script:PlinkExe -Tail @("$RouterUser@$($script:RouterIp)", $Script) -Capture:$Capture)
+    return (Invoke-Putty -Exe $script:PlinkExe -Tail @("$RouterUser@$($script:RouterIp)", $wrapped) -Capture:$Capture)
   }
   if ($Capture) {
-    return (& $script:SshExe -o "ConnectTimeout=$SshConnectTimeout" -o StrictHostKeyChecking=accept-new "$RouterUser@$($script:RouterIp)" $Script 2>$null)
+    return (& $script:SshExe -o "ConnectTimeout=$SshConnectTimeout" -o StrictHostKeyChecking=accept-new "$RouterUser@$($script:RouterIp)" $wrapped 2>$null)
   }
-  & $script:SshExe -o "ConnectTimeout=$SshConnectTimeout" -o StrictHostKeyChecking=accept-new "$RouterUser@$($script:RouterIp)" $Script
+  # 输出走宿主控制台，避免混入返回值（同 Invoke-Putty 的说明）
+  & $script:SshExe -o "ConnectTimeout=$SshConnectTimeout" -o StrictHostKeyChecking=accept-new "$RouterUser@$($script:RouterIp)" $wrapped | Out-Host
   return $LASTEXITCODE
 }
 
@@ -488,6 +514,17 @@ case "${target_image:-}" in
 esac
 docker load -i erpwonchon-app.tar
 new_image_id=$(docker image inspect --format "{{.Id}}" erpwonchon-app:latest)
+# 架构兜底校验：镜像架构必须与主机一致，否则容器会 exec format error 崩溃循环
+host_arch=$(uname -m)
+case "$host_arch" in
+  aarch64) host_arch=arm64 ;;
+  x86_64) host_arch=amd64 ;;
+esac
+img_arch=$(docker image inspect --format "{{.Architecture}}" erpwonchon-app:latest)
+if [ "$img_arch" != "$host_arch" ]; then
+  echo "镜像架构与主机不匹配：镜像=$img_arch 主机=$host_arch，拒绝更新" >&2
+  exit 1
+fi
 docker image tag erpwonchon-app:latest "$target_image"
 # 服务端密钥只保存在软路由上，不进入镜像包。
 ai_secret_file=.erp-ai-config-secret
@@ -673,19 +710,35 @@ try {
     Write-Step "跳过后端测试（默认不触碰数据库；如需执行：scripts\build-deploy-router.cmd -RunTests 1）"
   }
 
-  Write-Step "3/6 构建 Docker 镜像：app"
-  & docker compose build app
+  Write-Step "3/6 构建 Docker 镜像：app（目标架构 $AppPlatform）"
+  # 注：本机 docker compose build 不支持 --platform，改用 buildx；
+  # --load 把构建结果载入本地镜像存储（默认 buildx 结果只存构建缓存）。
+  & docker buildx build --platform $AppPlatform --load -t $AppImage .
   if ($LASTEXITCODE -ne 0) {
     Write-WarnMsg "常规构建失败，尝试 --pull=false（适合网络较差但本地已有基础镜像的情况）..."
-    & docker compose build --pull=false app
+    & docker buildx build --platform $AppPlatform --pull=false --load -t $AppImage .
     if ($LASTEXITCODE -ne 0) { Write-Fail "Docker 镜像构建失败。" }
   }
+  # 构建后立刻校验镜像架构，防止把 amd64 镜像推上 arm64 软路由
+  $imgArch = (& docker image inspect $AppImage --format "{{.Os}}/{{.Architecture}}" 2>$null)
+  if ($LASTEXITCODE -ne 0 -or "$imgArch" -ne $AppPlatform) {
+    Write-Fail "镜像架构不匹配：期望 $AppPlatform，实际 $imgArch。"
+  }
+  Write-Info "镜像架构校验通过：$imgArch"
 
   Write-Step "4/6 导出镜像包并清理本地构建缓存"
   & docker save $AppImage -o "$TarPath"
   if ($LASTEXITCODE -ne 0) { Write-Fail "镜像导出失败：$TarPath" }
-  $entries = & tar -tf "$TarPath" 2>$null
-  if ($LASTEXITCODE -ne 0 -or ($entries -notcontains "manifest.json")) {
+  # 显式用系统自带 bsdtar：若 PATH 里是 Git/MSYS 的 GNU tar，会把 "C:\..."
+  # 解析成「远程主机:路径」而直接失败。找不到系统 tar 时才退回 PATH。
+  $tarExe = Join-Path $env:SystemRoot "System32\tar.exe"
+  if (-not (Test-Path $tarExe)) { $tarExe = "tar" }
+  $entries = & $tarExe -tf "$TarPath" 2>$null
+  # Docker 29+（containerd 镜像存储）导出 OCI 布局（index.json），
+  # 同时兼容旧 docker-archive 格式（manifest.json）。
+  $validArchive = ($LASTEXITCODE -eq 0) -and
+    (($entries -contains "manifest.json") -or ($entries -contains "index.json"))
+  if (-not $validArchive) {
     Write-Fail "镜像包无效或不完整：$TarPath"
   }
   $size = (Get-Item $TarPath).Length
