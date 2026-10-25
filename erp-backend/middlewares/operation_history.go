@@ -108,6 +108,7 @@ var operationRoutes = map[string]operationRoute{
 	"POST /api/employees/check-out":                          {title: "员工签退", tables: []string{"daily_attendances"}},
 	"POST /api/subsidy/settle":                               {title: "登记国补回款", tables: []string{"subsidy_settlements", "accounts", "financial_logs"}},
 	"POST /api/subsidy/allocate":                             {title: "核销国补回款", tables: []string{"subsidy_receipts", "orders"}},
+	"POST /api/payroll/confirm":                              {title: "确认工资发放", tables: []string{"payroll_confirmations", "accounts", "financial_logs"}},
 	"POST /api/system/historical-cost-repair":                {title: "修复历史成本", tables: []string{"products", "orders", "order_items", "inventory_logs", "historical_cost_repairs"}},
 	"POST /api/employees/:id/offboardings":                   {title: "发起员工离职交接", tables: []string{"employees", "employee_offboardings", "employee_handover_tasks", "employee_offboarding_alerts"}},
 	"PUT /api/employee-offboardings/:id/tasks/:task_id":      {title: "更新离职交接任务", tables: []string{"employee_handover_tasks"}},
