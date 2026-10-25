@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -90,5 +91,57 @@ func TestRealProfitCalculation(t *testing.T) {
 	}
 	if !foundPayrollLine || !foundUtilityLine {
 		t.Fatalf("分类明细应含工资(单独列)与电费: %+v", result.Breakdown)
+	}
+}
+
+// TestRealProfitPayrollMonthFromRelatedNo 工资按 related_no 的所属月归属：
+// 11 月初发放、related_no 为 PAY-2026-10-xxx 的工资计入 10 月而非 11 月；
+// 解析失败（历史导入 EXP 前缀）的工资回退按流水 created_at 月份归属。
+func TestRealProfitPayrollMonthFromRelatedNo(t *testing.T) {
+	setupPayrollTest(t)
+	ensureOperatingLedgerAccount(t)
+	thisMonth := time.Now().Format("2006-01")
+	lastMonth := time.Now().AddDate(0, -1, 0).Format("2006-01")
+
+	// 11 月初发放的上月工资：流水 created_at 在本月，related_no 归属上月
+	config.DB.Create(&models.FinancialLog{
+		AccountID: operatingExpenseAccountID, FlowType: 2, Category: "工资",
+		Amount: 800, BalanceAfter: -800, RelatedNo: fmt.Sprintf("PAY-%s-999", lastMonth),
+		Remark: "上月工资本月发", CreatedAt: time.Now(),
+	})
+	// 历史导入格式（EXP 前缀，无法解析所属月）：回退按 created_at 归属本月
+	config.DB.Create(&models.FinancialLog{
+		AccountID: operatingExpenseAccountID, FlowType: 2, Category: "工资",
+		Amount: 200, BalanceAfter: -1000, RelatedNo: "EXP20260101001",
+		Remark: "导入历史工资", CreatedAt: time.Now(),
+	})
+
+	// 本月：只应包含回退口径的 200，不含归属上月的 800
+	current := getRealProfit(thisMonth)
+	if current.Code != http.StatusOK {
+		t.Fatalf("本月真实净利润查询失败: %d %s", current.Code, current.Body.String())
+	}
+	var currentResp struct {
+		Data RealProfitResponse `json:"data"`
+	}
+	_ = json.Unmarshal(current.Body.Bytes(), &currentResp)
+	if currentResp.Data.PayrollTotal != 200 {
+		t.Fatalf("本月工资应为 200（上月工资已按所属月划走），实际 %.2f", currentResp.Data.PayrollTotal)
+	}
+
+	// 上月：应包含 PAY-上月 前缀的 800
+	previous := getRealProfit(lastMonth)
+	if previous.Code != http.StatusOK {
+		t.Fatalf("上月真实净利润查询失败: %d %s", previous.Code, previous.Body.String())
+	}
+	var previousResp struct {
+		Data RealProfitResponse `json:"data"`
+	}
+	_ = json.Unmarshal(previous.Body.Bytes(), &previousResp)
+	if previousResp.Data.PayrollTotal != 800 {
+		t.Fatalf("上月工资应为 800（月初发上月工资计入干活月），实际 %.2f", previousResp.Data.PayrollTotal)
+	}
+	if previousResp.Data.RealProfit != -800 {
+		t.Fatalf("上月真实净利润应为 -800（毛利 0 - 开销 0 - 工资 800），实际 %.2f", previousResp.Data.RealProfit)
 	}
 }

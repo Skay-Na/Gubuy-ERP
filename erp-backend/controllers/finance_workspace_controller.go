@@ -139,8 +139,9 @@ func GetFinanceWorkspace(c *gin.Context) {
 	}
 	grossProfit = workspaceRound(grossProfit)
 
-	// 经营开销（台账账户支出流水，工资单列）——与 GetRealProfit 完全同口径
-	var expenseTotal, payrollTotal float64
+	// 经营开销（台账账户支出流水，工资单列）——与 GetRealProfit 完全同口径；
+	// 工资按 related_no 所属月归属（月初发上月工资计入上月），非工资按 created_at
+	var expenseTotal float64
 	expenseQuery := config.DB.Model(&models.FinancialLog{}).
 		Where("account_id = ? AND flow_type = ?", operatingExpenseAccountID, 2)
 	if !cumulative {
@@ -151,17 +152,13 @@ func GetFinanceWorkspace(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取经营开销失败"})
 		return
 	}
-	payrollQuery := config.DB.Model(&models.FinancialLog{}).
-		Where("account_id = ? AND flow_type = ? AND category = ?", operatingExpenseAccountID, 2, "工资")
-	if !cumulative {
-		payrollQuery = payrollQuery.Where("created_at >= ? AND created_at <= ?", startTime, endTime)
-	}
-	if err := payrollQuery.Select("COALESCE(SUM(amount), 0)").Scan(&payrollTotal).Error; err != nil {
+	expenseTotal = workspaceRound(expenseTotal)
+	payrollTotalRaw, payrollErr := monthlyPayrollTotal(startTime, endTime)
+	if payrollErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取工资支出失败"})
 		return
 	}
-	expenseTotal = workspaceRound(expenseTotal)
-	payrollTotal = workspaceRound(payrollTotal)
+	payrollTotal := workspaceRound(payrollTotalRaw)
 
 	// 净利润（经营口径，扣费用不含工资）；真实净利润再扣工资
 	netProfit := workspaceRound(grossProfit - expenseTotal)

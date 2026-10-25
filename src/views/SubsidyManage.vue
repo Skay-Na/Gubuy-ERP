@@ -110,8 +110,9 @@
           </template>
         </el-table-column>
       </el-table>
-      <div class="text-[11px] text-slate-400 mt-3">
-        * 勾选订单后输入本笔核销总额可自动按录单顺序逐单匹配（可手调）；收满的订单自动标记为"已回款"。核销只做回款池到订单的分配，不重复记账。
+      <div class="text-[11px] text-slate-400 mt-3 leading-relaxed">
+        <div>提示：客户 85% 货款开单时已入账，此处只录政府打款中的<b class="text-slate-500">补贴部分</b>（各单待回金额合计）；若录入政府打款全额，多余部分会留在回款池无法核销。</div>
+        <div class="mt-1">* 勾选订单后输入本笔核销总额可自动按录单顺序逐单匹配（可手调）；收满的订单自动标记为"已回款"。核销只做回款池到订单的分配，不重复记账。</div>
       </div>
     </el-card>
 
@@ -408,6 +409,15 @@ const submitAllocation = async () => {
     return ElMessage.warning(`核销总额超出回款池剩余 ¥${poolRemainingOf(pool).toFixed(2)}`)
   }
   try {
+    // 软提醒：录入金额明显大于选中订单待回补贴合计（如政府打款全额）时再次确认
+    const selectedPendingSum = selectedOrders.value.reduce((sum, order) => sum + remainingOf(order), 0)
+    if (selectedPendingSum > 0 && allocateTotal.value > selectedPendingSum * 2) {
+      await ElMessageBox.confirm(
+        `录入金额 ¥${Number(allocateTotal.value).toFixed(2)} 明显大于选中订单待回补贴合计 ¥${selectedPendingSum.toFixed(2)}，多余部分会留在回款池。确认录入的是补贴部分、无误？`,
+        '金额核对',
+        { confirmButtonText: '确认无误', cancelButtonText: '再检查一下', type: 'warning' }
+      )
+    }
     await ElMessageBox.confirm(
       `确认从回款 #${pool.id} 核销 ¥${total.toFixed(2)} 到 ${items.length} 笔订单吗？`,
       '确认核销',
