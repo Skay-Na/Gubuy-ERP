@@ -1151,7 +1151,37 @@ func GetOrders(c *gin.Context) {
 
 // UpdateSubsidyRequest 更新国补状态请求体
 type UpdateSubsidyRequest struct {
-	TargetStatus int `json:"target_status" binding:"required,oneof=2"`
+	// 目标状态: 1-待提交资料, 2-已提交资料（0/3 不可通过此接口设置）
+	TargetStatus int `json:"target_status" binding:"required,oneof=1 2"`
+}
+
+// subsidyStatusLabel 国补状态的中文描述（用于错误提示与日志）。
+func subsidyStatusLabel(status int) string {
+	switch status {
+	case 0:
+		return "无国补"
+	case 1:
+		return "待提交资料"
+	case 2:
+		return "已提交资料"
+	case 3:
+		return "已回款"
+	}
+	return "未知状态"
+}
+
+// validateSubsidyTransition 校验国补状态跃迁合法性：
+// 只允许单向前进 0→1→2（0→2 允许，业务上存在"无国补资料直接已提交"），
+// 禁止任何回退；3（已回款）只能由国补核销流程写入，本接口一律拒绝。
+func validateSubsidyTransition(current, target int) error {
+	if target == 3 {
+		return fmt.Errorf("已回款状态由国补核销流程写入，不能通过此接口修改")
+	}
+	if target <= current {
+		return fmt.Errorf("国补状态不允许回退或重复设置（当前「%s」，目标「%s」）",
+			subsidyStatusLabel(current), subsidyStatusLabel(target))
+	}
+	return nil
 }
 
 // UpdateSubsidyStatus 更新国补状态（提交资料）
@@ -1178,15 +1208,6 @@ func UpdateSubsidyStatus(c *gin.Context) {
 		return
 	}
 
-	var order models.Order
-	if err := config.DB.First(&order, id).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 404,
-			"msg":  "订单不存在",
-		})
-		return
-	}
-
 	tx := config.DB.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -1194,7 +1215,28 @@ func UpdateSubsidyStatus(c *gin.Context) {
 		}
 	}()
 
-	// 1. 更新订单国补状态
+	// 读取移入事务内并对订单行加锁，防止并发提交资料时状态校验失效。
+	var order models.Order
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, id).Error; err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusNotFound, gin.H{
+			"code": 404,
+			"msg":  "订单不存在",
+		})
+		return
+	}
+
+	// 1. 状态机校验：单向跃迁，禁止回退与跳到已回款
+	if err := validateSubsidyTransition(order.SubsidyStatus, req.TargetStatus); err != nil {
+		tx.Rollback()
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  err.Error(),
+		})
+		return
+	}
+
+	// 2. 更新订单国补状态
 	if err := tx.Model(&order).Update("subsidy_status", req.TargetStatus).Error; err != nil {
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "更新状态失败: " + err.Error()})
@@ -1208,7 +1250,7 @@ func UpdateSubsidyStatus(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code": 200,
-		"msg":  "状态更新成功",
+		"msg":  fmt.Sprintf("国补状态已更新为「%s」", subsidyStatusLabel(req.TargetStatus)),
 	})
 }
 

@@ -78,6 +78,19 @@ func resetAuditDB(t *testing.T) {
 	if err := config.DB.Exec("UPDATE accounts SET balance = 0").Error; err != nil {
 		t.Fatalf("重置账户余额失败: %v", err)
 	}
+	// 兜底补齐种子账户：TestResetSystemDeletesAgentAttachments 会通过 ResetSystem
+	// 连种子账户一起清空，若不补齐，同包后续依赖账户的用例会全部 "record not found"。
+	for _, name := range []string{"支付宝", "微信", "公户", "现金"} {
+		var count int64
+		if err := config.DB.Unscoped().Model(&models.Account{}).Where("name = ?", name).Count(&count).Error; err != nil {
+			t.Fatalf("检查种子账户 %s 失败: %v", name, err)
+		}
+		if count == 0 {
+			if err := config.DB.Create(&models.Account{Name: name}).Error; err != nil {
+				t.Fatalf("补齐种子账户 %s 失败: %v", name, err)
+			}
+		}
+	}
 }
 
 // ensureCategory 确保存在一个分类
