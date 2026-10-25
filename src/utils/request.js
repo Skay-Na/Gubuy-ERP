@@ -13,7 +13,8 @@ const service = axios.create({
 const isTerminalRoute = () => router.currentRoute.value.path.startsWith('/terminal')
 const isPinVerifyRequest = config => config?.url?.includes('/api/employees/verify-pin')
 
-const clearAuth = () => {
+// 清除管理端登录态（退出登录、Token 失效时共用）
+export const clearAuth = () => {
   localStorage.removeItem('erp_token')
   localStorage.removeItem('erp_username')
 }
@@ -66,6 +67,10 @@ service.interceptors.response.use(
       response.code = payload.code
       response.msg = payload.msg
       response.result = payload.data
+      // 幂等命中：后端返回 duplicated:true 表示请求已提交过，统一给出友好提示
+      if (payload.duplicated) {
+        ElMessage.info(payload.msg || '该请求已提交过，未重复处理')
+      }
     }
 
     return response

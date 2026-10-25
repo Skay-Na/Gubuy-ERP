@@ -465,7 +465,7 @@
       </template>
       <template #footer>
         <el-button @click="balanceDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmPayBalance">确认结算</el-button>
+        <el-button type="primary" :loading="payBalanceLoading" @click="confirmPayBalance">确认结算</el-button>
       </template>
     </el-dialog>
 
@@ -506,7 +506,7 @@
       </div>
       <template #footer>
         <el-button @click="deliveryDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmDeliver" :disabled="!selectedDeliveryPersonId">确认提交</el-button>
+        <el-button type="primary" :loading="deliverySubmitting" :disabled="!selectedDeliveryPersonId" @click="confirmDeliver">确认提交</el-button>
       </template>
     </el-dialog>
 
@@ -565,7 +565,7 @@
       </div>
       <template #footer>
         <el-button @click="installDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmInstall" :disabled="!selectedInstallerId">确认提交</el-button>
+        <el-button type="primary" :loading="installSubmitting" :disabled="!selectedInstallerId" @click="confirmInstall">确认提交</el-button>
       </template>
     </el-dialog>
 
@@ -601,7 +601,7 @@
       </div>
       <template #footer>
         <el-button @click="commissionDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmUpdateCommission">确认修改</el-button>
+        <el-button type="primary" :loading="commissionSaving" @click="confirmUpdateCommission">确认修改</el-button>
       </template>
     </el-dialog>
 
@@ -622,7 +622,7 @@
         </div>
         <div class="grid grid-cols-2 gap-2 pt-3 pb-[env(safe-area-inset-bottom)]">
           <el-button @click="commissionDialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="confirmUpdateCommission">保存提成</el-button>
+          <el-button type="primary" :loading="commissionSaving" @click="confirmUpdateCommission">保存提成</el-button>
         </div>
       </div>
     </el-drawer>
@@ -1202,17 +1202,22 @@ const openReceiptPreview = (row) => {
   receiptVisible.value = true
 }
 
+const subsidySubmitting = ref(false)
 const handleSubmitSubsidy = (row) => {
+  if (subsidySubmitting.value) return
   ElMessageBox.confirm('确认已向政府系统提交资料？', '提交资料', { type: 'info' }).then(async () => {
+    if (subsidySubmitting.value) return
+    subsidySubmitting.value = true
     try {
       const res = await request.put(`/api/orders/${row.id}/subsidy`, { target_status: 2 })
       if (res.data.code === 200) { fetchOrders(); ElMessage.success('提交成功') }
-    } catch (error) { ElMessage.error('操作失败') }
+    } catch (error) { ElMessage.error('操作失败') } finally { subsidySubmitting.value = false }
   })
 }
 
 const balanceDialogVisible = ref(false)
 const balanceTargetOrder = ref(null)
+const payBalanceLoading = ref(false)
 const finalPaymentMethod = ref(1)
 const paymentMethodOptions = [
   { value: 1, label: '支付宝' },
@@ -1228,7 +1233,8 @@ const handlePayBalance = (row) => {
 }
 
 const confirmPayBalance = async () => {
-  if (!balanceTargetOrder.value) return
+  if (!balanceTargetOrder.value || payBalanceLoading.value) return
+  payBalanceLoading.value = true
   try {
     const res = await request.put(`/api/orders/${balanceTargetOrder.value.id}/balance`, {
       final_payment_method: finalPaymentMethod.value
@@ -1238,7 +1244,7 @@ const confirmPayBalance = async () => {
       balanceDialogVisible.value = false
       fetchOrders()
     }
-  } catch (error) { ElMessage.error(error.response?.data?.msg || '操作失败') }
+  } catch (error) { ElMessage.error(error.response?.data?.msg || '操作失败') } finally { payBalanceLoading.value = false }
 }
 
 const handleCancel = (row) => {
@@ -1277,6 +1283,7 @@ const deliveryTargetItem = ref(null)
 const selectedDeliveryPersonId = ref(null)
 const selectedDeliveryTime = ref(null)
 const deliveryFee = ref(0)
+const deliverySubmitting = ref(false)
 const deliveryFeeDialogVisible = ref(false)
 const deliveryFeeTarget = ref(null)
 const editingDeliveryFee = ref(0)
@@ -1287,6 +1294,7 @@ const installTargetItem = ref(null)
 const selectedInstallerId = ref(null)
 const selectedInstallTime = ref(null)
 const installationFee = ref(0)
+const installSubmitting = ref(false)
 const installationFeeDialogVisible = ref(false)
 const installationFeeTarget = ref(null)
 const editingInstallationFee = ref(0)
@@ -1328,7 +1336,8 @@ const handleDeliver = (item) => {
 }
 
 const confirmDeliver = async () => {
-  if (!selectedDeliveryPersonId.value) return
+  if (!selectedDeliveryPersonId.value || deliverySubmitting.value) return
+  deliverySubmitting.value = true
   try {
     const res = await request.put(`/api/order-items/${deliveryTargetItem.value.id}/deliver`, {
       delivery_person_id: selectedDeliveryPersonId.value,
@@ -1340,7 +1349,7 @@ const confirmDeliver = async () => {
       deliveryDialogVisible.value = false
       fetchOrders()
     }
-  } catch (error) { ElMessage.error('操作失败') }
+  } catch (error) { ElMessage.error('操作失败') } finally { deliverySubmitting.value = false }
 }
 
 const openDeliveryFeeDialog = (item, order) => {
@@ -1389,7 +1398,8 @@ const handleInstall = (item) => {
 }
 
 const confirmInstall = async () => {
-  if (!selectedInstallerId.value) return
+  if (!selectedInstallerId.value || installSubmitting.value) return
+  installSubmitting.value = true
   try {
     const res = await request.put(`/api/order-items/${installTargetItem.value.id}/install`, {
       installer_id: selectedInstallerId.value,
@@ -1401,7 +1411,7 @@ const confirmInstall = async () => {
       installDialogVisible.value = false
       fetchOrders()
     }
-  } catch (error) { ElMessage.error(error.response?.data?.msg || '操作失败') }
+  } catch (error) { ElMessage.error(error.response?.data?.msg || '操作失败') } finally { installSubmitting.value = false }
 }
 
 const openInstallationFeeDialog = (item, order) => {
@@ -1442,6 +1452,7 @@ const confirmUpdateInstallationFee = async () => {
 const commissionDialogVisible = ref(false)
 const commissionTargetOrder = ref(null)
 const newCommissionAmount = ref(0)
+const commissionSaving = ref(false)
 
 const openCommissionDialog = (row) => {
   if (row.order_type === 2) return
@@ -1452,6 +1463,8 @@ const openCommissionDialog = (row) => {
 }
 
 const confirmUpdateCommission = async () => {
+  if (commissionSaving.value) return
+  commissionSaving.value = true
   try {
     const res = await request.put(`/api/orders/${commissionTargetOrder.value.id}/commission`, {
       commission_amount: newCommissionAmount.value
@@ -1463,7 +1476,7 @@ const confirmUpdateCommission = async () => {
     }
   } catch (error) {
     ElMessage.error('调整失败')
-  }
+  } finally { commissionSaving.value = false }
 }
 
 const referrerDialogVisible = ref(false)

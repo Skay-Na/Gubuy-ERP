@@ -164,7 +164,7 @@ import {
   Wallet
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
-import request from '../utils/request'
+import request, { clearAuth } from '../utils/request'
 import { ElMessage } from 'element-plus'
 
 const router = useRouter()
@@ -287,6 +287,8 @@ const handleUpdatePwd = async () => {
 }
 
 const handleLogout = () => {
+  // 退出前清空本地登录态，避免返回门户后残留 Token
+  clearAuth()
   router.push('/')
 }
 

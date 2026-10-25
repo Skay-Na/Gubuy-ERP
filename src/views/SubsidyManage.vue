@@ -455,16 +455,18 @@ const docProgress = computed(() => {
   const submitted = orders.value.filter(o => o.subsidy_status === 2)
   const finished = orders.value.filter(o => o.subsidy_status === 3)
 
+  // 金额口径与"累计应回款"一致：使用国补待回款口径（subsidy_pending_amount），
+  // 不再使用订单 total_amount，避免把非国补部分计入资料提报进度。
   return [
-    { 
-      label: '资料待提交', 
-      amount: pending.reduce((s, o) => s + o.total_amount, 0), 
+    {
+      label: '资料待提交',
+      amount: pending.reduce((s, o) => s + Number(o.subsidy_pending_amount || 0), 0),
       count: pending.length,
       color: '#94a3b8'
     },
-    { 
-      label: '资料已提交政府', 
-      amount: (submitted.reduce((s, o) => s + o.total_amount, 0) + finished.reduce((s, o) => s + o.total_amount, 0)), 
+    {
+      label: '资料已提交政府',
+      amount: (submitted.reduce((s, o) => s + Number(o.subsidy_pending_amount || 0), 0) + finished.reduce((s, o) => s + Number(o.subsidy_pending_amount || 0), 0)),
       count: (submitted.length + finished.length),
       color: '#3b82f6'
     }
