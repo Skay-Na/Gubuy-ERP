@@ -19,8 +19,9 @@ services:
       - AI_MODEL=${AI_MODEL:-}
       - AI_API_URL=${AI_API_URL:-https://api.openai.com/v1/chat/completions}
       - AI_CONFIG_SECRET=${AI_CONFIG_SECRET:-}
-      # agent-service（pi 核心）回调 Go API 的地址（同容器内 127.0.0.1:8081）
-      - ERP_API_URL=${ERP_API_URL:-http://127.0.0.1:8081}
+      # agent-service（pi 核心）回调 Go API 的地址（同容器内，Go 监听 8080；
+      # 本机开发由 dev.ps1 显式设为 http://127.0.0.1:8081）
+      - ERP_API_URL=${ERP_API_URL:-http://127.0.0.1:8080}
       - AGENT_MONITOR_ENABLED=${AGENT_MONITOR_ENABLED:-0}
       - AGENT_RUNTIME_ENABLED=${AGENT_RUNTIME_ENABLED:-0}
       - AGENT_LLM_PLANNER_ENABLED=${AGENT_LLM_PLANNER_ENABLED:-0}

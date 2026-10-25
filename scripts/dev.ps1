@@ -386,6 +386,8 @@ function Start-DevStack {
   $devAgentPort = [int](Get-DotEnv "DEV_AGENT_PORT" "8082")
   $env:AGENT_SERVICE_PORT = "$devAgentPort"
   $env:VITE_AGENT_PROXY_TARGET = "http://127.0.0.1:$devAgentPort"
+  # 本机开发 Go 监听 8081（BACKEND_LISTEN_ADDR），显式告知 agent-service 回调地址
+  $env:ERP_API_URL = "http://127.0.0.1:8081"
   $AgentDir = Join-Path $RepoRoot "agent-service"
   if (-not (Test-Path (Join-Path $AgentDir "node_modules"))) {
     Write-Step "首次启动需要安装 agent-service 依赖"
