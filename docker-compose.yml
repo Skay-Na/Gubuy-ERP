@@ -1,6 +1,7 @@
 services:
   app:
     build: .
+    image: erpwonchon-app:latest
     container_name: gubuy-erp-app
     restart: "no"
     ports:
