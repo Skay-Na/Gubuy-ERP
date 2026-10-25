@@ -1,0 +1,32 @@
+{
+  "name": "erp-agent-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Gubuy-ERP Agent 服务：基于 pi agent 核心 (earendil-works/pi) 的全新 agent 执行层",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "^1.4.0",
+    "@earendil-works/pi-ai": "^1.4.0",
+    "@fastify/multipart": "^9.0.3",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.0",
+    "unpdf": "^1.9.1"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

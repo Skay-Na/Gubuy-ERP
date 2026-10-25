@@ -93,3 +93,6 @@ erp-backend/docs/
 erp-backend/erp-backend-linux
 erp-backend/.tmp/
 erp-backend/tmp/
+
+# agent-service 编译产物（tsc）
+agent-service/dist/

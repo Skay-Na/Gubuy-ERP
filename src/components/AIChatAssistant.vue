@@ -113,7 +113,7 @@ function setThinkingLevel(index) {
           <AgentActionCard v-if="actionFor(message)?.status === 'pending'" :key="actionFor(message).id" class="mt-2" :action="actionFor(message)" :submit="agent.confirm" />
           <div v-else-if="actionFor(message)?.status === 'saved'" class="mt-2 rounded-xl bg-green-50 p-2 text-xs text-green-700">已确认保存 · 记录 #{{ actionFor(message).target_id || '已创建' }}</div>
         </div>
-        <div v-if="agent.loading.value" class="text-sm text-slate-400">正在理解问题、核对数据并整理结论…</div>
+        <div v-if="agent.loading.value" class="text-sm text-slate-400">{{ agent.loadingTip.value || '正在理解问题、核对数据并整理结论…' }}</div>
         <div v-if="agent.error.value" class="rounded-xl bg-red-50 p-3 text-sm text-red-600">
           <p>{{ agent.error.value }}</p>
           <button v-if="needsAIKeyRecovery" type="button" class="mt-2 font-medium underline" @click="navigate('/admin/settings')">前往 AI 设置重新录入 API Key →</button>
