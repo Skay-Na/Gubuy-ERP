@@ -161,6 +161,8 @@ type CreateOrderRequest struct {
 	DiscountAmount   float64 `json:"discount_amount"` // 新增：手动抹零优惠
 	// 新增：订单类型 (1-普通订单, 2-商会订单)
 	OrderType int `json:"order_type"`
+	// 客户端幂等键（可选）：同一键重复提交时直接返回已有订单，防止双击重复开单
+	ClientRequestID string `json:"client_request_id" binding:"max=64"`
 }
 
 // orderDeliveryToWarehouse 将发货方式转换为库存流水的仓库类型。
@@ -439,6 +441,35 @@ func CreateOrder(c *gin.Context) {
 		tx.Rollback()
 		c.JSON(http.StatusConflict, gin.H{"code": 409, "msg": err.Error()})
 		return
+	}
+
+	// 1.2 开单幂等：请求携带 client_request_id 时，事务内先按该键查询，
+	// 已存在订单则直接返回（duplicated:true），不重复扣库存、不重复收款。
+	req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
+	if req.ClientRequestID != "" {
+		var existing models.Order
+		idempotencyErr := tx.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error
+		if idempotencyErr == nil {
+			tx.Rollback()
+			var existingItems []models.OrderItem
+			config.DB.Where("order_id = ?", existing.ID).Find(&existingItems)
+			c.JSON(http.StatusOK, gin.H{
+				"code":       200,
+				"msg":        "该请求已提交过，返回已有订单，未重复创建",
+				"order_no":   existing.OrderNo,
+				"duplicated": true,
+				"data": gin.H{
+					"order": existing,
+					"items": existingItems,
+				},
+			})
+			return
+		}
+		if !errors.Is(idempotencyErr, gorm.ErrRecordNotFound) {
+			tx.Rollback()
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "幂等键查询失败"})
+			return
+		}
 	}
 
 	// 1.5 提前生成订单号（用于关联流水）
@@ -762,8 +793,32 @@ func CreateOrder(c *gin.Context) {
 		TradeInRemark:         req.TradeInRemark,
 		OrderType:             req.OrderType,
 	}
+	if req.ClientRequestID != "" {
+		order.ClientRequestID = &req.ClientRequestID
+	}
 
 	if err := tx.Create(&order).Error; err != nil {
+		// 并发场景下两个同幂等键请求可能同时通过预查询，唯一索引兜底：
+		// 命中重复键时回滚并返回已存在订单。
+		if req.ClientRequestID != "" && strings.Contains(err.Error(), "Duplicate entry") {
+			tx.Rollback()
+			var existing models.Order
+			if lookupErr := config.DB.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error; lookupErr == nil {
+				var existingItems []models.OrderItem
+				config.DB.Where("order_id = ?", existing.ID).Find(&existingItems)
+				c.JSON(http.StatusOK, gin.H{
+					"code":       200,
+					"msg":        "该请求已提交过，返回已有订单，未重复创建",
+					"order_no":   existing.OrderNo,
+					"duplicated": true,
+					"data": gin.H{
+						"order": existing,
+						"items": existingItems,
+					},
+				})
+				return
+			}
+		}
 		tx.Rollback()
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,

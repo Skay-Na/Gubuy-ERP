@@ -234,6 +234,9 @@ type Order struct {
 	OrderStatus int `gorm:"type:tinyint;not null;default:1;comment:订单状态：1-正常, 2-已取消" json:"order_status"`
 	// 新增：订单类型 (1-普通订单, 2-商会订单)
 	OrderType int `gorm:"type:tinyint;not null;default:1;comment:订单类型：1-普通订单, 2-商会订单" json:"order_type"`
+	// 客户端幂等键：前端每次清空购物车/进入开单页生成 UUID，防止双击重复开单。
+	// 指针类型保证未传时落库为 NULL（MySQL 唯一索引允许多个 NULL），历史数据无需迁移。
+	ClientRequestID *string `gorm:"type:varchar(64);uniqueIndex:uniq_orders_client_request_id;comment:客户端幂等键(防重复开单)" json:"client_request_id,omitempty"`
 	// 新增：关联账户
 	AccountID         *uint       `gorm:"index;comment:收款账户ID" json:"account_id"`
 	Account           *Account    `gorm:"foreignKey:AccountID" json:"account,omitempty"`

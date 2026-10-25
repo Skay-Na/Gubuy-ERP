@@ -1550,6 +1550,14 @@ const photoOrderVisible = ref(false)
 const drawerVisible = ref(false)
 const loading = ref(false)
 
+// 开单幂等键：进入开单页/每次清空购物车后重新生成，随订单提交给后端，
+// 同一键重复提交（如双击开单）时后端直接返回已有订单，不重复扣库存收款。
+const newClientRequestId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID()
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`
+}
+let clientRequestId = newClientRequestId()
+
 // 新增商品表单相关状态
 const staffProductDialogVisible = ref(false)
 const staffProductFormRef = ref(null)
@@ -2004,12 +2012,15 @@ const handleCheckout = async () => {
       trade_in_type: isTradeIn.value ? tradeInType.value : '',
       trade_in_remark: isTradeIn.value ? tradeInRemark.value : '',
       discount_amount: wipeZeroAmount.value,
-      order_type: orderType.value
+      order_type: orderType.value,
+      client_request_id: clientRequestId
     }
     const res = await request.post('/api/orders', payload)
     if (res.data.code === 200) {
       ElMessage.success('开单成功！')
       cart.value = []
+      // 购物车已清空，下一单使用新的幂等键
+      clientRequestId = newClientRequestId()
       photoOrderDraftId.value = null
       customerName.value = ''
       customerPhone.value = ''
