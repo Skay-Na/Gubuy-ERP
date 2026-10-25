@@ -113,6 +113,7 @@ func SetupRouter() *gin.Engine {
 			auth.GET("/payroll/confirmations", controllers.GetPayrollConfirmations)
 			auth.GET("/stats/monthly", controllers.GetMonthlyStats)
 			auth.GET("/finance/real-profit", controllers.GetRealProfit)
+			auth.GET("/finance/workspace", controllers.GetFinanceWorkspace)
 			auth.GET("/accounts", controllers.GetAccounts)
 			auth.POST("/accounts", controllers.CreateAccount)
 			auth.POST("/accounts/transfer", controllers.TransferFunds)
