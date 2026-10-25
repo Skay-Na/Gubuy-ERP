@@ -41,7 +41,6 @@ func schedulerEnabled() bool {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_schedules
-// @Router /api/ai/manager/schedules [get]
 func ListAgentSchedules(c *gin.Context) {
 	items, err := scheduleService().List(c.Request.Context(), c.GetString("username"))
 	if err != nil {
@@ -60,7 +59,6 @@ func ListAgentSchedules(c *gin.Context) {
 // @Success 201 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID create_agent_schedule
-// @Router /api/ai/manager/schedules [post]
 func CreateAgentSchedule(c *gin.Context) {
 	if !schedulerEnabled() {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"code": 503, "msg": "持久化 Scheduler 尚未启用"})
@@ -98,7 +96,6 @@ func CreateAgentSchedule(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID update_agent_schedule
-// @Router /api/ai/manager/schedules/{id} [put]
 func UpdateAgentSchedule(c *gin.Context) {
 	id, ok := scheduleID(c)
 	if !ok {
@@ -122,7 +119,6 @@ func UpdateAgentSchedule(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID pause_agent_schedule
-// @Router /api/ai/manager/schedules/{id}/pause [post]
 func PauseAgentSchedule(c *gin.Context) { setAgentScheduleState(c, "pause") }
 
 // ResumeAgentSchedule resumes one owned recurring task.
@@ -133,7 +129,6 @@ func PauseAgentSchedule(c *gin.Context) { setAgentScheduleState(c, "pause") }
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID resume_agent_schedule
-// @Router /api/ai/manager/schedules/{id}/resume [post]
 func ResumeAgentSchedule(c *gin.Context) { setAgentScheduleState(c, "resume") }
 
 // CancelAgentSchedule cancels one owned recurring task.
@@ -144,7 +139,6 @@ func ResumeAgentSchedule(c *gin.Context) { setAgentScheduleState(c, "resume") }
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID cancel_agent_schedule
-// @Router /api/ai/manager/schedules/{id}/cancel [post]
 func CancelAgentSchedule(c *gin.Context) { setAgentScheduleState(c, "cancel") }
 
 func setAgentScheduleState(c *gin.Context, action string) {
@@ -169,7 +163,6 @@ func setAgentScheduleState(c *gin.Context, action string) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_schedule_runs
-// @Router /api/ai/manager/schedules/{id}/runs [get]
 func ListAgentScheduleRuns(c *gin.Context) {
 	id, ok := scheduleID(c)
 	if !ok {

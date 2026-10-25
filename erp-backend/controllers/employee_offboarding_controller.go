@@ -108,6 +108,15 @@ func countDistinctSignedInDays(attendance []models.DailyAttendance) int {
 	return len(days)
 }
 
+// CreateEmployeeOffboarding 发起员工离职交接
+// @Summary 发起员工离职交接
+// @Description 发起员工离职交接
+// @Tags EmployeeOffboarding
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employees_id_offboardings
+// @Router /api/employees/{id}/offboardings [post]
 func CreateEmployeeOffboarding(c *gin.Context) {
 	employeeID := c.Param("id")
 	var req CreateEmployeeOffboardingRequest
@@ -340,6 +349,14 @@ func employeeCommissionForOrder(tx *gorm.DB, order models.Order, employeeID uint
 	return float64(shares[employeeID]) / 100, nil
 }
 
+// ListEmployeeOffboardingAlerts 获取离职订单提醒
+// @Summary 获取离职订单提醒
+// @Description 获取离职订单提醒
+// @Tags EmployeeOffboarding
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_employee_offboarding_alerts
+// @Router /api/employee-offboarding-alerts [get]
 func ListEmployeeOffboardingAlerts(c *gin.Context) {
 	var alerts []models.EmployeeOffboardingAlert
 	if err := config.DB.Where("status = ?", "open").Order("occurred_at desc, id desc").Limit(100).Find(&alerts).Error; err != nil {
@@ -349,6 +366,15 @@ func ListEmployeeOffboardingAlerts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": alerts})
 }
 
+// GetEmployeeOffboarding 获取员工离职交接详情
+// @Summary 获取员工离职交接详情
+// @Description 获取员工离职交接详情
+// @Tags EmployeeOffboarding
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_employees_id_offboardings
+// @Router /api/employees/{id}/offboardings [get]
 func GetEmployeeOffboarding(c *gin.Context) {
 	var employee models.Employee
 	if err := config.DB.First(&employee, c.Param("id")).Error; err != nil {
@@ -378,6 +404,16 @@ func GetEmployeeOffboarding(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": gin.H{"offboarding": caseRecord, "tasks": tasks, "alerts": alerts}})
 }
 
+// UpdateEmployeeHandoverTask 更新离职交接任务
+// @Summary 更新离职交接任务
+// @Description 更新离职交接任务
+// @Tags EmployeeOffboarding
+// @Param id path int true "id"
+// @Param task_id path int true "task_id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID put_api_employee_offboardings_id_tasks_task_id
+// @Router /api/employee-offboardings/{id}/tasks/{task_id} [put]
 func UpdateEmployeeHandoverTask(c *gin.Context) {
 	var req UpdateEmployeeHandoverTaskRequest
 	if err := c.ShouldBindJSON(&req); err != nil || req.Done == nil {
@@ -439,6 +475,15 @@ func UpdateEmployeeHandoverTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "交接任务已更新"})
 }
 
+// ConfirmEmployeeOffboardingSettlement 确认离职结算
+// @Summary 确认离职结算
+// @Description 确认离职结算
+// @Tags EmployeeOffboarding
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employee_offboardings_id_settlement
+// @Router /api/employee-offboardings/{id}/settlement [post]
 func ConfirmEmployeeOffboardingSettlement(c *gin.Context) {
 	tx := config.DB.Begin()
 	if tx.Error != nil {
@@ -614,6 +659,15 @@ func offboardingCommissionForEmployee(orders []models.Order, employees []models.
 	return personalCents, chamberCents, details
 }
 
+// ResolveEmployeeOffboardingAlert 处理离职订单提醒
+// @Summary 处理离职订单提醒
+// @Description 处理离职订单提醒
+// @Tags EmployeeOffboarding
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_employee_offboarding_alerts_id_resolve
+// @Router /api/employee-offboarding-alerts/{id}/resolve [post]
 func ResolveEmployeeOffboardingAlert(c *gin.Context) {
 	var req ResolveEmployeeOffboardingAlertRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Resolution) == "" {

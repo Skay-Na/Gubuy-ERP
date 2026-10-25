@@ -389,6 +389,9 @@ func TestAgentAttachmentBackupRestoreChain(t *testing.T) {
 	}
 
 	t.Setenv("DB_NAME", targetDatabase)
+	// restore 接口已要求管理员密码二次确认（commit 0f033ed），
+	// 链路测试需先准备密码已知的管理员并随表单提交。
+	ensureRestoreAdmin(t)
 	var upload bytes.Buffer
 	form := multipart.NewWriter(&upload)
 	file, err := form.CreateFormFile("file", "attachment-backup.sql")
@@ -396,6 +399,9 @@ func TestAgentAttachmentBackupRestoreChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := file.Write(dump); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.WriteField("admin_password", qaRestoreAdminPassword); err != nil {
 		t.Fatal(err)
 	}
 	if err := form.Close(); err != nil {

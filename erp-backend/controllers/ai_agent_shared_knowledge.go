@@ -17,7 +17,6 @@ import (
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_knowledge
-// @Router /api/ai/agent/knowledge [get]
 func ListAIAgentKnowledge(c *gin.Context) {
 	state := c.Query("state")
 	query := config.DB.Model(&models.AIAgentKnowledge{})
@@ -39,7 +38,6 @@ func ListAIAgentKnowledge(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID create_agent_knowledge
-// @Router /api/ai/agent/knowledge [post]
 func CreateAIAgentKnowledge(c *gin.Context) {
 	var input struct {
 		Topic        string     `json:"topic"`
@@ -82,7 +80,6 @@ func CreateAIAgentKnowledge(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID update_agent_knowledge
-// @Router /api/ai/agent/knowledge/{knowledge_id} [put]
 func UpdateAIAgentKnowledge(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("knowledge_id"), 10, 32)
 	if err != nil || id == 0 {

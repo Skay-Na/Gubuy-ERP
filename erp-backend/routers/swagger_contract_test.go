@@ -43,6 +43,11 @@ func TestSwaggerMatchesRegisteredAPIRoutes(t *testing.T) {
 	registered := make(map[string]bool)
 	for _, route := range SetupRouter().Routes() {
 		if strings.HasPrefix(route.Path, "/api/") {
+			// 跳过已停用功能的通配兜底路由（deprecation stub，非 API 契约）：
+			// /api/ai/manager/*path 用 Any 注册占位 404，swag 无法也无需为其生成文档。
+			if strings.Contains(route.Path, "/*") {
+				continue
+			}
 			registered[strings.ToUpper(route.Method)+" "+route.Path] = true
 		}
 	}

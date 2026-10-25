@@ -87,7 +87,6 @@ func saveAgentMemory(owner, kind, content, source string) (models.AIAgentMemory,
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_memories
-// @Router /api/ai/agent/memories [get]
 func ListAIAgentMemories(c *gin.Context) {
 	memories := []models.AIAgentMemory{}
 	if err := config.DB.Where("owner = ?", c.GetString("username")).Order("updated_at DESC, id DESC").Limit(agentMemoryLimit).Find(&memories).Error; err != nil {
@@ -105,7 +104,6 @@ func ListAIAgentMemories(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID create_agent_memory
-// @Router /api/ai/agent/memories [post]
 func CreateAIAgentMemory(c *gin.Context) {
 	var input agentMemoryInput
 	if c.ShouldBindJSON(&input) != nil {
@@ -129,7 +127,6 @@ func CreateAIAgentMemory(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID update_agent_memory
-// @Router /api/ai/agent/memories/{memory_id} [put]
 func UpdateAIAgentMemory(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("memory_id"), 10, 32)
 	if err != nil {
@@ -171,7 +168,6 @@ func UpdateAIAgentMemory(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID delete_agent_memory
-// @Router /api/ai/agent/memories/{memory_id} [delete]
 func DeleteAIAgentMemory(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("memory_id"), 10, 32)
 	if err != nil {

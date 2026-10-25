@@ -54,6 +54,14 @@ type stocktakeBatchSubmissionResult struct {
 	Message     string `json:"message,omitempty"`
 }
 
+// CreateStocktakeBatch 创建盘点批次
+// @Summary 创建盘点批次
+// @Description 创建盘点批次
+// @Tags StocktakeBatch
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_stocktake_batches
+// @Router /api/stocktake-batches [post]
 // CreateStocktakeBatch snapshots all products matching the current keyword/category filters.
 func CreateStocktakeBatch(c *gin.Context) {
 	var req CreateStocktakeBatchRequest
@@ -193,6 +201,14 @@ func newStocktakeBatchNo(now time.Time) (string, error) {
 	return fmt.Sprintf("PD%s-%s", now.Format("20060102-150405"), hex.EncodeToString(suffix)), nil
 }
 
+// ListMyStocktakeBatches 获取我的盘点批次列表
+// @Summary 获取我的盘点批次列表
+// @Description 获取我的盘点批次列表
+// @Tags StocktakeBatch
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_stocktake_batches
+// @Router /api/stocktake-batches [get]
 // ListMyStocktakeBatches lists recent batches owned by the authenticated employee.
 func ListMyStocktakeBatches(c *gin.Context) {
 	employee, ok := stocktakeBatchEmployee(c)
@@ -236,6 +252,14 @@ func ListMyStocktakeBatches(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data, "blind_stocktake_mode": blindMode})
 }
 
+// ListAdminStocktakeBatches 管理端获取全部盘点批次
+// @Summary 管理端获取全部盘点批次
+// @Description 管理端获取全部盘点批次
+// @Tags StocktakeBatch
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_admin_stocktake_batches
+// @Router /api/admin/stocktake-batches [get]
 // ListAdminStocktakeBatches lists recent stocktake batches for administrator management.
 func ListAdminStocktakeBatches(c *gin.Context) {
 	batches := []models.StocktakeBatch{}
@@ -280,6 +304,15 @@ func ListAdminStocktakeBatches(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": data})
 }
 
+// TerminateStocktakeBatch 终止盘点批次
+// @Summary 终止盘点批次
+// @Description 终止盘点批次
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_admin_stocktake_batches_id_terminate
+// @Router /api/admin/stocktake-batches/{id}/terminate [post]
 // TerminateStocktakeBatch ends an active batch while preserving its count history.
 func TerminateStocktakeBatch(c *gin.Context) {
 	batchID, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -313,6 +346,15 @@ func TerminateStocktakeBatch(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "盘库单已终止，已录入信息已保留"})
 }
 
+// DeleteStocktakeBatch 删除盘点批次
+// @Summary 删除盘点批次
+// @Description 删除盘点批次
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID delete_api_admin_stocktake_batches_id
+// @Router /api/admin/stocktake-batches/{id} [delete]
 // DeleteStocktakeBatch removes a batch only when it has no inventory changes or linked review records.
 func DeleteStocktakeBatch(c *gin.Context) {
 	batchID, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -367,6 +409,15 @@ func DeleteStocktakeBatch(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "盘库单及其清点信息已删除"})
 }
 
+// GetStocktakeBatch 获取盘点批次详情
+// @Summary 获取盘点批次详情
+// @Description 获取盘点批次详情
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_stocktake_batches_id
+// @Router /api/stocktake-batches/{id} [get]
 // GetStocktakeBatch returns a batch and its product snapshots without exposing book quantities.
 func GetStocktakeBatch(c *gin.Context) {
 	batch, ok := ownedStocktakeBatch(c, true)
@@ -376,6 +427,15 @@ func GetStocktakeBatch(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": batch})
 }
 
+// MarkStocktakeBatchPrinted 记录盘点批次打印
+// @Summary 记录盘点批次打印
+// @Description 记录盘点批次打印
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_stocktake_batches_id_print
+// @Router /api/stocktake-batches/{id}/print [post]
 // MarkStocktakeBatchPrinted records every print/reprint action for the task.
 func MarkStocktakeBatchPrinted(c *gin.Context) {
 	var req ConfirmStocktakeBatchPrintRequest
@@ -410,6 +470,15 @@ func MarkStocktakeBatchPrinted(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "已记录打印"})
 }
 
+// UpdateStocktakeBatchItems 保存盘点批次明细
+// @Summary 保存盘点批次明细
+// @Description 保存盘点批次明细
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID put_api_stocktake_batches_id_items
+// @Router /api/stocktake-batches/{id}/items [put]
 // UpdateStocktakeBatchItems saves employee-entered counts without exposing book stock.
 func UpdateStocktakeBatchItems(c *gin.Context) {
 	var req UpdateStocktakeBatchItemsRequest
@@ -493,6 +562,15 @@ func UpdateStocktakeBatchItems(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "盘点数量已保存"})
 }
 
+// SubmitStocktakeBatch 提交盘点批次
+// @Summary 提交盘点批次
+// @Description 提交盘点批次
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_stocktake_batches_id_submit
+// @Router /api/stocktake-batches/{id}/submit [post]
 // SubmitStocktakeBatch applies counted items through the existing inventory review rules.
 func SubmitStocktakeBatch(c *gin.Context) {
 	batch, ok := ownedStocktakeBatch(c, false)
@@ -669,6 +747,16 @@ func submitStocktakeBatchItem(batch models.StocktakeBatch, itemID uint) stocktak
 	return result
 }
 
+// RefreshStocktakeBatchItem 刷新盘点批次单项库存快照
+// @Summary 刷新盘点批次单项库存快照
+// @Description 刷新盘点批次单项库存快照
+// @Tags StocktakeBatch
+// @Param id path int true "id"
+// @Param item_id path int true "item_id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_stocktake_batches_id_items_item_id_refresh
+// @Router /api/stocktake-batches/{id}/items/{item_id}/refresh [post]
 // RefreshStocktakeBatchItem resets a conflicted item to the latest snapshot for recounting.
 func RefreshStocktakeBatchItem(c *gin.Context) {
 	batch, ok := ownedStocktakeBatch(c, false)

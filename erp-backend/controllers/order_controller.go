@@ -1911,6 +1911,15 @@ type UpdateItemInstallationFeeRequest struct {
 	InstallationFee *float64 `json:"installation_fee" binding:"required,gte=0"`
 }
 
+// UpdateItemInstallationFee 修改订单项安装费
+// @Summary 修改订单项安装费
+// @Description 修改订单项安装费
+// @Tags Orders
+// @Param item_id path int true "item_id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID put_api_order_items_item_id_installation_fee
+// @Router /api/order-items/{item_id}/installation-fee [put]
 // UpdateItemInstallationFee 更新单个订单商品的安装费，并同步订单汇总费用。
 func UpdateItemInstallationFee(c *gin.Context) {
 	itemID := c.Param("item_id")
@@ -2349,6 +2358,15 @@ func UpdateItemDeliveryStatus(c *gin.Context) {
 	})
 }
 
+// UpdateItemDeliveryFee 修改订单项送货费
+// @Summary 修改订单项送货费
+// @Description 修改订单项送货费
+// @Tags Orders
+// @Param item_id path int true "item_id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID put_api_order_items_item_id_delivery_fee
+// @Router /api/order-items/{item_id}/delivery-fee [put]
 // UpdateItemDeliveryFee 更新单个订单商品的送货费，并同步订单汇总费用。
 func UpdateItemDeliveryFee(c *gin.Context) {
 	itemID := c.Param("item_id")

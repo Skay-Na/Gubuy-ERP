@@ -146,6 +146,14 @@ func ListPendingInbounds(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": records})
 }
 
+// ListMyPendingInbounds 查询我的入库申请进度
+// @Summary 查询我的入库申请进度
+// @Description 查询我的入库申请进度
+// @Tags Inbound
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_pending_inbounds_mine
+// @Router /api/pending-inbounds/mine [get]
 // ListMyPendingInbounds returns only applications submitted by the authenticated employee.
 func ListMyPendingInbounds(c *gin.Context) {
 	employee, isEmployeeToken, err := currentEmployeeScope(c)

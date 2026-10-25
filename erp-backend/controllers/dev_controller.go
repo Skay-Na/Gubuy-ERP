@@ -17,7 +17,6 @@ import (
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
 // @ID post_api_dev_reset_order_counters
-// @Router /api/dev/reset-order-counters [post]
 func ResetOrderCounters(c *gin.Context) {
 	env := os.Getenv("APP_ENV")
 	if env != "development" && env != "test" {

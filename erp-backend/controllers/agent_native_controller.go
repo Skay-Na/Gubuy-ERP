@@ -33,7 +33,6 @@ type CreateAIAgentPlannerTaskRequest struct {
 // @Success 202 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID create_agent_planner_task
-// @Router /api/ai/agent/sessions/{id}/planner-tasks [post]
 func CreateAIAgentPlannerTask(c *gin.Context) {
 	session, ok := agentSession(c)
 	if !ok {
@@ -114,7 +113,6 @@ func nativeMonitor() agentnative.MonitorService {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_native_signals
-// @Router /api/ai/manager/signals [get]
 func ListAgentNativeSignals(c *gin.Context) {
 	items := []models.AgentSignal{}
 	if err := config.DB.Where("tenant_id = ?", agentnative.SingleTenant).
@@ -132,7 +130,6 @@ func ListAgentNativeSignals(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_native_tasks
-// @Router /api/ai/manager/tasks [get]
 func ListAgentNativeTasks(c *gin.Context) {
 	items := []models.AgentWorkTask{}
 	if err := config.DB.Where("tenant_id = ?", agentnative.SingleTenant).
@@ -151,7 +148,6 @@ func ListAgentNativeTasks(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_native_task_steps
-// @Router /api/ai/manager/tasks/{id}/steps [get]
 func ListAgentNativeTaskSteps(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id == 0 {
@@ -176,7 +172,6 @@ func ListAgentNativeTaskSteps(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID cancel_agent_native_task
-// @Router /api/ai/manager/tasks/{id}/cancel [post]
 func CancelAgentNativeTask(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id == 0 {
@@ -229,7 +224,6 @@ func CancelAgentNativeTask(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_native_drafts
-// @Router /api/ai/manager/drafts [get]
 func ListAgentNativeDrafts(c *gin.Context) {
 	items := []models.AgentReplenishmentDraft{}
 	if err := config.DB.Where("tenant_id = ?", agentnative.SingleTenant).
@@ -257,7 +251,6 @@ type ReviewAgentDraftRequest struct {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID review_agent_native_draft
-// @Router /api/ai/manager/drafts/{id}/review [post]
 func ReviewAgentNativeDraft(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil || id == 0 {
@@ -301,7 +294,6 @@ func ReviewAgentNativeDraft(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_native_activities
-// @Router /api/ai/manager/activities [get]
 func ListAgentNativeActivities(c *gin.Context) {
 	items := []models.AgentActivity{}
 	query := config.DB.Where("tenant_id = ?", agentnative.SingleTenant)
@@ -327,7 +319,6 @@ func ListAgentNativeActivities(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_native_goals
-// @Router /api/ai/manager/goals [get]
 func ListAgentNativeGoals(c *gin.Context) {
 	items := []models.AgentGoal{}
 	if err := config.DB.Where("tenant_id = ?", agentnative.SingleTenant).
@@ -356,7 +347,6 @@ type CreateAgentGoalRequest struct {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID create_agent_native_goal
-// @Router /api/ai/manager/goals [post]
 func CreateAgentNativeGoal(c *gin.Context) {
 	var req CreateAgentGoalRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -393,7 +383,6 @@ func CreateAgentNativeGoal(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID run_agent_native_monitor
-// @Router /api/ai/manager/scan [post]
 func RunAgentNativeMonitor(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 	defer cancel()

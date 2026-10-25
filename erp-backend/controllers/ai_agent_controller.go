@@ -70,7 +70,6 @@ func agentSession(c *gin.Context) (models.AIAgentSession, bool) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID create_agent_session
-// @Router /api/ai/agent/sessions [post]
 func CreateAIAgentSession(c *gin.Context) {
 	var input struct {
 		Debug bool `json:"debug"`
@@ -97,7 +96,6 @@ func CreateAIAgentSession(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID get_agent_session
-// @Router /api/ai/agent/sessions/{id} [get]
 func GetAIAgentSession(c *gin.Context) {
 	session, ok := agentSession(c)
 	if !ok {
@@ -252,7 +250,6 @@ func agentPlannerConversation(recent []models.AIAgentMessage) string {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID send_agent_message
-// @Router /api/ai/agent/sessions/{id}/messages [post]
 func SendAIAgentMessage(c *gin.Context) {
 	session, ok := agentSession(c)
 	if !ok {
@@ -569,7 +566,6 @@ func completeAgentAction(tx *gorm.DB, id, targetID uint) error {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID confirm_agent_action
-// @Router /api/ai/agent/actions/{id}/confirm [post]
 func ConfirmAIAgentAction(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -620,7 +616,6 @@ func ConfirmAIAgentAction(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID get_agent_brief
-// @Router /api/ai/agent/brief [get]
 func GetAIAgentBrief(c *gin.Context) {
 	var unpaid, subsidy int64
 	if err := config.DB.Model(&models.Order{}).Where("order_status = 1 AND payment_status = 1 AND actual_pay_amount > deposit_amount").Count(&unpaid).Error; err != nil {

@@ -267,6 +267,14 @@ type ReviewPendingStocktakeRequest struct {
 	ReviewRemark string `json:"review_remark" binding:"max=255"`
 }
 
+// ListPendingStocktakes 获取待审核盘点申请
+// @Summary 获取待审核盘点申请
+// @Description 获取待审核盘点申请
+// @Tags Stocktake
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_pending_stocktakes
+// @Router /api/pending-stocktakes [get]
 // ListPendingStocktakes returns stocktake requests for administrator review.
 func ListPendingStocktakes(c *gin.Context) {
 	query := config.DB.Preload("Product").Order("created_at desc, id desc")
@@ -281,6 +289,14 @@ func ListPendingStocktakes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": records})
 }
 
+// ListMyPendingStocktakes 查询我的盘点申请进度
+// @Summary 查询我的盘点申请进度
+// @Description 查询我的盘点申请进度
+// @Tags Stocktake
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_pending_stocktakes_mine
+// @Router /api/pending-stocktakes/mine [get]
 // ListMyPendingStocktakes returns stocktake requests for the authenticated employee.
 func ListMyPendingStocktakes(c *gin.Context) {
 	employee, isEmployeeToken, err := currentEmployeeScope(c)
@@ -307,6 +323,15 @@ func ListMyPendingStocktakes(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "data": records})
 }
 
+// ApprovePendingStocktake 通过盘点申请
+// @Summary 通过盘点申请
+// @Description 通过盘点申请
+// @Tags Stocktake
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_pending_stocktakes_id_approve
+// @Router /api/pending-stocktakes/{id}/approve [post]
 func ApprovePendingStocktake(c *gin.Context) {
 	var req ReviewPendingStocktakeRequest
 	if c.Request.ContentLength > 0 {
@@ -401,6 +426,15 @@ func ApprovePendingStocktake(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "盘点差异已审核并应用"})
 }
 
+// RejectPendingStocktake 驳回盘点申请
+// @Summary 驳回盘点申请
+// @Description 驳回盘点申请
+// @Tags Stocktake
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_pending_stocktakes_id_reject
+// @Router /api/pending-stocktakes/{id}/reject [post]
 func RejectPendingStocktake(c *gin.Context) {
 	var req ReviewPendingStocktakeRequest
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.ReviewRemark) == "" {

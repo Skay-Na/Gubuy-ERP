@@ -32,6 +32,14 @@ type operationHistoryItem struct {
 	CanUndo   bool       `json:"can_undo"`
 }
 
+// GetOperationHistory 获取操作历史
+// @Summary 获取操作历史
+// @Description 获取操作历史
+// @Tags Operations
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_operations
+// @Router /api/operations [get]
 // GetOperationHistory lists recent tracked business operations for administrators.
 func GetOperationHistory(c *gin.Context) {
 	limit, err := strconv.Atoi(c.DefaultQuery("limit", "100"))
@@ -1222,6 +1230,15 @@ func uniqueOperationDetails(parts []string) []string {
 	return result
 }
 
+// UndoOperation 撤销操作
+// @Summary 撤销操作
+// @Description 撤销操作
+// @Tags Operations
+// @Param id path int true "id"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_operations_id_undo
+// @Router /api/operations/{id}/undo [post]
 // UndoOperation restores the captured rows if no later change has touched them.
 func UndoOperation(c *gin.Context) {
 	release := middlewares.LockOperationHistory()

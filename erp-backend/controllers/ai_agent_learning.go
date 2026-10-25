@@ -225,7 +225,6 @@ func persistAgentPredictionSnapshots(owner string, message models.AIAgentMessage
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID evaluate_agent_predictions
-// @Router /api/ai/agent/predictions/evaluate [post]
 func EvaluateAIAgentPredictions(c *gin.Context) {
 	var snapshots []models.AIAgentPredictionSnapshot
 	monthStart := time.Date(time.Now().Year(), time.Now().Month(), 1, 0, 0, 0, 0, time.Local)
@@ -301,7 +300,6 @@ func EvaluateAIAgentPredictions(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_predictions
-// @Router /api/ai/agent/predictions [get]
 func ListAIAgentPredictions(c *gin.Context) {
 	var snapshots []models.AIAgentPredictionSnapshot
 	if err := config.DB.Where("owner = ?", c.GetString("username")).Order("id desc").Limit(100).Find(&snapshots).Error; err != nil {
@@ -341,7 +339,6 @@ func ListAIAgentPredictions(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID submit_agent_feedback
-// @Router /api/ai/agent/messages/{message_id}/feedback [post]
 func SubmitAIAgentFeedback(c *gin.Context) {
 	owner := c.GetString("username")
 	id, err := strconv.ParseUint(c.Param("message_id"), 10, 32)
@@ -461,7 +458,6 @@ func agentCaseSensitiveValues() ([]string, error) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID list_agent_cases
-// @Router /api/ai/agent/cases [get]
 func ListAIAgentCases(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "30"))
 	if limit < 1 || limit > 100 {
@@ -508,7 +504,6 @@ func ListAIAgentCases(c *gin.Context) {
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID update_agent_case
-// @Router /api/ai/agent/cases/{case_id} [put]
 func UpdateAIAgentCase(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("case_id"), 10, 32)
 	if err != nil || id == 0 {

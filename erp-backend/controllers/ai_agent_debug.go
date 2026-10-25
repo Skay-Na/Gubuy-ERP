@@ -20,7 +20,6 @@ import (
 // @Success 200 {object} APIResponse
 // @Security ApiKeyAuth
 // @ID get_agent_message_trace
-// @Router /api/ai/agent/messages/{message_id}/trace [get]
 func GetAIAgentMessageTrace(c *gin.Context) {
 	c.Header("Cache-Control", "no-store")
 	id, err := strconv.ParseUint(c.Param("message_id"), 10, 32)
