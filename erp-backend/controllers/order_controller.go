@@ -109,8 +109,8 @@ type PaymentSplitRequest struct {
 	Amount        float64 `json:"amount" binding:"required,gt=0"`
 }
 
-// paymentMethodName 返回支付方式编号对应的中文账户名（用于按名称查找账户）。
-// 返回空字符串表示该编号未配置名称，将回退到按 ID 查找。
+// paymentMethodName 返回支付方式编号对应的规范收款账户名（与 seedAccounts 初始化的账户一致）。
+// 返回空字符串表示该编号未配置名称，调用方应返回明确错误而不是回退查询。
 func paymentMethodName(method int) string {
 	switch method {
 	case 1:
@@ -180,36 +180,38 @@ func resolvePaymentAccount(tx *gorm.DB, paymentMethod int, accountID *uint) (mod
 	return lookupPaymentAccount(tx, paymentMethod, accountID, true)
 }
 
+// lookupPaymentAccount 按显式账户 ID 或支付方式编号解析收款账户。
+// 统一入口：CreateOrder 与 PayOrderBalance 共用，避免两处解析行为漂移。
+// 解析规则：
+//  1. accountID 非空时按账户主键精确查找；
+//  2. 否则按支付方式编号映射到规范账户名（支付宝/微信/公户/现金）精确匹配；
+//  3. 查不到一律返回明确错误，绝不允许把"支付方式编号"当账户主键回退查询
+//     （旧逻辑在账户表 id 与方式编号错位时会把钱记到错误账户，属于假账隐患）。
 func lookupPaymentAccount(tx *gorm.DB, paymentMethod int, accountID *uint, lock bool) (models.Account, error) {
-	var account models.Account
-	var err error
 	query := tx
 	if lock {
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
+
+	var account models.Account
+	var err error
 	if accountID != nil {
 		err = query.First(&account, *accountID).Error
-		return account, err
+		if err != nil {
+			return account, fmt.Errorf("收款账户(ID %d)不存在: %w", *accountID, err)
+		}
+		return account, nil
 	}
 
-	var name string
-	switch paymentMethod {
-	case 1:
-		name = "支付宝"
-	case 2:
-		name = "微信"
-	case 3:
-		name = "公户"
-	case 5:
-		name = "现金"
+	name := paymentMethodName(paymentMethod)
+	if name == "" {
+		return account, fmt.Errorf("不支持的支付方式编号 %d", paymentMethod)
 	}
-	if name != "" {
-		err = query.Where("name = ?", name).First(&account).Error
+	err = query.Where("name = ?", name).First(&account).Error
+	if err != nil {
+		return account, fmt.Errorf("未找到与支付方式「%s」对应的收款账户，请检查账户配置", name)
 	}
-	if err != nil || name == "" {
-		err = query.First(&account, paymentMethod).Error
-	}
-	return account, err
+	return account, nil
 }
 
 func lockOrderAccounts(tx *gorm.DB, req CreateOrderRequest) error {
@@ -1158,7 +1160,7 @@ func UpdateSubsidyStatus(c *gin.Context) {
 // PayBalanceRequest 结清尾款请求体
 type PayBalanceRequest struct {
 	// 最终全款支付方式: 1-支付宝, 2-微信, 3-公户, 5-现金
-	FinalPaymentMethod int `json:"final_payment_method" binding:"required"`
+	FinalPaymentMethod int `json:"final_payment_method" binding:"required,oneof=1 2 3 5"`
 }
 
 // PayOrderBalance 结清尾款 —— "退定再结全额"模式
@@ -1295,35 +1297,18 @@ func PayOrderBalance(c *gin.Context) {
 	}
 
 	// ========== 第二步：收取全款 ==========
-	var finalAccountID uint
-	var finalAcc models.Account
-	var accErr error
-	var name string
-	switch req.FinalPaymentMethod {
-	case 1:
-		name = "支付宝"
-	case 2:
-		name = "微信"
-	case 3:
-		name = "公户"
-	case 5:
-		name = "现金"
-	}
-	if name != "" {
-		accErr = tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("name = ?", name).First(&finalAcc).Error
-	}
-	if accErr != nil || name == "" {
-		accErr = tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&finalAcc, req.FinalPaymentMethod).Error
-	}
+	// 与开单共用同一个账户解析函数：只按支付方式映射的规范账户名查找，
+	// 禁止把支付方式编号当账户主键回退查询。
+	finalAcc, accErr := resolvePaymentAccount(tx, req.FinalPaymentMethod, nil)
 	if accErr != nil {
 		tx.Rollback()
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 404,
-			"msg":  "结算账户不存在，请检查配置",
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
+			"msg":  "结算账户错误：" + accErr.Error(),
 		})
 		return
 	}
-	finalAccountID = finalAcc.ID
+	finalAccountID := finalAcc.ID
 
 	// 2a. 锁定新账户并增加全款
 	if err := tx.Model(&models.Account{}).Where("id = ?", finalAccountID).

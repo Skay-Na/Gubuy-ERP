@@ -842,18 +842,9 @@ const handleCheckout = async () => {
     
     submitLoading.value = true
 
-    // 智能选取匹配的资金账户ID传递给后端
-    let selectedAccountId = null
-    let accountName = "支付宝"
-    if (paymentMethod.value === 2) accountName = "微信"
-    if (paymentMethod.value === 3 || paymentMethod.value === 4) accountName = "公户"
-    if (paymentMethod.value === 5) accountName = "现金"
-    
-    const targetAccount = accounts.value.find(acc => acc.name.includes(accountName) || acc.name === accountName)
-    if (targetAccount) {
-      selectedAccountId = targetAccount.id
-    }
-    
+    // 收款账户不再由前端按账户名称文本匹配猜测，统一由后端根据支付方式
+    // （payment_method / payment_splits）解析出规范收款账户，避免同名/错位账户记错账。
+
     const payload = {
       items: cartStore.cart.map(item => ({
         product_id: item.id,
@@ -869,7 +860,6 @@ const handleCheckout = async () => {
       employee_id: employeeId.value || undefined,
       referrer_name: referrerName.value,
       payment_method: paymentMethod.value,
-      account_id: selectedAccountId || undefined, // 传入智能解析的账户ID
       payment_splits: paymentSplits,
       delivery_method: deliveryMethod.value,
       bypass_price_check: hasPriceViolation.value,

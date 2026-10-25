@@ -105,7 +105,9 @@ function applyFields(fields) {
     Object.assign(order, normalizeAIOrderFields(fields, products.value, employees.value))
     if (order.is_subsidy) {
       order.payment_method = 3
-      order.account_id = accounts.value.find(account => String(account.name || '').includes('公户'))?.id || null
+      // 收款账户不再按账户名称文本匹配猜测：置空后由后端按支付方式统一解析，
+      // 用户仍可在下方"收款账户"下拉中显式指定账户覆盖默认解析。
+      order.account_id = null
     }
   } else {
     expense.amount = fields.amount || null
