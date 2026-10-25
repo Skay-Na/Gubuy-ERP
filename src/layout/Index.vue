@@ -160,7 +160,8 @@ import {
   Setting,
   Money,
   EditPen,
-  Clock
+  Clock,
+  Wallet
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import request from '../utils/request'
@@ -352,6 +353,7 @@ const menuItems = [
 const mobileMenuItems = [
   { title: 'AI 店长', path: '/admin/ai-manager', icon: DataLine },
   { title: '看板', path: '/admin/dashboard', icon: DataLine },
+  { title: '财务', path: '/admin/finance', icon: Wallet },
   { title: '收银', path: '/admin/pos', icon: ShoppingCart },
   { title: '商品', path: '/admin/products', icon: Box },
   { title: '订单', path: '/admin/orders', icon: Memo },

@@ -1,5 +1,5 @@
 <template>
-  <div class="p-6 max-w-7xl mx-auto">
+  <div class="subsidy-page p-4 sm:p-6 max-w-7xl mx-auto">
     <!-- Header Section -->
     <div class="mb-8">
       <div class="flex justify-between items-end gap-4 mb-6">
@@ -58,9 +58,9 @@
         <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2">
           <el-icon><Coin /></el-icon>选单核销
         </h3>
-        <div class="flex flex-wrap items-center gap-2">
-          <span class="text-xs text-slate-500 font-bold">回款池</span>
-          <el-select v-model="allocatePoolId" placeholder="选择要核销的回款记录" class="!w-72" size="default">
+        <div class="allocate-toolbar flex flex-wrap items-center gap-2">
+          <span class="text-xs text-slate-500 font-bold whitespace-nowrap">回款池</span>
+          <el-select v-model="allocatePoolId" placeholder="选择要核销的回款记录" class="w-full sm:!w-72" size="default">
             <el-option
               v-for="s in pools"
               :key="s.id"
@@ -69,8 +69,8 @@
               :disabled="poolRemainingOf(s) <= 0.005"
             />
           </el-select>
-          <span class="text-xs text-slate-500 font-bold">本笔核销总额</span>
-          <el-input-number v-model="allocateTotal" :min="0" :precision="2" :controls="false" class="!w-36" placeholder="金额" />
+          <span class="text-xs text-slate-500 font-bold whitespace-nowrap">本笔核销总额</span>
+          <el-input-number v-model="allocateTotal" :min="0" :precision="2" :controls="false" class="w-full sm:!w-36" placeholder="金额" />
           <el-button class="!rounded-xl" :disabled="selectedOrders.length === 0" @click="autoAllocate">按待回额自动分配</el-button>
           <el-button type="primary" class="!rounded-xl" :loading="submittingAllocate" :disabled="!canSubmitAllocate" @click="submitAllocation">提交核销</el-button>
         </div>
@@ -515,5 +515,35 @@ onMounted(() => {
   background-color: #f8fafc !important;
   color: #64748b;
   font-weight: bold;
+}
+
+/* 窄屏（<640px）移动端适配：选单核销区不溢出，提示文案正常折行 */
+@media (max-width: 640px) {
+  .subsidy-page {
+    overflow-x: clip;
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
+  .subsidy-page :deep(.el-card__body) {
+    padding: 14px;
+  }
+  /* 回款池/总额/按钮纵向排列，避免横向挤压溢出 */
+  .allocate-toolbar {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+  .allocate-toolbar :deep(.el-select),
+  .allocate-toolbar :deep(.el-input-number) {
+    width: 100%;
+  }
+  .allocate-toolbar :deep(.el-button) {
+    width: 100%;
+    margin-left: 0;
+  }
+  /* 明细文案与提示自然折行 */
+  .subsidy-page :deep(.el-table) {
+    min-width: 0;
+  }
 }
 </style>

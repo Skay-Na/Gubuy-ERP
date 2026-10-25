@@ -237,20 +237,20 @@ onMounted(refreshAll)
         <el-table-column label="时间" width="110">
           <template #default="{ row }"><span class="muted-cell">{{ formatTime(row.created_at) }}</span></template>
         </el-table-column>
-        <el-table-column prop="account_name" label="账户" width="100" />
-        <el-table-column prop="category" label="分类" min-width="100" show-overflow-tooltip />
+        <el-table-column prop="account_name" label="账户" width="100" class-name="col-account" />
+        <el-table-column prop="category" label="分类" min-width="100" show-overflow-tooltip class-name="col-category" />
         <el-table-column prop="customer_name" label="客户" min-width="100" show-overflow-tooltip />
         <el-table-column label="金额" align="right" width="140">
           <template #default="{ row }">
             <b :class="row.flow_type === 1 ? 'pos' : 'neg'">{{ row.flow_type === 1 ? '+' : '-' }}{{ money(row.amount) }}</b>
           </template>
         </el-table-column>
-        <el-table-column prop="related_no" label="单号" min-width="130" show-overflow-tooltip />
+        <el-table-column prop="related_no" label="单号" min-width="130" show-overflow-tooltip class-name="col-related" />
       </el-table>
     </el-card>
 
     <!-- 流水明细抽屉 -->
-    <el-drawer v-model="flowsDrawer.visible" :title="flowsDrawer.title" size="480px">
+    <el-drawer v-model="flowsDrawer.visible" :title="flowsDrawer.title" size="480px" class="finance-flow-drawer">
       <el-table :data="flowsDrawer.rows" v-loading="flowsDrawer.loading" size="small" style="width: 100%">
         <el-table-column label="时间" width="100">
           <template #default="{ row }"><span class="muted-cell">{{ formatTime(row.created_at) }}</span></template>
@@ -332,5 +332,41 @@ onMounted(refreshAll)
   .funds-grid { grid-template-columns: 1fr; }
   .finance-header { align-items: flex-start; flex-direction: column; gap: 12px; }
   .header-actions { width: 100%; justify-content: flex-start; }
+}
+
+/* 窄屏（<768px）移动端适配：老板手机查钱/核销场景 */
+@media (max-width: 768px) {
+  /* 页面骨架收窄，杜绝横向溢出 */
+  .finance-page { padding: 16px 12px; gap: 12px; }
+  /* 顶部三个动作按钮保持可见：纵向排布不折叠进菜单 */
+  .header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .header-actions :deep(.el-button) { margin-left: 0; }
+  .header-actions :deep(.el-dropdown) { flex: 1; }
+  .header-actions :deep(.el-dropdown .el-button) { width: 100%; }
+  /* 指标卡网格 → 单列堆叠 */
+  .profit-grid { grid-template-columns: 1fr; gap: 10px; }
+  .profit-cell b { font-size: 21px; }
+  /* 钱在哪：可用资金大字与账户列表上下堆叠（funds-grid 已单列），字号收缩 */
+  .funds-available { font-size: 28px; }
+  /* 待我处理：名称+去处理一行，数量金额第二行，"去处理"不换行不挤压金额 */
+  .todo-row { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "label label go" "count amount go"; row-gap: 3px; padding: 11px 12px; }
+  .todo-label { grid-area: label; min-width: 0; }
+  .todo-count { grid-area: count; }
+  .todo-amount { grid-area: amount; justify-self: end; }
+  .todo-go { grid-area: go; align-self: center; white-space: nowrap; }
+  /* 概况卡桥接行字号微收 */
+  .bridge-row { font-size: 12.5px; }
+  /* 最近流水：隐藏次要列（账户/分类/单号），保留时间/客户/金额，防横向滚动 */
+  :deep(.el-table .col-account),
+  :deep(.el-table .col-category),
+  :deep(.el-table .col-related) { display: none; }
+  :deep(.el-table) { min-width: 0; }
+}
+</style>
+
+<style>
+/* 流水明细抽屉：窄屏占满屏宽（抽屉宽度是行内样式，需全局覆盖） */
+@media (max-width: 768px) {
+  .finance-flow-drawer { width: 100% !important; }
 }
 </style>
