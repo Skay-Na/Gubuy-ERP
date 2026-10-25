@@ -4,6 +4,8 @@ import (
 	"erp-backend/controllers"
 	"erp-backend/middlewares"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"strings"
 
@@ -191,12 +193,55 @@ func SetupRouter() *gin.Engine {
 	}
 
 	// 所有非 API 请求都返回 index.html (支持 SPA 路由)
-	r.NoRoute(func(c *gin.Context) {
-		c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
-		c.Header("Pragma", "no-cache")
-		c.Header("Expires", "0")
-		c.File("./dist/index.html")
-	})
+	// 例外：pi 核心 Agent 服务（agent-service，同容器 127.0.0.1:8082）。
+	// 开发态由 vite 代理 /api/ai/agent(?!-tools) → 8082；生产容器没有 vite，
+	// 8082 也不映射宿主端口，因此必须在 Go 侧反向代理承接，否则前端 AI 店长
+	// 拿到的是 SPA 兜底页。鉴权双重保险：Go 侧要求管理员 JWT，agent-service
+	// 侧也会再验一次。
+	agentServiceURL := os.Getenv("ERP_AGENT_SERVICE_URL")
+	if strings.TrimSpace(agentServiceURL) == "" {
+		agentServiceURL = "http://127.0.0.1:8082"
+	}
+	agentTarget, err := url.Parse(agentServiceURL)
+	if err == nil {
+		agentProxy := httputil.NewSingleHostReverseProxy(agentTarget)
+		// SSE 流式响应必须立即刷新，否则消息逐段输出会被缓冲。
+		agentProxy.FlushInterval = -1
+
+		isAgentServicePath := func(p string) bool {
+			if p == "/api/ai/agent" || strings.HasPrefix(p, "/api/ai/agent/") {
+				// /api/ai/agent-tools 仍是 Go 后端的数据工具接口，不转发。
+				return !strings.HasPrefix(p, "/api/ai/agent-tools")
+			}
+			return false
+		}
+
+		r.NoRoute(func(c *gin.Context) {
+			if isAgentServicePath(c.Request.URL.Path) {
+				middlewares.AuthRequired()(c)
+				if c.IsAborted() {
+					return
+				}
+				middlewares.AdminAuthRequired()(c)
+				if c.IsAborted() {
+					return
+				}
+				agentProxy.ServeHTTP(c.Writer, c.Request)
+				return
+			}
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+			c.File("./dist/index.html")
+		})
+	} else {
+		r.NoRoute(func(c *gin.Context) {
+			c.Header("Cache-Control", "no-cache, no-store, must-revalidate")
+			c.Header("Pragma", "no-cache")
+			c.Header("Expires", "0")
+			c.File("./dist/index.html")
+		})
+	}
 
 	return r
 }
