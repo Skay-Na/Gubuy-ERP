@@ -13,6 +13,8 @@ RUN npm run build
 # --- Stage 2: Build Backend ---
 # 构建阶段跑原生架构，GOOS/GOARCH 交叉编译出目标架构二进制（软路由 = linux/arm64）
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS backend-builder
+# 国内环境用 goproxy.cn 拉模块（proxy.golang.org 直连不稳定）
+ENV GOPROXY=https://goproxy.cn,direct
 # buildx/build --platform 时由构建器自动注入，用于交叉编译到目标架构
 # （软路由是 linux/arm64，必须设 GOARCH，否则编出 amd64 二进制无法运行）
 ARG TARGETOS
@@ -54,7 +56,9 @@ RUN --mount=type=cache,target=/root/.npm \
 FROM node:20-alpine
 
 # 安装必要库、mysql 客户端及时间数据，并创建非特权用户
-RUN apk --no-cache add ca-certificates mariadb-client tzdata && \
+# apk 源换国内镜像（dl-cdn.alpinelinux.org 直连偶发 I/O 错误）
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories && \
+    apk --no-cache add ca-certificates mariadb-client tzdata && \
     (command -v mariadb-dump >/dev/null 2>&1 || command -v mysqldump >/dev/null 2>&1) && \
     (command -v mariadb >/dev/null 2>&1 || command -v mysql >/dev/null 2>&1) && \
     adduser -D -g '' appuser
