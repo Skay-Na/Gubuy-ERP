@@ -34,6 +34,10 @@ export const verifyPin = data => request.post('/api/employees/verify-pin', data)
 // 员工提成报表（按月）
 export const fetchCommissionReport = month => request.get(`/api/employees/commission-report?month=${month}`)
 
+// 员工工资条（按年逐月：应发/实付/差额/提成订单明细/实付构成/定稿快照）
+export const fetchPayrollHistory = (employeeId, year) =>
+  request.get(`/api/employees/${employeeId}/payroll-history?year=${year}`)
+
 // ---------- 工资确认 ----------
 
 // 查询工资确认状态

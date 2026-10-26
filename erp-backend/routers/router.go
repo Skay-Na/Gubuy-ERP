@@ -180,6 +180,8 @@ func SetupRouter() *gin.Engine {
 			adminAuth.POST("/system/historical-cost-repair", controllers.RepairHistoricalCost)
 			adminAuth.POST("/employees/:id/offboardings", controllers.CreateEmployeeOffboarding)
 			adminAuth.GET("/employees/:id/offboardings", controllers.GetEmployeeOffboarding)
+			// 工资条：按年逐月应发/实付/差额与提成订单明细，含确认发放定稿快照。
+			adminAuth.GET("/employees/:id/payroll-history", controllers.GetPayrollHistory)
 			// 员工档案写操作与考勤修正属于管理行为，统一收归管理员权限。
 			adminAuth.POST("/employees", controllers.CreateEmployee)
 			adminAuth.PUT("/employees/:id", controllers.UpdateEmployee)

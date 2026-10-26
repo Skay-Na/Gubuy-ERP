@@ -11,6 +11,7 @@ type PayrollConfirmation struct {
 	EmployeeID uint      `gorm:"not null;uniqueIndex:uk_employee_month,priority:1;index;comment:员工ID" json:"employee_id"`
 	Month      string    `gorm:"type:char(7);not null;uniqueIndex:uk_employee_month,priority:2;comment:工资月份 YYYY-MM" json:"month"`
 	Amount     float64   `gorm:"type:decimal(10,2);not null;comment:实发工资" json:"amount"`
+	Snapshot   string    `gorm:"type:json;comment:发放时薪资结构快照JSON(CommissionReportItem)，空=旧数据无快照" json:"snapshot"`
 	CreatedBy  string    `gorm:"type:varchar(100);not null;default:'';comment:确认操作人" json:"created_by"`
 	CreatedAt  time.Time `json:"created_at"`
 }

@@ -92,6 +92,7 @@ func ConfirmPayroll(c *gin.Context) {
 	type payrollBooking struct {
 		employee models.Employee
 		amount   float64
+		snapshot string
 	}
 	var bookings []payrollBooking
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
@@ -125,7 +126,7 @@ func ConfirmPayroll(c *gin.Context) {
 			if employee.EmploymentStatus == models.EmployeeStatusDeparted {
 				return fmt.Errorf("员工 %s 已离职，不能确认工资发放", employee.Name)
 			}
-			bookings = append(bookings, payrollBooking{employee: employee, amount: amountByEmployee[employeeID]})
+			bookings = append(bookings, payrollBooking{employee: employee, amount: amountByEmployee[employeeID], snapshot: payrollSnapshotForMonth(req.Month, employeeID)})
 		}
 
 		// 4. 写确认记录 + 经营开销"工资"支出流水（不进资金账户流水）
@@ -137,6 +138,7 @@ func ConfirmPayroll(c *gin.Context) {
 				EmployeeID: booking.employee.ID,
 				Month:      req.Month,
 				Amount:     booking.amount,
+				Snapshot:   booking.snapshot,
 				CreatedBy:  operator,
 				CreatedAt:  now,
 			}

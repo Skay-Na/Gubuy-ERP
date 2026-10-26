@@ -9,7 +9,7 @@
       <div class="people-header-actions">
         <el-button @click="handleExport"><el-icon class="mr-1"><Download /></el-icon>导出人员</el-button>
         <el-button v-if="activeTab === 'employees'" type="primary" plain @click="openReportDrawer">薪资结算</el-button>
-        <el-button type="primary" @click="openDialog()">{{ activeTab === 'employees' ? '新增员工' : '新增外包人员' }}</el-button>
+        <el-button v-if="activeTab !== 'payroll'" type="primary" @click="openDialog()">{{ activeTab === 'employees' ? '新增员工' : '新增外包人员' }}</el-button>
       </div>
     </header>
 
@@ -20,11 +20,12 @@
     </div>
 
     <div class="people-controls">
-      <el-segmented v-model="activeTab" :options="[{ label: '正式员工', value: 'employees' }, { label: '外包人员', value: 'outsourced' }]" />
-      <el-input v-model="employeeQuery" clearable :placeholder="activeTab === 'employees' ? '搜索姓名、工号或电话' : '搜索姓名或电话'" class="people-search" />
-      <span class="people-count">{{ filteredEmployees.length }} 人</span>
+      <el-segmented v-model="activeTab" :options="[{ label: '正式员工', value: 'employees' }, { label: '外包人员', value: 'outsourced' }, { label: '工资条', value: 'payroll' }]" />
+      <el-input v-if="activeTab !== 'payroll'" v-model="employeeQuery" clearable :placeholder="activeTab === 'employees' ? '搜索姓名、工号或电话' : '搜索姓名或电话'" class="people-search" />
+      <span v-if="activeTab !== 'payroll'" class="people-count">{{ filteredEmployees.length }} 人</span>
     </div>
-    <EmployeeRoster :rows="filteredEmployees" :type="activeTab" :loading="loading" @edit="openDialog" @attendance="viewAttendance" @remove="handleDelete" @offboard="openOffboarding" />
+    <PayrollHistory v-if="activeTab === 'payroll'" :employees="employees" :is-mobile="isMobile" @view-order="viewPayrollOrder" />
+    <EmployeeRoster v-else :rows="filteredEmployees" :type="activeTab" :loading="loading" @edit="openDialog" @attendance="viewAttendance" @remove="handleDelete" @offboard="openOffboarding" />
     <EmployeeOffboardingDialog v-model="offboardingVisible" :employee="selectedOffboardingEmployee" :employees="employees" @updated="fetchEmployees" />
 
     <!-- Dialog -->
@@ -177,6 +178,7 @@ import { Download } from '@element-plus/icons-vue'
 import { downloadExcel } from '../utils/export'
 import dayjs from 'dayjs'
 import PayrollDetail from '../components/employee/PayrollDetail.vue'
+import PayrollHistory from '../components/employee/PayrollHistory.vue'
 import PayrollWorkspace from '../components/employee/PayrollWorkspace.vue'
 import EmployeeRoster from '../components/employee/EmployeeRoster.vue'
 import EmployeeOffboardingDialog from '../components/employee/EmployeeOffboardingDialog.vue'
