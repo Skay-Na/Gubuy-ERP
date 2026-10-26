@@ -96,3 +96,7 @@ erp-backend/tmp/
 
 # agent-service 编译产物（tsc）
 agent-service/dist/
+
+# 环境文件与密钥防护（2026-10-26 自检加固）
+.env*
+*.env

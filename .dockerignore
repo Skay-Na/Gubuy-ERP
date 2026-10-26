@@ -8,3 +8,5 @@ erp-backend/.cache
 .DS_Store
 scripts/update_router.sh
 *.tar
+.env*
+*.env
