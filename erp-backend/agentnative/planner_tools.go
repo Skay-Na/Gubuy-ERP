@@ -470,7 +470,12 @@ func (r *RuntimeExecutor) taskCanUseTool(task models.AgentWorkTask, tool string)
 		return false
 	}
 	if task.Kind == "agent_analysis" {
-		return (strings.HasPrefix(tool, "retail.") && tool != "retail.replenishment_context") || tool == "agent.get_task_status"
+		if strings.HasPrefix(tool, "retail.") && tool != "retail.replenishment_context" {
+			return true
+		}
+		// 长期计划工具：availableTools 先按 RequiredPermission 过滤，
+		// 只有任务 CapabilitiesJSON 显式授予 schedule.read / schedule.manage 时才可见。
+		return strings.HasPrefix(tool, "schedule.") || tool == "agent.get_task_status"
 	}
 	return false
 }
@@ -487,7 +492,7 @@ func taskPrincipal(task models.AgentWorkTask) (string, []string) {
 	if task.CapabilitiesJSON != "" && json.Unmarshal([]byte(task.CapabilitiesJSON), &requested) == nil {
 		for _, candidate := range requested {
 			switch candidate {
-			case "retail.read", "agent.task.read":
+			case "retail.read", "agent.task.read", "schedule.read", "schedule.manage":
 				permissions = append(permissions, candidate)
 			}
 		}

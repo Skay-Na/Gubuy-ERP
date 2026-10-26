@@ -242,6 +242,65 @@ func TestAgentAnswersEmployeeCommissionFromReportRules(t *testing.T) {
 	}
 }
 
+// TestAgentCommissionSkipsChamberOrdersBeforeStartDate AI 店长提成口径：
+// 2026-10 之前的商会订单不计分成（chamberCommissionStart），
+// 2026-10 起的商会订单正常按在职正式员工分摊，与员工月度提成报表一致。
+func TestAgentCommissionSkipsChamberOrdersBeforeStartDate(t *testing.T) {
+	setupAudit(t)
+	// 报表按"当月在职正式员工"分摊商会池，先清历史用例残留员工保证分母确定。
+	if err := config.DB.Unscoped().Where("is_outsourced = ?", false).Delete(&models.Employee{}).Error; err != nil {
+		t.Fatalf("清理残留员工失败: %v", err)
+	}
+	entryDate := time.Date(2000, 1, 1, 0, 0, 0, 0, time.Local)
+	unique := strconv.FormatInt(time.Now().UnixNano(), 10)
+	employee := models.Employee{
+		Name: "商会口径员工" + unique, EmpNo: "CH-" + unique,
+		Role: "sales", EntryDate: &entryDate, BaseSalary: 1000,
+	}
+	if err := config.DB.Create(&employee).Error; err != nil {
+		t.Fatal(err)
+	}
+	legacyOrder := models.Order{
+		OrderNo: "AGENT-CHAMBER-OLD-" + unique, CustomerName: "商会老单客户", OrderStatus: 1,
+		OrderType: 2, TotalAmount: 100, ActualPayAmount: 100,
+		CreatedAt: time.Date(2026, 8, 15, 12, 0, 0, 0, time.Local),
+	}
+	if err := config.DB.Create(&legacyOrder).Error; err != nil {
+		t.Fatal(err)
+	}
+	activeOrder := models.Order{
+		OrderNo: "AGENT-CHAMBER-NEW-" + unique, CustomerName: "商会新单客户", OrderStatus: 1,
+		OrderType: 2, TotalAmount: 100, ActualPayAmount: 100,
+		CreatedAt: time.Date(2026, 10, 10, 12, 0, 0, 0, time.Local),
+	}
+	if err := config.DB.Create(&activeOrder).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		config.DB.Unscoped().Delete(&legacyOrder)
+		config.DB.Unscoped().Delete(&activeOrder)
+		config.DB.Unscoped().Delete(&employee)
+	})
+
+	// 2026-08：商会老单早于起计点 → 提成为 0，不出现分成明细
+	answer, err := agentEmployeeCommission(employee.Name, "2026-08", "")
+	if err != nil {
+		t.Fatalf("legacy month answer: %v", err)
+	}
+	if !strings.Contains(answer, "提成：¥0.00") || !strings.Contains(answer, "商会订单分摊 ¥0.00") {
+		t.Fatalf("legacy chamber order must not pay commission: %q", answer)
+	}
+
+	// 2026-10：新商会单正常分摊（池 100×1%=1 元，唯一在职员工独得 1.00）
+	answer, err = agentEmployeeCommission(employee.Name, "2026-10", "")
+	if err != nil {
+		t.Fatalf("active month answer: %v", err)
+	}
+	if !strings.Contains(answer, "商会订单分摊 ¥1.00") {
+		t.Fatalf("active chamber order should pay commission: %q", answer)
+	}
+}
+
 func TestAgentCommissionFollowUpExpandsToAllEmployees(t *testing.T) {
 	setupAudit(t)
 	month := time.Now().AddDate(0, -1, 0)

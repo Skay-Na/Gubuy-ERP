@@ -210,12 +210,15 @@ func agentEmployeeCommission(name, month, period string) (string, error) {
 	report := map[uint]*CommissionReportItem{employee.ID: item}
 	for _, order := range orders {
 		if order.OrderType == 2 {
+			if order.CreatedAt.Before(chamberCommissionStart) {
+				continue // 2026-10 之前的商会订单不计分成（与月度提成报表口径一致）
+			}
 			addChamberOrderToCommissionReport(order, historicalEmployees, report)
 		} else {
 			addOrderToCommissionReport(order, report)
 		}
 	}
-	return fmt.Sprintf("%s（工号 %s）%s提成：¥%.2f。个人订单提成 ¥%.2f，商会订单分摊 ¥%.2f；个人订单商品销售额 ¥%.2f，提成明细 %d 笔。口径与员工管理的月度提成报表一致：仅有效订单，普通订单按开单员工归属，老板客户订单不计个人业绩，商会订单按在职正式员工分摊。", employee.Name, employee.EmpNo, start.Format("2006-01"), item.TotalCommission, item.PersonalCommission, item.ChamberCommission, item.TotalSales, len(item.CommissionDetails)), nil
+	return fmt.Sprintf("%s（工号 %s）%s提成：¥%.2f。个人订单提成 ¥%.2f，商会订单分摊 ¥%.2f；个人订单商品销售额 ¥%.2f，提成明细 %d 笔。口径与员工管理的月度提成报表一致：仅有效订单，普通订单按开单员工归属，老板客户订单不计个人业绩，商会订单按在职正式员工分摊（2026-10 起才计分成）。", employee.Name, employee.EmpNo, start.Format("2006-01"), item.TotalCommission, item.PersonalCommission, item.ChamberCommission, item.TotalSales, len(item.CommissionDetails)), nil
 }
 
 func agentAllEmployeeCommissions(month, period string) (string, error) {
@@ -244,6 +247,9 @@ func agentAllEmployeeCommissions(month, period string) (string, error) {
 	}
 	for _, order := range orders {
 		if order.OrderType == 2 {
+			if order.CreatedAt.Before(chamberCommissionStart) {
+				continue // 2026-10 之前的商会订单不计分成（与月度提成报表口径一致）
+			}
 			addChamberOrderToCommissionReport(order, historical, reports)
 		} else {
 			addOrderToCommissionReport(order, reports)
@@ -259,7 +265,7 @@ func agentAllEmployeeCommissions(month, period string) (string, error) {
 		total += item.TotalCommission
 		lines = append(lines, fmt.Sprintf("%s（工号 %s）：¥%.2f", item.EmployeeName, item.EmpNo, item.TotalCommission))
 	}
-	return fmt.Sprintf("%s所有员工提成合计：¥%.2f。按员工明细：%s。仅含在职正式员工，口径与员工管理月度提成报表一致。", start.Format("2006-01"), total, strings.Join(lines, "；")), nil
+	return fmt.Sprintf("%s所有员工提成合计：¥%.2f。按员工明细：%s。仅含在职正式员工，口径与员工管理月度提成报表一致（商会订单 2026-10 起才计分成）。", start.Format("2006-01"), total, strings.Join(lines, "；")), nil
 }
 
 func agentEmployeeOrders(name, period string) (string, error) {

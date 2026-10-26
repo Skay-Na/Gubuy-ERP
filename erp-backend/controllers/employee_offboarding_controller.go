@@ -627,6 +627,9 @@ func offboardingCommissionForEmployee(orders []models.Order, employees []models.
 	details := make([]CommissionDetail, 0)
 	for _, order := range orders {
 		if order.OrderType == 2 {
+			if order.CreatedAt.Before(chamberCommissionStart) {
+				continue // 2026-10 之前的商会订单不计分成（与月度提成报表口径一致）
+			}
 			eligibleIDs := chamberEligibleEmployeeIDs(employees, order.CreatedAt)
 			shares := splitChamberCommission(chamberCommissionPoolCents(order), eligibleIDs)
 			share := shares[employeeID]
