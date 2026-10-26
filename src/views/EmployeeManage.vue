@@ -24,7 +24,7 @@
       <el-input v-if="activeTab !== 'payroll'" v-model="employeeQuery" clearable :placeholder="activeTab === 'employees' ? '搜索姓名、工号或电话' : '搜索姓名或电话'" class="people-search" />
       <span v-if="activeTab !== 'payroll'" class="people-count">{{ filteredEmployees.length }} 人</span>
     </div>
-    <PayrollHistory v-if="activeTab === 'payroll'" :employees="employees" :is-mobile="isMobile" @view-order="viewPayrollOrder" />
+    <PayrollHistory v-if="activeTab === 'payroll'" :employees="employees" :is-mobile="isMobile" :initial-employee-id="focusPayrollEmployeeId" @view-order="viewPayrollOrder" />
     <EmployeeRoster v-else :rows="filteredEmployees" :type="activeTab" :loading="loading" @edit="openDialog" @attendance="viewAttendance" @remove="handleDelete" @offboard="openOffboarding" />
     <EmployeeOffboardingDialog v-model="offboardingVisible" :employee="selectedOffboardingEmployee" :employees="employees" @updated="fetchEmployees" />
 
@@ -163,7 +163,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   fetchEmployees as fetchEmployeesApi,
   createEmployee,
@@ -184,6 +184,7 @@ import EmployeeRoster from '../components/employee/EmployeeRoster.vue'
 import EmployeeOffboardingDialog from '../components/employee/EmployeeOffboardingDialog.vue'
 
 const router = useRouter()
+const route = useRoute()
 
 const employees = ref([])
 const offboardingVisible = ref(false)
@@ -201,6 +202,8 @@ const handleExport = () => {
 }
 
 const activeTab = ref('employees')
+// 看板待办跳转时预选的工资条员工（null=不预选）
+const focusPayrollEmployeeId = ref(null)
 const employeeQuery = ref('')
 const formalCount = computed(() => employees.value.filter(row => !row.is_outsourced && row.employment_status !== 'departed').length)
 const outsourcedCount = computed(() => employees.value.filter(row => row.is_outsourced).length)
@@ -468,6 +471,12 @@ const handleDelete = (row) => {
 }
 
 onMounted(() => {
+  // 支持从首页看板"定稿工资变动"待办跳转：/admin/employees?tab=payroll&employee_id=xx
+  if (route.query.tab === 'payroll') {
+    activeTab.value = 'payroll'
+    const focusId = Number(route.query.employee_id)
+    if (focusId > 0) focusPayrollEmployeeId.value = focusId
+  }
   fetchEmployees()
   window.addEventListener('resize', handleResize)
 })

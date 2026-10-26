@@ -22,12 +22,14 @@ type MonthlyStatsResponse struct {
 }
 
 // monthlyGrossProfitStats 计算指定月份区间的销货毛利（GetMonthlyStats 口径）：
-// 毛利 = 销售额 - 订单商品成本快照 - 订单费用（配送/安装/渠道/提成）。
-// GetMonthlyStats 与真实净利润工具共用，保证两处口径永远一致。
+// 毛利 = 净销售额(订单总额−手动折扣) - 订单商品成本快照 - 订单费用（配送/安装/渠道/提成） - 以旧换新折抵。
+// 与财务总览 CalculateGrossProfit（dashboard_controller.go）完全同口径：
+// 收入取 SUM(total_amount - discount_amount)，以旧换新作为毛利抵减项单独扣除。
+// GetMonthlyStats 与真实净利润工具共用，保证三处口径永远一致。
 func monthlyGrossProfitStats(startTime, endTime time.Time) (revenue, grossProfit float64, uncostedCount int64, err error) {
 	if err = config.DB.Model(&models.Order{}).
 		Where("order_status = 1 AND created_at >= ? AND created_at <= ?", startTime, endTime).
-		Select("COALESCE(SUM(total_amount), 0)").
+		Select("COALESCE(SUM(total_amount - discount_amount), 0)").
 		Scan(&revenue).Error; err != nil {
 		return
 	}
@@ -50,7 +52,7 @@ func monthlyGrossProfitStats(startTime, endTime time.Time) (revenue, grossProfit
 	var totalFees float64
 	if err = config.DB.Model(&models.Order{}).
 		Where("order_status = 1 AND created_at >= ? AND created_at <= ?", startTime, endTime).
-		Select("COALESCE(SUM(delivery_fee + installation_fee + referral_fee + commission_amount), 0)").
+		Select("COALESCE(SUM(delivery_fee + installation_fee + referral_fee + commission_amount + trade_in_amount), 0)").
 		Scan(&totalFees).Error; err != nil {
 		return
 	}
@@ -90,13 +92,13 @@ func GetMonthlyStats(c *gin.Context) {
 	var stats MonthlyStatsResponse
 	stats.Month = monthStr
 
-	// 1. Revenue & OrderCount
+	// 1. Revenue & OrderCount（收入与财务总览同口径：订单总额扣除手动折扣）
 	config.DB.Model(&models.Order{}).
 		Where("order_status = 1 AND created_at >= ? AND created_at <= ?", startTime, endTime).
-		Select("COALESCE(SUM(total_amount), 0) as revenue, COUNT(id) as order_count").
+		Select("COALESCE(SUM(total_amount - discount_amount), 0) as revenue, COUNT(id) as order_count").
 		Row().Scan(&stats.Revenue, &stats.OrderCount)
 
-	// Gross Profit = Revenue - TotalItemCost - TotalOrderFees（与真实净利润共用同一口径）
+	// Gross Profit = Revenue - TotalItemCost - TotalOrderFees - TradeIn（与财务总览/真实净利润共用同一口径）
 	_, grossProfit, uncostedCount, grossErr := monthlyGrossProfitStats(startTime, endTime)
 	if grossErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取毛利数据失败"})

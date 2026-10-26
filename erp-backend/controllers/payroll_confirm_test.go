@@ -34,6 +34,7 @@ func setupPayrollTest(t *testing.T) {
 		payrollTestRouter.POST("/api/payroll/confirm", middlewares.OperationHistoryMiddleware(), ConfirmPayroll)
 		payrollTestRouter.GET("/api/finance/real-profit", GetRealProfit)
 		payrollTestRouter.GET("/api/finance/workspace", GetFinanceWorkspace)
+		payrollTestRouter.GET("/api/employees/:id/payroll-history", GetPayrollHistory)
 	})
 }
 

@@ -2,10 +2,15 @@
 import { CircleCheckFilled, Right, WarningFilled } from '@element-plus/icons-vue'
 
 const props = defineProps({
-  zeroCostSaleCount: { type: Number, default: 0 }
+  zeroCostSaleCount: { type: Number, default: 0 },
+  payrollMismatches: { type: Array, default: () => [] }
 })
 
-const emit = defineEmits(['open-cost-repair'])
+const emit = defineEmits(['open-cost-repair', 'view-payroll'])
+
+const money = value => `¥${Number(value || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+const mismatchText = item =>
+  `${item.employee_name} ${item.month} 定稿应发 ${money(item.finalized_payable)} 与当前回算 ${money(item.live_payable)} 不一致（订单有变动），请核实`
 </script>
 
 <template>
@@ -15,10 +20,26 @@ const emit = defineEmits(['open-cost-repair'])
         <span class="reminders-eyebrow">FOLLOW UP</span>
         <h2 id="important-reminders-title">重要事项提醒</h2>
       </div>
-      <span v-if="props.zeroCostSaleCount > 0" class="reminders-count">
-        {{ props.zeroCostSaleCount }} 项待处理
+      <span v-if="props.zeroCostSaleCount + props.payrollMismatches.length > 0" class="reminders-count">
+        {{ props.zeroCostSaleCount + props.payrollMismatches.length }} 项待处理
       </span>
     </header>
+
+    <button
+      v-for="item in props.payrollMismatches"
+      :key="`payroll-${item.employee_id}-${item.month}`"
+      type="button"
+      class="reminder-card reminder-payroll"
+      :aria-label="`${item.employee_name} ${item.month} 定稿工资与当前回算不一致，去工资条核对`"
+      @click="emit('view-payroll', item)"
+    >
+      <span class="reminder-icon" aria-hidden="true"><el-icon><WarningFilled /></el-icon></span>
+      <span class="reminder-copy">
+        <strong>定稿工资变动提醒</strong>
+        <span>{{ mismatchText(item) }}</span>
+      </span>
+      <span class="reminder-action">去核对 <el-icon><Right /></el-icon></span>
+    </button>
 
     <button
       v-if="props.zeroCostSaleCount > 0"
@@ -35,9 +56,9 @@ const emit = defineEmits(['open-cost-repair'])
       <span class="reminder-action">去核对 <el-icon><Right /></el-icon></span>
     </button>
 
-    <div v-else class="reminders-empty" role="status">
+    <div v-if="props.zeroCostSaleCount <= 0 && props.payrollMismatches.length === 0" class="reminders-empty" role="status">
       <el-icon aria-hidden="true"><CircleCheckFilled /></el-icon>
-      暂无待处理的零成本售出事项
+      暂无待处理的重要事项
     </div>
   </section>
 </template>
@@ -49,7 +70,10 @@ const emit = defineEmits(['open-cost-repair'])
 .reminders-heading h2{margin:4px 0 0;color:#172033;font-size:18px;font-weight:750}
 .reminders-count{padding:5px 9px;border-radius:999px;background:#fff2e8;color:#c66a17;font-size:11px;font-weight:700;white-space:nowrap}
 .reminder-card{width:100%;display:flex;align-items:center;gap:13px;padding:14px;text-align:left;background:#fffaf5;border:1px solid #f4dec7;border-radius:12px;color:#344054;cursor:pointer;transition:border-color .15s,background .15s}
+.reminder-card+.reminder-card{margin-top:8px}
 .reminder-card:hover{background:#fff7ed;border-color:#e8bd91}
+.reminder-payroll{background:#fffdf5;border-color:#efe3c0}
+.reminder-payroll:hover{background:#fffaeb;border-color:#e3cf94}
 .reminder-icon{width:36px;height:36px;display:grid;place-items:center;flex:none;border-radius:10px;background:#ffedd5;color:#d97706;font-size:18px}
 .reminder-copy{display:flex;flex:1;flex-direction:column;gap:4px;min-width:0}
 .reminder-copy strong{font-size:13px;color:#7c3f0c}

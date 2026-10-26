@@ -27,8 +27,9 @@ type PayrollPaidEntry struct {
 }
 
 // PayrollHistoryMonth 工资条单月结构。
-// 应发(Payable)=按当前订单数据实时回算（与薪资结算抽屉同口径）；
-// 实付(Paid)=确认发放台账为准，历史手工月按"工资"流水归属汇总；
+// 未定稿月：应发(Payable)=按当前订单数据实时回算（与薪资结算抽屉同口径）；
+// 定稿月(Finalized=true)：应发及各分项直接展示确认发放时的快照数字（发薪那一刻的数），
+// 实时回算另存 LivePayable 供比对；实付(Paid)=确认发放台账为准，历史手工月按"工资"流水归属汇总；
 // 差额(Difference)=应发-实付，用于暴露"提成后补、工资先发"类历史差异。
 type PayrollHistoryMonth struct {
 	Month              string             `json:"month"`
@@ -42,6 +43,7 @@ type PayrollHistoryMonth struct {
 	Deduction          float64            `json:"deduction"`
 	DailySalary        float64            `json:"daily_salary"`
 	Payable            float64            `json:"payable"`
+	LivePayable        float64            `json:"live_payable"` // 仅定稿月有意义：按当前订单数据的实时回算应发
 	Paid               float64            `json:"paid"`
 	PaidSource         string             `json:"paid_source"` // confirmation/ledger/none
 	PaidEntries        []PayrollPaidEntry `json:"paid_entries"`
@@ -232,10 +234,23 @@ func GetPayrollHistory(c *gin.Context) {
 			record.PaidSource = "confirmation"
 			record.Status = "confirmed"
 			if strings.TrimSpace(confirmation.Snapshot) != "" {
-				var snapshot json.RawMessage
+				var snapshot CommissionReportItem
 				if json.Unmarshal([]byte(confirmation.Snapshot), &snapshot) == nil {
-					record.Snapshot = snapshot
+					record.Snapshot = json.RawMessage(confirmation.Snapshot)
 					record.Finalized = true
+					// 定稿月以快照为准展示"发薪那一刻"的数字；实时回算留存在 live_payable 供比对
+					record.LivePayable = record.Payable
+					record.BaseSalary = snapshot.BaseSalary
+					record.PersonalCommission = snapshot.PersonalCommission
+					record.ChamberCommission = snapshot.ChamberCommission
+					record.TotalCommission = snapshot.TotalCommission
+					record.LeaveDays = snapshot.LeaveDays
+					record.FreeLeaveDays = snapshot.FreeLeaveDays
+					record.DeductionDays = snapshot.DeductionDays
+					record.Deduction = snapshot.Deduction
+					record.DailySalary = snapshot.DailySalary
+					record.Payable = snapshot.FinalSalary
+					record.CommissionDetails = snapshot.CommissionDetails
 				}
 			}
 		} else if len(entries) > 0 {
@@ -303,4 +318,88 @@ func payrollSnapshotForMonth(month string, employeeID uint) string {
 		}
 	}
 	return ""
+}
+
+// PayrollMismatchItem 定稿工资与当前实时回算不一致的待办明细（首页看板用）。
+type PayrollMismatchItem struct {
+	EmployeeID       uint    `json:"employee_id"`
+	EmployeeName     string  `json:"employee_name"`
+	Month            string  `json:"month"`
+	FinalizedPayable float64 `json:"finalized_payable"`
+	LivePayable      float64 `json:"live_payable"`
+}
+
+// payrollMismatchThreshold 应发比较阈值：提成按人头分摊可能出现分位小数，差异超过 1 分才算不一致。
+const payrollMismatchThreshold = 0.01
+
+// finalizedPayrollMismatches 扫描全部定稿快照（payroll_confirmations.snapshot 非空），
+// 将快照应发与按当前订单数据的实时回算应发比对，返回不一致的员工月份明细。
+// 确认发放后订单有变动（后补/改单/删除）时快照与回算拉开差距，看板据此出"定稿工资变动"待办。
+// 记录量级为"员工数×定稿月数"，全表扫描可接受；同月报表只算一次复用；
+// 快照损坏或当月报表算不出的记录跳过，避免误报。
+func finalizedPayrollMismatches() ([]PayrollMismatchItem, error) {
+	var confirmations []models.PayrollConfirmation
+	if err := config.DB.Where("snapshot IS NOT NULL AND snapshot != ''").
+		Order("month asc, employee_id asc").Find(&confirmations).Error; err != nil {
+		return nil, err
+	}
+	mismatches := make([]PayrollMismatchItem, 0)
+	if len(confirmations) == 0 {
+		return mismatches, nil
+	}
+	nameByEmployee := make(map[uint]string)
+	liveByMonth := make(map[string][]CommissionReportItem)
+	skipMonths := make(map[string]bool)
+	for _, record := range confirmations {
+		if skipMonths[record.Month] {
+			continue
+		}
+		liveItems, cached := liveByMonth[record.Month]
+		if !cached {
+			monthStart, parseErr := time.ParseInLocation("2006-01", record.Month, time.Now().Location())
+			if parseErr != nil {
+				skipMonths[record.Month] = true
+				continue
+			}
+			items, reportErr := monthlyEmployeePayrollReport(monthStart, true)
+			if reportErr != nil {
+				skipMonths[record.Month] = true
+				continue
+			}
+			liveItems = items
+			liveByMonth[record.Month] = items
+		}
+		var snapshot CommissionReportItem
+		if json.Unmarshal([]byte(record.Snapshot), &snapshot) != nil {
+			continue
+		}
+		liveFinal := 0.0
+		for _, item := range liveItems {
+			if item.EmployeeID == record.EmployeeID {
+				liveFinal = item.FinalSalary
+				break
+			}
+		}
+		if math.Abs(snapshot.FinalSalary-liveFinal) <= payrollMismatchThreshold {
+			continue
+		}
+		name, known := nameByEmployee[record.EmployeeID]
+		if !known {
+			var employee models.Employee
+			if err := config.DB.Unscoped().First(&employee, record.EmployeeID).Error; err == nil {
+				name = employee.Name
+			} else {
+				name = fmt.Sprintf("员工#%d", record.EmployeeID)
+			}
+			nameByEmployee[record.EmployeeID] = name
+		}
+		mismatches = append(mismatches, PayrollMismatchItem{
+			EmployeeID:       record.EmployeeID,
+			EmployeeName:     name,
+			Month:            record.Month,
+			FinalizedPayable: math.Round(snapshot.FinalSalary*100) / 100,
+			LivePayable:      math.Round(liveFinal*100) / 100,
+		})
+	}
+	return mismatches, nil
 }

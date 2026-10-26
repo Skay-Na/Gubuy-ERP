@@ -54,6 +54,10 @@ function navigate(path) { router.push(path) }
 function openHistoricalCostRepair() {
   router.push({ path: '/admin/settings', query: { open: 'historical-cost-repair' } })
 }
+function openEmployeePayroll(item) {
+  // 定稿工资变动待办：跳转员工管理的工资条页签，按员工+薪资月定位核对
+  router.push({ path: '/admin/employees', query: { tab: 'payroll', employee_id: item.employee_id, payroll_month: item.month } })
+}
 function alertLabel(alert) {
   return ({
     pending_fulfillment: '待履约',
@@ -134,8 +138,10 @@ onMounted(refresh)
 
     <DashboardImportantReminders
       :zero-cost-sale-count="summary.pending_zero_cost_sale_count || 0"
+      :payroll-mismatches="summary.pending_payroll_mismatches || []"
       class="important-reminders"
       @open-cost-repair="openHistoricalCostRepair"
+      @view-payroll="openEmployeePayroll"
     />
 
     <DashboardDetails :summary="summary" :total-balance="totalBalance" @navigate="navigate" />

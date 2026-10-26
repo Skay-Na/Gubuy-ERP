@@ -9,11 +9,13 @@ import { createPayrollPdf, payrollPdfFilename, sharePayrollPdf } from '../../uti
 
 const props = defineProps({
   employees: { type: Array, default: () => [] },
-  isMobile: { type: Boolean, default: false }
+  isMobile: { type: Boolean, default: false },
+  // 从看板"定稿工资变动"待办跳转时预选的员工 ID
+  initialEmployeeId: { type: Number, default: null }
 })
 const emit = defineEmits(['view-order'])
 
-const selectedEmployeeId = ref(null)
+const selectedEmployeeId = ref(props.initialEmployeeId || null)
 const year = ref(dayjs().year())
 const months = ref([])
 const loading = ref(false)
@@ -60,7 +62,7 @@ const fetchHistory = async () => {
   }
 }
 
-watch([selectedEmployeeId, year], fetchHistory)
+watch([selectedEmployeeId, year], fetchHistory, { immediate: true })
 
 // 差额非零高亮：正=少发，负=多发
 const differenceClass = row => {
@@ -144,7 +146,7 @@ defineExpose({ fetchHistory })
         >{{ item }} 年</button>
       </div>
       <span v-if="selectedEmployee" class="history-hint">
-        应发 = 按订单数据实时回算（小数抹零）；实付 = 确认发放台账 / 工资流水归属；差额一眼看出哪个月发多发少
+        定稿月展示确认发放那一刻的数字（应发=快照，实付加粗醒目）；未定稿月应发按订单数据实时回算；差额一眼看出哪个月发多发少
       </span>
     </div>
 
@@ -220,10 +222,17 @@ defineExpose({ fetchHistory })
         <template #default="{ row }">{{ row.deduction ? `-${money(row.deduction)}` : '—' }}</template>
       </el-table-column>
       <el-table-column label="应发" :width="isMobile ? 90 : 110" align="right">
-        <template #default="{ row }"><strong>{{ money(row.payable) }}</strong></template>
+        <template #default="{ row }">
+          <strong>{{ money(row.payable) }}</strong>
+          <small v-if="row.finalized && Math.abs(Number(row.live_payable || 0) - Number(row.payable || 0)) > 0.01" class="live-diff-hint">
+            回算 {{ money(row.live_payable) }}
+          </small>
+        </template>
       </el-table-column>
       <el-table-column label="实付" :width="isMobile ? 90 : 110" align="right">
-        <template #default="{ row }">{{ money(row.paid) }}</template>
+        <template #default="{ row }">
+          <strong :class="{ 'paid-finalized': row.finalized }">{{ money(row.paid) }}</strong>
+        </template>
       </el-table-column>
       <el-table-column label="差额" :width="isMobile ? 96 : 110" align="right">
         <template #default="{ row }">
@@ -329,6 +338,8 @@ defineExpose({ fetchHistory })
 .order-link { padding: 0; border: 0; background: transparent; color: #2563eb; font: inherit; font-weight: 800; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .order-meta { display: block; margin-top: 3px; color: #7b8798; font-size: 11px; line-height: 1.35; }
 .difference { font-weight: 700; }
+.paid-finalized { color: #16a34a; }
+.live-diff-hint { display: block; color: #d97706; font-size: 10px; line-height: 1.3; }
 .diff-under { color: #ef4444; }
 .diff-over { color: #d97706; }
 .difference-ok { color: #16a34a; font-size: 12px; }

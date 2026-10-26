@@ -55,8 +55,11 @@ type FinanceSummaryResponse struct {
 	CostIncomplete           bool               `json:"cost_incomplete"`
 	UncostedOrderItems       int64              `json:"uncosted_order_item_count"`
 	PendingZeroCostSaleCount int64              `json:"pending_zero_cost_sale_count"`
-	OperatingExpense         float64            `json:"operating_expense"` // 日常经营费用，不含货款与以旧换新
-	NetProfit                float64            `json:"net_profit"`        // 经营净利润
+	// 定稿工资变动待办：确认发放后订单有变动导致实时回算 ≠ 定稿应发
+	PendingPayrollMismatchCount int64                 `json:"pending_payroll_mismatch_count"`
+	PendingPayrollMismatches    []PayrollMismatchItem `json:"pending_payroll_mismatches"`
+	OperatingExpense            float64               `json:"operating_expense"` // 日常经营费用，不含货款与以旧换新
+	NetProfit                   float64               `json:"net_profit"`        // 经营净利润
 	EmployeeRankings         []EmployeeRankStat `json:"employee_rankings"`
 	CategorySales            []CategorySaleStat `json:"category_sales"`
 	SalesTrend               []DailySaleTrend   `json:"sales_trend"`
@@ -293,6 +296,13 @@ func GetFinanceSummary(c *gin.Context) {
 	if err := pendingZeroCostSalesDB.Count(&summary.PendingZeroCostSaleCount).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取零成本售出提醒失败"})
 		return
+	}
+
+	// 看板待办：定稿工资变动（确认发放后订单有变动导致实时回算 ≠ 定稿应发），同样全量提醒。
+	// 该提醒属辅助核对，读取失败时降级为空，不阻断财务总览主流程。
+	if mismatches, mismatchErr := finalizedPayrollMismatches(); mismatchErr == nil {
+		summary.PendingPayrollMismatchCount = int64(len(mismatches))
+		summary.PendingPayrollMismatches = mismatches
 	}
 
 	summary.GrossProfit = CalculateGrossProfit(
