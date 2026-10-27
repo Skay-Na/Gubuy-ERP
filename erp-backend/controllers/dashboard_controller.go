@@ -241,7 +241,8 @@ func GetFinanceSummary(c *gin.Context) {
 		topDB = topDB.Where("orders.order_type != 2 AND orders.employee_id = ?", employeeIDStr)
 	}
 
-	topDB.Group("products.id").Order("quantity desc").Scan(&summary.TopProducts)
+	// LIMIT 10：看板只展示 Top5，留余量；避免订单量增长后每次刷新全量拖回所有商品
+	topDB.Group("products.id").Order("quantity desc").Limit(10).Scan(&summary.TopProducts)
 
 	// 8. 销售毛利 (GrossProfit)
 	var totalFees struct {
@@ -365,11 +366,13 @@ func GetFinanceSummary(c *gin.Context) {
 	if !endTime.IsZero() {
 		catDB = catDB.Where("orders.created_at <= ?", endTime)
 	}
-	catDB.Group("products.category_id").Order("revenue desc").Scan(&summary.CategorySales)
+	// LIMIT 10：同热销排行，看板只展示 Top5
+	catDB.Group("products.category_id").Order("revenue desc").Limit(10).Scan(&summary.CategorySales)
 
 	// 11. 销售趋势 (SalesTrend)
+	// revenue 口径与销售额 KPI 保持一致：SUM(total_amount - discount_amount)，否则有折扣单时趋势图会高于 KPI
 	trendDB := config.DB.Table("orders").
-		Select("DATE(created_at) as date, SUM(total_amount) as revenue, COUNT(id) as order_count").
+		Select("DATE(created_at) as date, SUM(total_amount - discount_amount) as revenue, COUNT(id) as order_count").
 		Where("order_status = 1")
 	if !startTime.IsZero() {
 		trendDB = trendDB.Where("created_at >= ?", startTime)

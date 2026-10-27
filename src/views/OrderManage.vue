@@ -32,24 +32,27 @@
                 placeholder="订单月份"
                 clearable
                 class="!w-full shadow-sm col-span-6"
-                @change="fetchOrders"
+                @change="searchOrders"
               />
               <el-select
                 v-model="selectedCategoryId"
                 clearable
                 placeholder="产品类型"
                 class="!w-full shadow-sm col-span-3"
-                @change="fetchOrders"
+                @change="searchOrders"
               >
                 <el-option label="全部分类" value="" />
-                <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
+                <el-option-group v-for="root in categoryTree" :key="root.id" :label="root.name">
+                  <el-option :label="`${root.name}（整类）`" :value="root.id" />
+                  <el-option v-for="child in root.children" :key="child.id" :label="child.name" :value="child.id" />
+                </el-option-group>
               </el-select>
               <el-select
                 v-model="selectedPaymentStatus"
                 clearable
                 placeholder="支付状态"
                 class="!w-full shadow-sm col-span-5"
-                @change="fetchOrders"
+                @change="searchOrders"
               >
                 <el-option v-for="option in paymentStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
               </el-select>
@@ -58,7 +61,7 @@
                 clearable
                 placeholder="国补状态"
                 class="!w-full shadow-sm col-span-5"
-                @change="fetchOrders"
+                @change="searchOrders"
               >
                 <el-option v-for="option in subsidyStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
               </el-select>
@@ -67,7 +70,7 @@
                 clearable
                 placeholder="配送与安装"
                 class="!w-full shadow-sm col-span-4"
-                @change="fetchOrders"
+                @change="searchOrders"
               >
                 <el-option v-for="option in fulfillmentStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
               </el-select>
@@ -238,12 +241,13 @@
                     <span v-if="row.account" class="text-slate-400 text-[10px] ml-1">({{ row.account.name }})</span>
                     <div v-if="row.payment_method === 4" class="text-slate-500 text-[11px] mt-1">{{ getPaymentBreakdownText(row.payment_breakdown) }}</div>
                   </el-descriptions-item>
-                  <el-descriptions-item label="开单人员">
-                    {{ row.employee?.name || '未知' }} (工号: {{ row.employee?.emp_no || '-' }})
-                  </el-descriptions-item>
-                  <el-descriptions-item v-if="isBossCustomerOrder(row)" label="业务归属">
-                    <el-tag type="warning" effect="dark" size="small">老板客户</el-tag>
-                    <span class="ml-2 text-amber-600 font-bold">不计员工业务提成</span>
+                  <el-descriptions-item label="开单 / 成交归属">
+                    <span class="font-bold">{{ row.employee?.name || '未知' }}</span>
+                    <span class="text-slate-400 text-[11px]"> (工号: {{ row.employee?.emp_no || '-' }})</span>
+                    <template v-if="isBossCustomerOrder(row)">
+                      <el-tag type="warning" effect="dark" size="small" class="ml-2">真实成交人：老板客</el-tag>
+                      <div class="text-amber-600 text-[11px] mt-1 font-bold">业绩归老板客 · 不计员工业务提成</div>
+                    </template>
                   </el-descriptions-item>
                 </el-descriptions>
 
@@ -444,6 +448,20 @@
           </div>
         </article>
         <el-empty v-if="!loading && orders.length === 0" :description="activeTab === 'archive' ? '暂无已归档订单' : activeTab === 'deleted_employee_todo' ? '暂无已删除员工待跟进订单' : '暂无订单'" />
+      </div>
+
+      <!-- 服务端分页（PC 表格与移动列表共用） -->
+      <div v-if="serverTotal > 0" class="flex justify-center py-3 border-t border-slate-100">
+        <el-pagination
+          v-model:current-page="currentPage"
+          v-model:page-size="pageSize"
+          :total="serverTotal"
+          :page-sizes="[20, 50, 100]"
+          layout="total, sizes, prev, pager, next"
+          background
+          @current-change="fetchOrders"
+          @size-change="handlePageSizeChange"
+        />
       </div>
     </el-card>
 
@@ -692,7 +710,10 @@
           <label class="block text-sm font-bold text-slate-700 mb-2">产品类型</label>
           <el-select v-model="selectedCategoryId" clearable placeholder="全部分类" class="!w-full">
             <el-option label="全部分类" value="" />
-            <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
+            <el-option-group v-for="root in categoryTree" :key="root.id" :label="root.name">
+              <el-option :label="`${root.name}（整类）`" :value="root.id" />
+              <el-option v-for="child in root.children" :key="child.id" :label="child.name" :value="child.id" />
+            </el-option-group>
           </el-select>
         </div>
         <div>
@@ -823,6 +844,7 @@ import {
   updateInstallationFee
 } from '../api/orders'
 import { fetchCategories as fetchCategoriesApi } from '../api/products'
+import { buildCategoryTree, categoryFullPath } from '../utils/categories'
 import { fetchEmployees as fetchEmployeesApi } from '../api/employees'
 import { downloadExcel } from '../utils/export'
 import { buildReceiptFromOrder } from '../utils/receipt'
@@ -840,8 +862,14 @@ const loading = ref(false)
 const searchKeyword = ref('')
 const selectedMonth = ref('')
 const activeTab = ref('all')
+// 服务端分页（订单只会越来越多，全量拉取会越来越卡）
+const currentPage = ref(1)
+const pageSize = ref(20)
+const serverTotal = ref(0)
 const categories = ref([])
 const selectedCategoryId = ref('')
+// 两级分类树：筛选项按大分类分组显示
+const categoryTree = computed(() => buildCategoryTree(categories.value))
 const selectedPaymentStatus = ref('')
 const selectedFulfillmentStatus = ref('')
 const selectedSubsidyStatus = ref('')
@@ -920,6 +948,7 @@ const selectTab = (val) => {
     selectedSubsidyStatus.value = ''
   }
   activeTab.value = val
+  currentPage.value = 1
   fetchOrders()
 }
 
@@ -927,6 +956,7 @@ let searchTimer = null
 const handleSearchInput = () => {
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
+    currentPage.value = 1
     fetchOrders()
   }, 500)
 }
@@ -940,7 +970,16 @@ const buildOrderQueryParams = () => {
     subsidy_status: selectedSubsidyStatus.value,
     order_status: activeTab.value === 'archive' ? '2' : '1',
     deleted_employee_followup: activeTab.value === 'deleted_employee_todo' ? '1' : '',
+    page: currentPage.value,
+    page_size: pageSize.value,
   }
+  // 页签语义映射到后端过滤参数（后端 applyOrderFilters 支持这些值）；
+  // 页签本身隐含的条件与用户手动下拉叠加时，页签值兜底
+  if (activeTab.value === 'todo') params.fulfillment_status = 'todo'
+  else if (activeTab.value === 'pending_delivery') params.fulfillment_status = 'pending_delivery'
+  else if (activeTab.value === 'pending_install') params.fulfillment_status = 'pending_install'
+  else if (activeTab.value === 'pending_balance') params.payment_status = selectedPaymentStatus.value || '1'
+  else if (activeTab.value === 'pending_subsidy') params.subsidy_status = selectedSubsidyStatus.value || '1'
   if (selectedMonth.value) {
     params.start_date = dayjs(selectedMonth.value).startOf('month').toISOString()
     params.end_date = dayjs(selectedMonth.value).endOf('month').toISOString()
@@ -974,40 +1013,28 @@ const fetchOrders = async () => {
 
     const res = await fetchOrdersApi(params)
     if (res.data.code === 200) {
-      let rawData = (res.data.data || []).filter(order => (
-        activeTab.value === 'archive' ? Number(order.order_status) === 2 : Number(order.order_status) !== 2
-      ))
-      allOrders.value = rawData
-      
-      // 前端进行状态聚合筛选
-      if (activeTab.value === 'archive') {
-        rawData = rawData.filter(order => Number(order.order_status) === 2)
-      } else if (activeTab.value === 'todo') {
-        rawData = rawData
-          .filter(o => o.order_status === 1 && (
-            o.payment_status === 1 ||
-            needsDelivery(o) ||
-            needsInstall(o) ||
-            o.subsidy_status === 1
-          ))
-          .sort((a, b) => getOrderPriority(a) - getOrderPriority(b))
-      } else if (activeTab.value === 'pending_delivery') {
-        rawData = rawData.filter(o => o.order_status === 1 && needsDelivery(o))
-      } else if (activeTab.value === 'pending_install') {
-        rawData = rawData.filter(o => o.order_status === 1 && needsInstall(o))
-      } else if (activeTab.value === 'pending_balance') {
-        rawData = rawData.filter(o => o.order_status === 1 && o.payment_status === 1)
-      } else if (activeTab.value === 'pending_subsidy') {
-        rawData = rawData.filter(o => o.order_status === 1 && o.subsidy_status === 1)
-      }
-      
-      orders.value = rawData
+      // 服务端已按页签/筛选过滤并分页，前端不再二次过滤
+      orders.value = res.data.data || []
+      serverTotal.value = Number(res.data.total) || orders.value.length
+      allOrders.value = orders.value // 兼容单号直达/详情回退等按引用查找的场景
     }
   } catch (error) {
     ElMessage.error('获取订单列表失败')
   } finally {
     loading.value = false
   }
+}
+
+// 筛选条件变化：回到第 1 页再查（模板里各下拉/页签/搜索统一走这里）
+const searchOrders = () => {
+  currentPage.value = 1
+  return fetchOrders()
+}
+
+// 切每页条数：回第 1 页再查，避免当前页超出总页数
+const handlePageSizeChange = () => {
+  currentPage.value = 1
+  return fetchOrders()
 }
 
 const formatDate = (date) => dayjs(date).format('YYYY-MM-DD HH:mm')
@@ -1020,14 +1047,6 @@ const needsDelivery = (row) => {
 const needsInstall = (row) => {
   if (!row || row.order_status !== 1 || row.delivery_method === 1) return false
   return (row.order_items || []).some(item => item.is_delivered && !item.is_installed)
-}
-
-const getOrderPriority = (row) => {
-  if (row.payment_status === 1) return 1
-  if (needsDelivery(row)) return 2
-  if (needsInstall(row)) return 3
-  if (row.subsidy_status === 1) return 4
-  return 9
 }
 
 const getOrderProductSummary = (row) => {
@@ -1084,6 +1103,7 @@ const openLinkedOrder = async orderNo => {
 	selectedFulfillmentStatus.value = ''
 	selectedSubsidyStatus.value = ''
 	searchKeyword.value = normalizedOrderNo
+	currentPage.value = 1
 	await fetchOrders()
 	let target = allOrders.value.find(order => order.order_no === normalizedOrderNo)
 	if (!target) {
@@ -1108,6 +1128,7 @@ const openLinkedOrder = async orderNo => {
 
 const applyMobileFilters = () => {
   filterDrawerVisible.value = false
+  currentPage.value = 1
   fetchOrders()
 }
 
@@ -1118,13 +1139,13 @@ const resetMobileFilters = () => {
   selectedFulfillmentStatus.value = ''
   selectedSubsidyStatus.value = ''
   filterDrawerVisible.value = false
+  currentPage.value = 1
   fetchOrders()
 }
 
 const getProductCategoryName = (categoryId) => {
   if (!categoryId) return '未分类'
-  const cat = categories.value.find(c => c.id === categoryId)
-  return cat ? cat.name : '未分类'
+  return categoryFullPath(categories.value, categoryId)
 }
 
 const getSubsidyLabel = (status) => {
@@ -1197,8 +1218,11 @@ const getSubsidyType = (status) => {
   return map[status] || 'info'
 }
 
+// 真实成交人是老板的单：① 介绍人标记"老板客户"；② 开单员工直接选了"老板客"账号
+// （两种录单习惯都存在，商会订单除外）
 const isBossCustomerOrder = (row) => {
-  return row?.order_type !== 2 && row?.referrer_name === '老板客户' && Number(row?.commission_amount || 0) === 0
+  if (!row || row.order_type === 2) return false
+  return row.referrer_name === '老板客户' || row.employee?.name === '老板客'
 }
 
 const displayedCommissionAmount = row => row?.order_type === 2
@@ -1527,7 +1551,13 @@ const confirmUpdateReferrer = async () => {
 
 onMounted(async () => {
   window.addEventListener('resize', handleViewportResize)
-  if (isMobileView.value) activeTab.value = 'todo'
+  // 支持看板等外部入口直达指定页签（如 /admin/orders?tab=pending_balance）
+  const tabFromQuery = String(route.query.tab || '')
+  if (filterTabs.some(item => item.value === tabFromQuery)) {
+    activeTab.value = tabFromQuery
+  } else if (isMobileView.value) {
+    activeTab.value = 'todo'
+  }
   fetchCategories()
   if (!(await openLinkedOrder(route.query.order_no))) await fetchOrders()
 })

@@ -50,6 +50,33 @@
           </div>
         </el-card>
       </div>
+
+      <!-- 核销进度总览：三段比例条（已回款 / 已提交待回 / 待提交） -->
+      <el-card shadow="never" class="!rounded-2xl border-slate-100 mb-8">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <h3 class="text-base font-bold text-slate-800 flex items-center gap-2">
+            <el-icon><TrendCharts /></el-icon>核销进度
+          </h3>
+          <span class="text-xs text-slate-400">累计应回款 ¥{{ formatMoney(summary.total_generated) }}</span>
+        </div>
+        <div class="progress-track" role="img" :aria-label="`已回款 ${progressSegments[0].pct.toFixed(1)}%，已提交待回 ${progressSegments[1].pct.toFixed(1)}%，待提交 ${progressSegments[2].pct.toFixed(1)}%`">
+          <div
+            v-for="seg in progressSegments"
+            :key="seg.label"
+            class="progress-seg"
+            :style="{ width: seg.pct + '%', background: seg.color }"
+            :title="`${seg.label} ¥${formatMoney(seg.amount)}（${seg.count} 笔）`"
+          ></div>
+        </div>
+        <div class="flex flex-wrap gap-x-6 gap-y-1.5 mt-3 text-xs text-slate-600">
+          <span v-for="seg in progressSegments" :key="seg.label" class="inline-flex items-center gap-1.5">
+            <i class="w-2 h-2 rounded-full shrink-0" :style="{ background: seg.color }"></i>
+            <b>{{ seg.label }}</b>
+            <span>{{ seg.count }} 笔 · ¥{{ formatMoney(seg.amount) }}</span>
+            <span class="text-slate-400">{{ seg.pct.toFixed(1) }}%</span>
+          </span>
+        </div>
+      </el-card>
     </div>
 
     <!-- 选单核销区 -->
@@ -110,6 +137,19 @@
           </template>
         </el-table-column>
       </el-table>
+      <div v-if="pendingTotal > 0" class="flex justify-center pt-3">
+        <el-pagination
+          v-model:current-page="pendingPage"
+          v-model:page-size="pendingPageSize"
+          :total="pendingTotal"
+          :page-sizes="[15, 30, 50]"
+          layout="total, sizes, prev, pager, next"
+          background
+          small
+          @current-change="handlePendingPageChange"
+          @size-change="handlePendingSizeChange"
+        />
+      </div>
       <div class="text-[11px] text-slate-400 mt-3 leading-relaxed">
         <div>提示：客户 85% 货款开单时已入账，此处只录政府打款中的<b class="text-slate-500">补贴部分</b>（各单待回金额合计）；若录入政府打款全额，多余部分会留在回款池无法核销。</div>
         <div class="mt-1">* 勾选订单后输入本笔核销总额可自动按录单顺序逐单匹配（可手调）；收满的订单自动标记为"已回款"。核销只做回款池到订单的分配，不重复记账。</div>
@@ -241,7 +281,7 @@
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { Plus, PieChart, Checked, Timer, List, DocumentChecked, Coin, CircleCheck } from '@element-plus/icons-vue'
+import { Plus, PieChart, Checked, Timer, List, DocumentChecked, Coin, CircleCheck, TrendCharts } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchSubsidySummary, fetchSubsidySettlements, fetchSubsidyReceipts, allocateSubsidy, settleSubsidy } from '../api/subsidy'
 import { fetchAccounts as fetchAccountsApi } from '../api/finance'
@@ -260,12 +300,16 @@ const orders = ref([]) // 用于计算资料进度
 const loadingOrders = ref(false)
 const loadingReceipts = ref(false)
 const submittingAllocate = ref(false)
-const pendingOrders = ref([])   // status=2 且仍有待回款的订单（录单日期升序）
+const pendingOrders = ref([])   // status=2 且仍有待回款的订单（录单日期升序，服务端分页）
 const selectedOrders = ref([])  // 表格勾选行
 const allocatePoolId = ref(null)
 const allocateTotal = ref(0)
 const allocAmounts = ref({})    // order_id -> 本笔核销金额
 const receipts = ref([])        // 已核销记录
+// 待核销订单分页
+const pendingPage = ref(1)
+const pendingPageSize = ref(15)
+const pendingTotal = ref(0)
 
 const form = ref({
   amount: 0,
@@ -303,10 +347,10 @@ const fetchAccounts = async () => {
 }
 
 const fetchOrders = async () => {
-  // 获取所有带国补的订单来计算进度
-  const res = await fetchOrdersApi()
+  // 获取所有带国补的订单来计算进度（light 模式只预载员工，减少订单项/商品/账户等关联查询）
+  const res = await fetchOrdersApi({ fields: 'light' })
   if (res.data.code === 200) {
-    orders.value = res.data.data.filter(o => o.subsidy_amount > 0 && o.order_status === 1)
+    orders.value = (res.data.data || []).filter(o => o.subsidy_amount > 0 && o.order_status === 1)
   }
 }
 
@@ -348,15 +392,32 @@ const allocationItems = computed(() =>
 const fetchPendingOrders = async () => {
   loadingOrders.value = true
   try {
-    const res = await fetchOrdersApi({ subsidy_status: 2 })
+    const res = await fetchOrdersApi({
+      subsidy_status: 2,
+      page: pendingPage.value,
+      page_size: pendingPageSize.value
+    })
     if (res.data.code === 200) {
       pendingOrders.value = (res.data.data || [])
         .filter(o => o.order_status === 1 && remainingOf(o) > 0.005)
         .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+      pendingTotal.value = Number(res.data.total) || pendingOrders.value.length
     }
   } finally {
     loadingOrders.value = false
   }
+}
+
+const handlePendingPageChange = () => {
+  // 翻页清空勾选与已填金额，避免跨页误核销
+  selectedOrders.value = []
+  allocAmounts.value = {}
+  fetchPendingOrders()
+}
+
+const handlePendingSizeChange = () => {
+  pendingPage.value = 1
+  handlePendingPageChange()
 }
 
 const fetchReceipts = async () => {
@@ -472,6 +533,25 @@ const docProgress = computed(() => {
   ]
 })
 
+// ---------- 核销进度总览（三段比例条） ----------
+// 已回款：以回款池实际录入为准（summary.total_received，权威口径）；
+// 在途/待提交：按订单剩余待回额（subsidy_pending_amount - subsidy_received_amt）
+const progressSegments = computed(() => {
+  const finished = orders.value.filter(o => o.subsidy_status === 3)
+  const submitted = orders.value.filter(o => o.subsidy_status === 2)
+  const pending = orders.value.filter(o => o.subsidy_status === 1)
+  const segments = [
+    { label: '已回款', amount: Number(summary.value.total_received || 0), count: finished.length, color: '#10b981' },
+    { label: '已提交待回', amount: submitted.reduce((s, o) => s + remainingOf(o), 0), count: submitted.length, color: '#3b82f6' },
+    { label: '待提交', amount: pending.reduce((s, o) => s + remainingOf(o), 0), count: pending.length, color: '#f59e0b' }
+  ]
+  const total = segments.reduce((sum, seg) => sum + seg.amount, 0)
+  for (const seg of segments) {
+    seg.pct = total > 0 ? (seg.amount / total) * 100 : 0
+  }
+  return segments
+})
+
 const openSettleDialog = () => {
   form.value = { amount: 0, account_id: null, remark: '' }
   dialogVisible.value = true
@@ -516,6 +596,19 @@ onMounted(() => {
   background-color: #f8fafc !important;
   color: #64748b;
   font-weight: bold;
+}
+
+/* 核销进度三段比例条 */
+.progress-track {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+.progress-seg {
+  min-width: 2px;
+  transition: width .4s ease;
 }
 
 /* 窄屏（<640px）移动端适配：选单核销区不溢出，提示文案正常折行 */

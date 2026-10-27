@@ -22,6 +22,9 @@ export const fetchFinanceLogs = params => request.get('/api/finance/logs', { par
 // 资金工作台数据（按月）
 export const fetchFinanceWorkspace = params => request.get('/api/finance/workspace', { params })
 
+// 销售分析聚合（员工/品类/商品/支付方式，按月或累计）
+export const fetchFinanceSalesAnalysis = params => request.get('/api/finance/sales-analysis', { params })
+
 // 新增记账凭证
 export const createBookkeepingEntry = data => request.post('/api/bookkeeping/entries', data)
 

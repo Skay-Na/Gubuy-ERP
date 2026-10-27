@@ -963,6 +963,14 @@ func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fu
 			return query.Session(&gorm.Session{NewDB: true}).Table("order_items")
 		}
 		switch fulfillmentStatus {
+		case "todo":
+			// 待办聚合：待结尾款 OR 国补待提交 OR 待送货 OR 待安装（与前端原口径一致）
+			query = query.Where(
+				"(payment_status = ? OR subsidy_status = ?"+
+					" OR (delivery_method != ? AND id IN (SELECT DISTINCT order_id FROM order_items WHERE is_delivered = ?))"+
+					" OR (delivery_method != ? AND id IN (SELECT DISTINCT order_id FROM order_items WHERE is_delivered = ? AND is_installed = ?)))",
+				1, 1, 1, false, 1, true, false,
+			)
 		case "pending_delivery":
 			query = query.Where(
 				"delivery_method != ? AND id IN (?)",
@@ -1003,7 +1011,7 @@ func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fu
 		categoryOrders := config.DB.Table("order_items").
 			Select("DISTINCT order_items.order_id").
 			Joins("JOIN products ON order_items.product_id = products.id").
-			Where("products.category_id = ?", categoryID)
+			Where("products.category_id = ? OR products.category_id IN (SELECT id FROM categories WHERE parent_id = ? AND deleted_at IS NULL)", categoryID, categoryID)
 		query = query.Where("id IN (?)", categoryOrders)
 	}
 	if deletedEmployeeFollowup == "1" {

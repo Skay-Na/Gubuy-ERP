@@ -103,7 +103,8 @@ func CreateStocktakeBatch(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "商品分类无效"})
 			return
 		}
-		query = query.Where("category_id = ?", id)
+		// 选中一级大分类时，包含其下所有二级分类的商品
+		query = query.Where("category_id = ? OR category_id IN (SELECT id FROM categories WHERE parent_id = ? AND deleted_at IS NULL)", id, id)
 		var category models.Category
 		categoryErr := config.DB.Select("name").First(&category, id).Error
 		if categoryErr == nil {

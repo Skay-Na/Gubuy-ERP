@@ -8,9 +8,10 @@ import { useDashboard } from '../../composables/useDashboard'
 import { formatCurrency } from '../../utils/dashboard'
 import DashboardImportantReminders from '../../components/dashboard/DashboardImportantReminders.vue'
 import DashboardDetails from '../../components/dashboard/DashboardDetails.vue'
+import DashboardTrendChart from '../../components/dashboard/DashboardTrendChart.vue'
 
 const router = useRouter()
-const { summary, totalBalance, loading, error, updatedAt, employeeOffboardingAlerts, employeeOffboardingAlertsError, employeeOffboardingAlertsLoading, load, loadEmployeeOffboardingAlerts } = useDashboard()
+const { summary, prevSummary, totalBalance, loading, error, updatedAt, employeeOffboardingAlerts, employeeOffboardingAlertsError, employeeOffboardingAlertsLoading, load, loadEmployeeOffboardingAlerts } = useDashboard()
 const period = shallowRef('today')
 const customDates = shallowRef([])
 const periods = [
@@ -26,11 +27,28 @@ const orderCount = computed(() => Number(summary.value.order_count || 0))
 const revenue = computed(() => Number(summary.value.today_revenue || 0))
 const netProfit = computed(() => Number(summary.value.net_profit || 0))
 const costIncomplete = computed(() => Boolean(summary.value.cost_incomplete))
+
+// 环比：与上一周期（昨日/上月/去年/等长前移）对比，上一周期数据缺失时不展示
+const deltaBaseLabel = computed(() => ({ today: '较昨日', month: '较上月', last_month: '较上上月', year: '较去年', custom: '较上一周期' }[period.value] || '较上一周期'))
+const compactMoney = value => `¥${Math.abs(Number(value || 0)).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
+function buildDelta(current, previous) {
+  if (previous === null || previous === undefined) return null
+  const diff = Number(current || 0) - Number(previous || 0)
+  if (Math.abs(diff) < 0.005) return { cls: 'flat', text: `${deltaBaseLabel.value}持平` }
+  const pct = Number(previous) > 0 ? `（${diff > 0 ? '+' : '-'}${Math.abs(diff / Number(previous) * 100).toFixed(1)}%）` : ''
+  return {
+    cls: diff > 0 ? 'up' : 'down',
+    text: `${deltaBaseLabel.value} ${diff > 0 ? '+' : '-'}${compactMoney(diff)} ${pct}`.trim()
+  }
+}
+const revenueDelta = computed(() => prevSummary.value ? buildDelta(revenue.value, prevSummary.value.today_revenue) : null)
+const profitDelta = computed(() => (prevSummary.value && !costIncomplete.value) ? buildDelta(netProfit.value, prevSummary.value.net_profit) : null)
+
 const kpis = computed(() => [
-  { label: '销售额', value: formatCurrency(revenue.value), note: `${orderCount.value} 单 · 客单 ${formatCurrency(orderCount.value ? revenue.value / orderCount.value : 0)}`, route: '/admin/orders', tone: 'primary' },
-  { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : `毛利 ${formatCurrency(summary.value.gross_profit)} · 费用 ${formatCurrency(summary.value.operating_expense)}`, route: '/admin/finance', tone: 'profit' },
-  { label: '待收尾款', value: formatCurrency(summary.value.pending_balance), note: `${summary.value.pending_balance_count || 0} 单未结清 · 实时存量`, route: '/admin/orders', tone: 'balance' },
-  { label: '国补待回款', value: formatCurrency(summary.value.pending_subsidy), note: '实时存量', route: '/admin/subsidy', tone: 'subsidy' }
+  { label: '销售额', value: formatCurrency(revenue.value), delta: revenueDelta.value, note: `${orderCount.value} 单 · 客单 ${formatCurrency(orderCount.value ? revenue.value / orderCount.value : 0)}`, route: '/admin/orders', tone: 'primary' },
+  { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), delta: profitDelta.value, note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : `毛利 ${formatCurrency(summary.value.gross_profit)} · 费用 ${formatCurrency(summary.value.operating_expense)}`, route: '/admin/finance', tone: 'profit' },
+  { label: '待收尾款', value: formatCurrency(summary.value.pending_balance), note: `${summary.value.pending_balance_count || 0} 单未结清 · 点击查看欠款明细`, route: '/admin/orders?tab=pending_balance', tone: 'balance' },
+  { label: '国补待回款', value: formatCurrency(summary.value.pending_subsidy), note: '点击查看核销与回款明细', route: '/admin/subsidy', tone: 'subsidy' }
 ])
 
 function selectPeriod(value) {
@@ -132,9 +150,12 @@ onMounted(refresh)
       <button v-for="card in kpis" :key="card.label" class="kpi" :class="card.tone" @click="navigate(card.route)">
         <span class="kpi-label">{{ card.label }} <el-icon><Right /></el-icon></span>
         <strong>{{ card.value }}</strong>
+        <span v-if="card.delta" class="kpi-delta" :class="card.delta.cls">{{ card.delta.text }}</span>
         <span class="kpi-note">{{ card.note }}</span>
       </button>
     </section>
+
+    <DashboardTrendChart :trend="summary.sales_trend || []" :title="`${periodLabel}销售趋势`" class="trend-section" />
 
     <DashboardImportantReminders
       :zero-cost-sale-count="summary.pending_zero_cost_sale_count || 0"
@@ -149,9 +170,17 @@ onMounted(refresh)
 </template>
 
 <style scoped>
-.dashboard{padding:0 0 30px;color:#263449}.page-header{display:flex;justify-content:space-between;align-items:end;gap:24px;margin:3px 0 22px}.eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#94a3b8}.page-heading h1{margin:5px 0 3px;color:#172033;font-size:28px;font-weight:760;letter-spacing:-.04em}.page-heading p{margin:0;color:#8390a2;font-size:12px}.controls{display:flex;align-items:center;gap:10px}.periods{display:flex;gap:3px;padding:4px;background:#eef2f7;border-radius:11px}.periods button{border:0;border-radius:8px;padding:8px 12px;background:transparent;color:#66758a;font-size:12px;cursor:pointer;white-space:nowrap}.periods button.active{background:#fff;color:#1d4ed8;box-shadow:0 1px 4px #1e293b14;font-weight:700}.refresh{display:flex;align-items:center;gap:5px;height:37px;padding:0 12px;background:#fff;border:1px solid #e1e7ef;border-radius:10px;color:#57667a;font-size:12px;cursor:pointer}.refresh:disabled{opacity:.6;cursor:wait}.spinning{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-range{display:flex;align-items:center;gap:12px;margin:-6px 0 18px}.desktop-date{max-width:290px}.mobile-dates{display:none}.date-help{font-size:12px;color:#8793a5}.error-banner{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:16px;border:1px solid #f5c7c7;background:#fff4f3;border-radius:10px;color:#bd4141;font-size:13px}.error-banner button{border:0;background:none;color:#b02f2f;font-weight:700;cursor:pointer}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}.kpi{min-width:0;min-height:142px;display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:19px 20px;background:#fff;border:1px solid #e8edf3;border-radius:17px;cursor:pointer;transition:transform .15s,border-color .15s}.kpi:hover{transform:translateY(-2px);border-color:#bdcdeb}.kpi.primary{background:#2359cf;border-color:#2359cf;color:#fff}.kpi-label{display:flex;justify-content:space-between;align-items:center;width:100%;font-size:12px;color:#748298}.kpi.primary .kpi-label,.kpi.primary .kpi-note{color:#dbe7ff}.kpi-label .el-icon{opacity:.65}.kpi strong{display:block;margin:19px 0 5px;color:#1a273b;font-size:25px;line-height:1.1;letter-spacing:-.04em;white-space:nowrap}.kpi.primary strong{color:#fff}.kpi-note{color:#96a1af;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}.kpi.profit strong{color:#138f74}.kpi.balance strong{color:#d16447}.kpi.subsidy strong{color:#ad771c}.panel{min-width:0;background:#fff;border:1px solid #e8edf3;border-radius:18px;padding:22px}.panel-heading{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}h2{margin:5px 0 0;color:#172033;font-size:18px;font-weight:750}
+.dashboard{padding:0 0 30px;color:#263449}.page-header{display:flex;justify-content:space-between;align-items:end;gap:24px;margin:3px 0 22px}.eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#4f46e5}.page-heading h1{margin:5px 0 3px;color:#172033;font-size:28px;font-weight:760;letter-spacing:-.04em}.page-heading p{margin:0;color:#8390a2;font-size:12px}.controls{display:flex;align-items:center;gap:10px}.periods{display:flex;gap:3px;padding:4px;background:#eef2f7;border-radius:11px}.periods button{border:0;border-radius:8px;padding:8px 12px;background:transparent;color:#66758a;font-size:12px;cursor:pointer;white-space:nowrap}.periods button.active{background:#fff;color:#4f46e5;box-shadow:0 1px 4px #1e293b14;font-weight:700}.refresh{display:flex;align-items:center;gap:5px;height:37px;padding:0 12px;background:#fff;border:1px solid #e1e7ef;border-radius:10px;color:#57667a;font-size:12px;cursor:pointer}.refresh:disabled{opacity:.6;cursor:wait}.spinning{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-range{display:flex;align-items:center;gap:12px;margin:-6px 0 18px}.desktop-date{max-width:290px}.mobile-dates{display:none}.date-help{font-size:12px;color:#8793a5}.error-banner{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:16px;border:1px solid #f5c7c7;background:#fff4f3;border-radius:10px;color:#bd4141;font-size:13px}.error-banner button{border:0;background:none;color:#b02f2f;font-weight:700;cursor:pointer}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}.kpi{min-width:0;min-height:142px;display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:left;padding:19px 20px;background:#fff;border:1px solid #e8edf3;border-radius:17px;cursor:pointer;transition:transform .15s,border-color .15s}.kpi:hover{transform:translateY(-2px);border-color:#bdcdeb}.kpi.primary{background:linear-gradient(120deg,#4f46e5,#6366f1);border-color:#4f46e5;color:#fff}.kpi-label{display:flex;justify-content:space-between;align-items:center;flex:none;width:100%;font-size:12px;color:#748298}.kpi.primary .kpi-label,.kpi.primary .kpi-note{color:#dbe7ff}.kpi-label .el-icon{opacity:.65}.kpi strong{display:block;flex:none;margin:0;color:#1a273b;font-size:25px;line-height:1.1;letter-spacing:-.04em;white-space:nowrap}.kpi.primary strong{color:#fff}.kpi-note{margin-top:auto;width:100%;color:#96a1af;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.kpi.profit strong{color:#138f74}.kpi.balance strong{color:#d16447}.kpi.subsidy strong{color:#ad771c}
 @media(max-width:1100px){.page-header{align-items:flex-start;flex-direction:column}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-@media(max-width:767px){.dashboard{padding:3px 0 24px}.page-header{gap:15px;margin:0 0 16px}.page-heading h1{font-size:24px}.controls{width:100%}.periods{flex:1;min-width:0;overflow-x:auto}.periods button{padding:8px 10px;flex:1}.refresh{flex:none;padding:0 10px}.refresh span{display:none}.desktop-date{display:none}.mobile-dates{display:flex;align-items:center;gap:7px;width:100%}.mobile-dates input{min-width:0;flex:1;box-sizing:border-box;padding:8px 5px;border:1px solid #dce4ed;border-radius:8px;background:#fff;color:#435268;font-size:12px}.date-range{flex-wrap:wrap}.kpi-grid{gap:10px;margin-bottom:12px}.kpi{min-height:121px;padding:14px;border-radius:14px}.kpi strong{font-size:19px;margin:16px 0 6px}.kpi-note{font-size:10px}}
+@media(max-width:767px){.dashboard{padding:3px 0 24px}.page-header{gap:15px;margin:0 0 16px}.page-heading h1{font-size:24px}.controls{width:100%}.periods{flex:1;min-width:0;overflow-x:auto}.periods button{padding:8px 10px;flex:1}.refresh{flex:none;padding:0 10px}.refresh span{display:none}.desktop-date{display:none}.mobile-dates{display:flex;align-items:center;gap:7px;width:100%}.mobile-dates input{min-width:0;flex:1;box-sizing:border-box;padding:8px 5px;border:1px solid #dce4ed;border-radius:8px;background:#fff;color:#435268;font-size:12px}.date-range{flex-wrap:wrap}.kpi-grid{gap:10px;margin-bottom:12px}.kpi{min-height:121px;padding:14px;border-radius:14px;gap:8px}.kpi strong{font-size:19px}.kpi-note{font-size:10px}.kpi-delta{height:18px;padding:0 7px;font-size:9px}}
+/* 环比胶囊：固定高度，间距交给 .kpi 的 flex gap，不再用 margin 叠加 */
+.kpi-delta{display:inline-flex;align-items:center;flex:none;height:20px;padding:0 8px;border-radius:999px;font-size:10px;font-weight:700;line-height:1.3}
+.kpi-delta.up{background:#e8f7ee;color:#15803d}
+.kpi-delta.down{background:#fdeaea;color:#dc2626}
+.kpi-delta.flat{background:#eef2f7;color:#66758a}
+.kpi.primary .kpi-delta,.kpi.profit .kpi-delta{background:#ffffff2e;color:#fff}
+.kpi.primary .kpi-delta.up,.kpi.profit .kpi-delta.up{background:#ffffff38;color:#d9fbe6}
+.kpi.primary .kpi-delta.down,.kpi.profit .kpi-delta.down{background:#00000022;color:#ffd9d9}
 </style>
 
 <style scoped>

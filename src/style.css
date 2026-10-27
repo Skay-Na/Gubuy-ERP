@@ -49,3 +49,79 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ============================================================
+   全站统一设计令牌（与财务页同语言：靛蓝主色、大圆角、柔和投影）
+   ============================================================ */
+:root {
+  /* Element Plus 主色 → 靛蓝（按钮/开关/选中态/Tab 下划线全站生效） */
+  --el-color-primary: #4f46e5;
+  --el-color-primary-light-3: #847eed;
+  --el-color-primary-light-5: #a7a3f2;
+  --el-color-primary-light-7: #cac8f7;
+  --el-color-primary-light-8: #dcdafa;
+  --el-color-primary-light-9: #ededfc;
+  --el-color-primary-dark-2: #3f38b7;
+}
+
+body {
+  background-color: #f4f6fb;
+}
+
+/* 卡片：白底大圆角 + 发丝边框 + 柔和投影（覆盖 shadow=always/hover/never 三态） */
+.el-card {
+  --el-card-border-radius: 18px;
+  --el-card-border-color: #e9edf5;
+  border-radius: 18px;
+  border: 1px solid #e9edf5;
+}
+.el-card.is-always-shadow,
+.el-card.is-hover-shadow,
+.el-card.is-never-shadow {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03), 0 14px 36px -22px rgba(15, 23, 42, 0.16);
+}
+.el-card.is-hover-shadow:hover,
+.el-card.is-always-shadow:hover {
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.04), 0 18px 44px -22px rgba(15, 23, 42, 0.2);
+}
+
+/* 表格：浅灰表头 + 加粗列名 + 靛蓝行悬浮 */
+.el-table {
+  --el-table-header-bg-color: #f8fafc;
+  --el-table-header-text-color: #475569;
+  --el-table-row-hover-bg-color: #f5f6ff;
+}
+.el-table th.el-table__cell {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+/* 弹窗 / 确认框：大圆角，与卡片同语言 */
+.el-dialog {
+  border-radius: 16px;
+}
+.el-message-box {
+  border-radius: 14px;
+}
+.el-drawer.rtl,
+.el-drawer.ltr {
+  border-radius: 0;
+}
+
+/* 按钮/输入框：轻圆角（round 按钮不受影响） */
+.el-button:not(.is-round):not(.is-circle) {
+  border-radius: 10px;
+}
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  border-radius: 9px;
+}
+
+/* 页面标题统一节奏（供各页复用的语义类） */
+.page-kicker {
+  color: #4f46e5;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+}
