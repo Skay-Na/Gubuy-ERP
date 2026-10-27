@@ -212,7 +212,7 @@
               全部
             </div>
             <div
-              v-for="cat in categories"
+              v-for="cat in hotCategories"
               :key="cat.id"
               class="terminal-chip-sm"
               :class="{ active: selectedCategoryId === cat.id }"
@@ -263,7 +263,7 @@
           <div
             v-for="row in productList"
             :key="row.id"
-            v-memo="[row.id, row.store_stock, row.cloud_stock, row.sample_stock, row.special_price, isSpecialActive(row), blindStocktakeMode]"
+            v-memo="[row.id, row.store_stock, row.cloud_stock, row.sample_stock, row.special_price, row.sales_qty, isSpecialActive(row), blindStocktakeMode]"
             class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
             :class="isSpecialActive(row) ? 'special-offer-card border-red-200' : ''"
             @click="addToCart(row)"
@@ -366,154 +366,111 @@
               </div>
             </div>
 
-            <!-- 客户与支付信息 -->
-            <div class="bg-blue-50/50 p-4 rounded-xl space-y-3">
-              <div class="grid grid-cols-2 gap-2">
-                <el-input v-model="customerName" placeholder="客户姓名" />
-                <el-input v-model="customerPhone" type="tel" placeholder="手机号" />
+            <!-- 分区切换：客户信息 / 支付结算 / 优惠活动 -->
+            <div class="sticky top-0 z-10 -mx-4 px-4 py-2 bg-slate-50/95 backdrop-blur">
+              <div class="grid grid-cols-3 gap-1.5 p-1 bg-white rounded-xl border border-slate-100 shadow-sm">
+                <div
+                  v-for="sec in checkoutSections"
+                  :key="sec.key"
+                  class="flex items-center justify-center gap-1 py-2 rounded-lg text-xs font-bold cursor-pointer transition-all"
+                  :class="activeCheckoutSection === sec.key ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-500'"
+                  @click="activeCheckoutSection = sec.key"
+                >
+                  <el-icon size="13"><component :is="sec.icon" /></el-icon>{{ sec.label }}
+                  <span v-if="sec.badge" class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                </div>
               </div>
-              <el-input v-model="customerAddress" placeholder="请输入详细收货地址" />
-              <div class="space-y-1">
-                <el-input v-model="referrerName" placeholder="推荐人 (选填)" />
-                <span class="text-[10px] text-slate-400">渠道奖励实际支出请在专业记账中登记。</span>
+            </div>
+
+            <!-- ① 客户信息 -->
+            <template v-if="activeCheckoutSection === 'customer'">
+              <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm space-y-3">
+                <div class="grid grid-cols-2 gap-2">
+                  <div class="space-y-1">
+                    <span class="text-[10px] text-slate-400 font-medium pl-1">客户姓名 <i class="text-red-400 not-italic">*</i></span>
+                    <el-input v-model="customerName" placeholder="请输入姓名" />
+                  </div>
+                  <div class="space-y-1">
+                    <span class="text-[10px] text-slate-400 font-medium pl-1">手机号码 <i class="text-red-400 not-italic">*</i></span>
+                    <el-input v-model="customerPhone" type="tel" placeholder="请输入手机号" />
+                  </div>
+                </div>
+                <div class="space-y-1">
+                  <span class="text-[10px] text-slate-400 font-medium pl-1">收货地址 <i class="text-red-400 not-italic">*</i></span>
+                  <el-input v-model="customerAddress" placeholder="请输入详细收货地址" />
+                </div>
+                <div class="space-y-1">
+                  <span class="text-[10px] text-slate-400 font-medium pl-1">推荐人/渠道（选填）</span>
+                  <el-input v-model="referrerName" placeholder="推荐人 (选填)" />
+                  <span class="text-[10px] text-slate-400">渠道奖励实际支出请在专业记账中登记。</span>
+                </div>
               </div>
 
-              <!-- 模式切换 -->
-              <div class="grid grid-cols-2 gap-2">
-                <div
-                  class="flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition-all"
-                  @click="isSubsidized = !isSubsidized"
-                >
-                  <span class="text-xs font-bold text-slate-600">国家补贴</span>
-                  <el-switch v-model="isSubsidized" size="small" @click.stop />
+              <!-- 订单类型 + 老板客户 -->
+              <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm space-y-3">
+                <div>
+                  <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">订单类型</div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div
+                      class="col-span-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="orderType === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="orderType = 1"
+                    >
+                      <el-icon size="14"><Document /></el-icon>
+                      <span class="text-xs font-bold">普通订单</span>
+                    </div>
+                    <div
+                      class="col-span-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                      :class="orderType === 2 ? 'border-amber-500 bg-amber-50/30 text-amber-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                      @click="orderType = 2"
+                    >
+                      <el-icon size="14"><Star /></el-icon>
+                      <span class="text-xs font-bold">商会订单</span>
+                    </div>
+                  </div>
                 </div>
+
                 <div
-                  class="flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition-all"
-                  @click="isTradeIn = !isTradeIn"
-                >
-                  <span class="text-xs font-bold text-slate-600">以旧换新</span>
-                  <el-switch v-model="isTradeIn" size="small" @click.stop />
-                </div>
-                <div
-                  class="col-span-2 flex justify-between items-center p-2.5 rounded-xl bg-white border border-slate-100 shadow-sm cursor-pointer hover:bg-slate-50 transition-all"
-                  @click="isDepositMode = !isDepositMode"
-                >
-                  <span class="text-xs font-bold text-slate-600">支付定金模式</span>
-                  <el-switch v-model="isDepositMode" size="small" @click.stop />
-                </div>
-                <div
-                  class="col-span-2 flex justify-between items-center p-2.5 rounded-xl bg-amber-50 border border-amber-100 shadow-sm cursor-pointer hover:bg-amber-100/60 transition-all"
+                  class="flex justify-between items-center p-2.5 rounded-xl bg-amber-50 border border-amber-100 shadow-sm cursor-pointer hover:bg-amber-100/60 transition-all"
                   @click="isBossCustomer = !isBossCustomer"
                 >
                   <div>
                     <div class="text-xs font-bold text-amber-700">老板客户</div>
-                    <div class="text-[10px] text-amber-500">开启后本单不计员工业务提成</div>
                   </div>
                   <el-switch v-model="isBossCustomer" size="small" @click.stop />
                 </div>
-                <div
-                  class="col-span-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                  :class="orderType === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                  @click="orderType = 1"
-                >
-                  <el-icon size="14"><Document /></el-icon>
-                  <span class="text-xs font-bold">普通订单</span>
-                </div>
-                <div
-                  class="col-span-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                  :class="orderType === 2 ? 'border-amber-500 bg-amber-50/30 text-amber-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                  @click="orderType = 2"
-                >
-                  <el-icon size="14"><Star /></el-icon>
-                  <span class="text-xs font-bold">商会订单</span>
-                </div>
               </div>
 
-              <el-collapse-transition>
-                <div v-if="isTradeIn" class="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-3">
-                  <div class="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
-                    <el-icon><Refresh /></el-icon>以旧换新支出设置
+              <!-- 发货/提货方式 -->
+              <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm">
+                <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">发货/提货方式</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <div
+                    class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                    :class="deliveryMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                    @click="deliveryMethod = 1"
+                  >
+                    <el-icon size="18" class="mb-1"><Shop /></el-icon>
+                    <span class="text-[11px] font-bold">门店自提</span>
                   </div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <div>
-                      <span class="text-[10px] text-slate-400 font-medium pl-1">转给客户金额(元)</span>
-                      <el-input-number
-                        v-model="tradeInAmount"
-                        :min="0"
-                        :precision="2"
-                        class="w-full pos-customer-input"
-                        :controls="false"
-                        placeholder="支出金额"
-                      />
-                    </div>
-                    <div>
-                      <span class="text-[10px] text-slate-400 font-medium pl-1">旧件品类</span>
-                      <el-select
-                        v-model="tradeInType"
-                        placeholder="选择/输入品类"
-                        class="w-full"
-                        filterable
-                        allow-create
-                        default-first-option
-                      >
-                        <el-option label="旧电视" value="旧电视" />
-                        <el-option label="旧冰箱" value="旧冰箱" />
-                        <el-option label="旧洗衣机" value="旧洗衣机" />
-                        <el-option label="旧空调" value="旧空调" />
-                        <el-option label="旧热水器" value="旧热水器" />
-                      </el-select>
-                    </div>
-                  </div>
-                  <div>
-                    <span class="text-[10px] text-slate-400 font-medium pl-1">实际付款账户</span>
-                    <el-select v-model="tradeInAccountId" placeholder="请选择付款账户" class="w-full" clearable>
-                      <el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（账面 ¥${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" />
-                    </el-select>
-                  </div>
-                  <div>
-                    <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
-                    <el-input
-                      v-model="tradeInRemark"
-                      placeholder="品牌/成色/是否通电等"
-                      class="pos-customer-input"
-                    />
+                  <div
+                    class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
+                    :class="deliveryMethod === 4 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
+                    @click="deliveryMethod = 4"
+                  >
+                    <el-icon size="18" class="mb-1"><Cloudy /></el-icon>
+                    <span class="text-[11px] font-bold">云仓发货</span>
                   </div>
                 </div>
-              </el-collapse-transition>
+              </div>
+            </template>
 
-              <el-collapse-transition>
-                <div v-if="isDepositMode" class="bg-purple-50 p-3 rounded-xl border border-purple-100">
-                  <div class="text-[10px] text-purple-400 mb-1 font-bold">预收定金金额</div>
-                  <el-input-number v-model="depositAmount" :min="0" :max="totalPayable" :precision="2" class="w-full" :controls="false" placeholder="输入定金金额" />
-                </div>
-              </el-collapse-transition>
+            <!-- ② 支付结算 -->
+            <template v-if="activeCheckoutSection === 'payment'">
 
-              <div class="space-y-4 pt-2">
-                <div>
-                  <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">发货/提货方式</div>
-                  <div class="grid grid-cols-2 gap-2">
-                    <div
-                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                      :class="deliveryMethod === 1 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                      @click="deliveryMethod = 1"
-                    >
-                      <el-icon size="18" class="mb-1"><Shop /></el-icon>
-                      <span class="text-[11px] font-bold">门店自提</span>
-                    </div>
-                    <div
-                      class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
-                      :class="deliveryMethod === 4 ? 'border-blue-500 bg-blue-50/30 text-blue-600 shadow-sm' : 'border-slate-100 text-slate-500 hover:border-slate-200'"
-                      @click="deliveryMethod = 4"
-                    >
-                      <el-icon size="18" class="mb-1"><Cloudy /></el-icon>
-                      <span class="text-[11px] font-bold">云仓发货</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">收款账户</div>
-                  <div class="grid grid-cols-5 gap-2">
+              <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm">
+                <div class="text-[10px] text-slate-400 mb-2 uppercase font-bold tracking-wider">收款账户</div>
+                <div class="grid grid-cols-5 gap-2">
                     <div
                       class="flex flex-col items-center justify-center p-2.5 rounded-xl border-2 transition-all cursor-pointer bg-white"
                       :class="[
@@ -594,9 +551,99 @@
                       </div>
                     </div>
                   </el-collapse-transition>
+              </div>
+
+              <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-400 leading-relaxed">
+                收款账户由系统按支付方式自动规范入账；以旧换新的折抵支出请在所选账户中登记。
+              </div>
+            </template>
+
+            <!-- ③ 优惠活动 -->
+            <template v-if="activeCheckoutSection === 'promo'">
+              <div class="bg-white p-3.5 rounded-xl border border-slate-100 shadow-sm space-y-3">
+                <div class="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all" @click="isSubsidized = !isSubsidized">
+                  <span class="text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <el-icon :size="16" color="#f97316"><Promotion /></el-icon>参与国补政策
+                  </span>
+                  <el-switch v-model="isSubsidized" size="small" @click.stop />
+                </div>
+                <div class="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all" @click="isTradeIn = !isTradeIn">
+                  <span class="text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <el-icon :size="16" color="#10b981"><Refresh /></el-icon>以旧换新抵扣
+                  </span>
+                  <el-switch v-model="isTradeIn" size="small" @click.stop />
+                </div>
+                <div class="flex justify-between items-center p-2.5 rounded-xl bg-slate-50 border border-slate-100 cursor-pointer hover:bg-slate-100 transition-all" @click="isDepositMode = !isDepositMode">
+                  <span class="text-xs font-bold text-slate-700 flex items-center gap-2">
+                    <el-icon :size="16" color="#8b5cf6"><Wallet /></el-icon>支付定金模式
+                  </span>
+                  <el-switch v-model="isDepositMode" size="small" @click.stop />
                 </div>
               </div>
-            </div>
+
+              <el-collapse-transition>
+                <div v-if="isTradeIn" class="bg-emerald-50 p-3 rounded-xl border border-emerald-100 space-y-3">
+                  <div class="text-xs font-bold text-emerald-700 mb-1 flex items-center gap-1">
+                    <el-icon><Refresh /></el-icon>以旧换新支出设置
+                  </div>
+                  <div class="grid grid-cols-2 gap-2">
+                    <div>
+                      <span class="text-[10px] text-slate-400 font-medium pl-1">转给客户金额(元)</span>
+                      <el-input-number
+                        v-model="tradeInAmount"
+                        :min="0"
+                        :precision="2"
+                        class="w-full pos-customer-input"
+                        :controls="false"
+                        placeholder="支出金额"
+                      />
+                    </div>
+                    <div>
+                      <span class="text-[10px] text-slate-400 font-medium pl-1">旧件品类</span>
+                      <el-select
+                        v-model="tradeInType"
+                        placeholder="选择/输入品类"
+                        class="w-full"
+                        filterable
+                        allow-create
+                        default-first-option
+                      >
+                        <el-option label="旧电视" value="旧电视" />
+                        <el-option label="旧冰箱" value="旧冰箱" />
+                        <el-option label="旧洗衣机" value="旧洗衣机" />
+                        <el-option label="旧空调" value="旧空调" />
+                        <el-option label="旧热水器" value="旧热水器" />
+                      </el-select>
+                    </div>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-slate-400 font-medium pl-1">实际付款账户</span>
+                    <el-select v-model="tradeInAccountId" placeholder="请选择付款账户" class="w-full" clearable>
+                      <el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（账面 ¥${Number(account.balance || 0).toFixed(2)}）`" :value="account.id" />
+                    </el-select>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-slate-400 font-medium pl-1">旧件备注</span>
+                    <el-input
+                      v-model="tradeInRemark"
+                      placeholder="品牌/成色/是否通电等"
+                      class="pos-customer-input"
+                    />
+                  </div>
+                </div>
+              </el-collapse-transition>
+
+              <el-collapse-transition>
+                <div v-if="isDepositMode" class="bg-purple-50 p-3 rounded-xl border border-purple-100">
+                  <div class="text-[10px] text-purple-400 mb-1 font-bold">预收定金金额</div>
+                  <el-input-number v-model="depositAmount" :min="0" :max="totalPayable" :precision="2" class="w-full" :controls="false" placeholder="输入定金金额" />
+                </div>
+              </el-collapse-transition>
+
+              <div v-if="!isSubsidized && !isTradeIn && !isDepositMode" class="py-8 text-center text-slate-300 text-xs">
+                本单未参与任何优惠活动
+              </div>
+            </template>
           </div>
 
           <div class="p-3 pb-[calc(10px+env(safe-area-inset-bottom,0px))] bg-white border-t shadow-[0_-10px_20px_-10px_rgba(0,0,0,0.05)] z-20">
@@ -752,37 +799,82 @@
           </el-input>
         </div>
 
-        <!-- Mobile Waterfall Grid -->
+        <!-- Mobile Grouped List：两级分类（大分类 → 二级），搜索时退化为平铺 -->
         <div class="flex-1 overflow-y-auto px-4 py-6">
-          <div class="grid grid-cols-3 gap-y-8 gap-x-4">
+          <template v-if="categorySearchQuery">
+            <div class="grid grid-cols-3 gap-y-8 gap-x-4">
+              <!-- 全部商品 -->
+              <div
+                class="mobile-cat-item"
+                :class="{ active: selectedCategoryId === '' }"
+                @click="selectCategoryAndClose('')"
+              >
+                <div class="item-icon bg-blue-600 text-white shadow-lg shadow-blue-100">
+                  <el-icon size="24"><Shop /></el-icon>
+                </div>
+                <div class="item-text">全部商品</div>
+              </div>
+
+              <!-- 品类列表 -->
+              <div
+                v-for="cat in filteredCategories"
+                :key="cat.id"
+                class="mobile-cat-item"
+                :class="{ active: selectedCategoryId === cat.id }"
+                @click="selectCategoryAndClose(cat.id)"
+              >
+                <div class="item-icon bg-slate-100 text-slate-500">
+                  <span class="text-xl font-black">{{ cat.name.charAt(0) }}</span>
+                </div>
+                <div class="item-text">{{ cat.name }}</div>
+              </div>
+            </div>
+
+            <el-empty v-if="filteredCategories.length === 0" description="未找到相关分类" />
+          </template>
+
+          <template v-else>
             <!-- 全部商品 -->
             <div
-              class="mobile-cat-item"
-              :class="{ active: selectedCategoryId === '' }"
+              class="flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-2xl px-4 py-3 mb-5 cursor-pointer"
+              :class="selectedCategoryId === '' ? 'ring-2 ring-blue-400' : ''"
               @click="selectCategoryAndClose('')"
             >
-              <div class="item-icon bg-blue-600 text-white shadow-lg shadow-blue-100">
-                <el-icon size="24"><Shop /></el-icon>
+              <div class="w-9 h-9 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-md shadow-blue-100">
+                <el-icon size="20"><Shop /></el-icon>
               </div>
-              <div class="item-text">全部商品</div>
+              <span class="text-base font-black text-slate-800">全部商品</span>
             </div>
 
-            <!-- 品类列表 -->
-            <div
-              v-for="cat in filteredCategories"
-              :key="cat.id"
-              class="mobile-cat-item"
-              :class="{ active: selectedCategoryId === cat.id }"
-              @click="selectCategoryAndClose(cat.id)"
-            >
-              <div class="item-icon bg-slate-100 text-slate-500">
-                <span class="text-xl font-black">{{ cat.name.charAt(0) }}</span>
+            <!-- 大分类分组 -->
+            <div v-for="root in categoryTree" :key="root.id" class="mb-5">
+              <div
+                class="flex items-center gap-2 mb-2.5 cursor-pointer active:opacity-70"
+                @click="selectCategoryAndClose(root.id)"
+              >
+                <div class="w-1 h-4 bg-blue-600 rounded-full"></div>
+                <span class="text-base font-black text-slate-800">{{ root.name }}</span>
+                <span class="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                  {{ root.children.length ? `${root.children.length} 个子类` : '整类' }}
+                </span>
               </div>
-              <div class="item-text">{{ cat.name }}</div>
+              <div v-if="root.children.length" class="grid grid-cols-3 gap-y-4 gap-x-4">
+                <div
+                  v-for="child in root.children"
+                  :key="child.id"
+                  class="mobile-cat-item"
+                  :class="{ active: selectedCategoryId === child.id }"
+                  @click="selectCategoryAndClose(child.id)"
+                >
+                  <div class="item-icon bg-slate-100 text-slate-500">
+                    <span class="text-xl font-black">{{ child.name.charAt(0) }}</span>
+                  </div>
+                  <div class="item-text">{{ child.name }}</div>
+                </div>
+              </div>
             </div>
-          </div>
+          </template>
 
-          <el-empty v-if="filteredCategories.length === 0" description="未找到相关分类" />
           <div class="h-20"></div> <!-- Padding for bottom area -->
         </div>
       </div>
@@ -807,7 +899,8 @@
           <template #prefix><el-icon><Search /></el-icon></template>
         </el-input>
 
-        <div class="grid grid-cols-5 gap-6 max-h-[500px] overflow-y-auto pr-2">
+        <!-- 搜索时：平铺网格 -->
+        <div v-if="categorySearchQuery" class="grid grid-cols-5 gap-6 max-h-[500px] overflow-y-auto pr-2">
           <div
             class="cat-icon-card"
             :class="{ active: selectedCategoryId === '' }"
@@ -830,6 +923,48 @@
               <span class="text-xl font-black">{{ cat.name.charAt(0) }}</span>
             </div>
             <div class="cat-label">{{ cat.name }}</div>
+          </div>
+        </div>
+
+        <!-- 默认：两级分组（大分类 → 二级） -->
+        <div v-else class="flex flex-col gap-4 max-h-[500px] overflow-y-auto pr-2">
+          <div
+            class="cat-group-row flex items-center gap-3 bg-blue-50 border border-blue-100 rounded-xl px-4 py-2.5 cursor-pointer"
+            :class="{ active: selectedCategoryId === '' }"
+            @click="selectCategoryAndClose('')"
+          >
+            <div class="w-8 h-8 bg-blue-600 text-white rounded-lg flex items-center justify-center">
+              <el-icon size="18"><Shop /></el-icon>
+            </div>
+            <span class="text-sm font-black text-slate-800">全部商品</span>
+          </div>
+
+          <div v-for="root in categoryTree" :key="root.id">
+            <div
+              class="flex items-center gap-2 px-1 py-1.5 rounded-lg cursor-pointer transition-colors"
+              :class="selectedCategoryId === root.id ? 'bg-blue-50' : 'hover:bg-slate-50'"
+              @click="selectCategoryAndClose(root.id)"
+            >
+              <div class="w-1 h-4 bg-blue-600 rounded-full"></div>
+              <span class="text-sm font-black text-slate-800">{{ root.name }}</span>
+              <span class="text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">
+                {{ root.children.length ? `${root.children.length} 个子类` : '整类' }}
+              </span>
+            </div>
+            <div v-if="root.children.length" class="grid grid-cols-5 gap-3 mt-2 pl-3">
+              <div
+                v-for="child in root.children"
+                :key="child.id"
+                class="cat-icon-card"
+                :class="{ active: selectedCategoryId === child.id }"
+                @click="selectCategoryAndClose(child.id)"
+              >
+                <div class="icon-wrapper bg-slate-100 text-slate-500">
+                  <span class="text-lg font-black">{{ child.name.charAt(0) }}</span>
+                </div>
+                <div class="cat-label">{{ child.name }}</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1054,19 +1189,15 @@
           />
         </el-form-item>
         <el-form-item label="商品分类" prop="category_id">
-          <el-select
+          <el-cascader
             v-model="staffProductForm.category_id"
-            placeholder="请选择分类"
+            :options="categoryTree"
+            :props="categoryCascaderProps"
+            placeholder="请选择分类（可搜索）"
             class="w-full"
+            filterable
             clearable
-          >
-            <el-option
-              v-for="cat in categories"
-              :key="cat.id"
-              :label="cat.name"
-              :value="cat.id"
-            />
-          </el-select>
+          />
         </el-form-item>
         <el-form-item label="商品备注/型号特征" prop="remark">
           <el-input
@@ -1129,9 +1260,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, markRaw } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Wallet, Close, Lightning, Menu, Calendar, Refresh , Document, Star, Money} from '@element-plus/icons-vue'
+import { Search, ShoppingCart, Delete, Switch, Plus, Back, List, SwitchButton, Shop, Box, Cloudy, CreditCard, OfficeBuilding, Wallet, Close, Lightning, Menu, Calendar, Refresh , Document, Star, Money, User, Promotion, WarningFilled} from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   fetchAttendanceLogs as fetchAttendanceLogsApi,
@@ -1153,6 +1284,7 @@ import {
   createProduct as createProductApi
 } from '../api/products'
 import { fetchAccounts as fetchAccountsApi } from '../api/finance'
+import { buildCategoryTree, categoryCascaderProps } from '../utils/categories'
 import dayjs from 'dayjs'
 import StaffPhotoOrder from '../components/employee/StaffPhotoOrder.vue'
 
@@ -1600,6 +1732,16 @@ const filteredCategories = computed(() => {
   )
 })
 
+// 热销分类 chips：销量最高的前 6 个（销量>0），后端 with_sales=1 已按销量降序返回
+const hotCategories = computed(() => {
+  return categories.value
+    .filter(cat => (Number(cat.sales_qty) || 0) > 0)
+    .slice(0, 6)
+})
+
+// 两级分类树：弹窗按 大分类 → 二级 分组展示
+const categoryTree = computed(() => buildCategoryTree(categories.value))
+
 const customerName = ref('')
 const customerPhone = ref('')
 const customerAddress = ref('')
@@ -1681,7 +1823,8 @@ const submitStaffProduct = async () => {
 
 const fetchCategories = async () => {
   try {
-    const res = await fetchCategoriesApi()
+    // with_sales=1：附带每个分类的销量并按销量降序（与管理端开单页一致，热销分类靠前）
+    const res = await fetchCategoriesApi({ with_sales: 1 })
     if (res.data.code === 200) {
       categories.value = res.data.data
     }
@@ -1726,7 +1869,9 @@ const fetchProducts = async () => {
     const res = await fetchProductsApi({
       keyword: searchQuery.value,
       category_id: selectedCategoryId.value,
-      only_special: onlySpecial.value ? 1 : 0
+      only_special: onlySpecial.value ? 1 : 0,
+      // 按历史总销量降序（排除已取消订单），热销商品自动靠前，响应附带 sales_qty
+      order_by: 'sales_qty'
     })
     if (res.data.code === 200) {
       blindStocktakeMode.value = Boolean(res.data.blind_stocktake_mode)
@@ -1792,6 +1937,14 @@ const removeFromCart = (index) => {
   if (!cart.value.length) photoOrderDraftId.value = null
 }
 const openDrawer = () => drawerVisible.value = true
+
+// ---------- 结算抽屉分区：客户信息 / 支付结算 / 优惠活动（与管理端开单页一致） ----------
+const activeCheckoutSection = ref('customer')
+const checkoutSections = computed(() => [
+  { key: 'customer', label: '客户信息', icon: markRaw(User), badge: false },
+  { key: 'payment', label: '支付结算', icon: markRaw(Money), badge: false },
+  { key: 'promo', label: '优惠活动', icon: markRaw(Promotion), badge: isSubsidized.value || isTradeIn.value || isDepositMode.value }
+])
 
 const applyPhotoOrder = async (draft) => {
   if (cart.value.length) {
@@ -2055,6 +2208,7 @@ const handleCheckout = async () => {
       paymentMethod.value = 1
       mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
       deliveryMethod.value = 4
+      activeCheckoutSection.value = 'customer'
       drawerVisible.value = false
       fetchProducts()
     }

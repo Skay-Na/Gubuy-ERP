@@ -7,7 +7,7 @@
     <div class="fixed bottom-0 left-0 w-full bg-white shadow-[0_-4px_15px_rgba(0,0,0,0.05)] px-4 pt-2 pb-[env(safe-area-inset-bottom,8px)] z-40 flex justify-between items-center transition-all duration-300">
       <div class="flex items-center gap-3 cursor-pointer" @click="openDrawer">
         <el-badge :value="cartStore.cart.length" :hidden="cartStore.cart.length === 0" class="flex" type="danger">
-          <div class="bg-blue-100 p-2.5 rounded-full text-blue-600">
+          <div class="bg-indigo-100 p-2.5 rounded-full text-indigo-600">
             <el-icon size="26"><ShoppingCart /></el-icon>
           </div>
         </el-badge>
@@ -16,7 +16,7 @@
           <div class="font-black text-xl text-slate-800 leading-none">¥{{ originalTotal.toFixed(2) }}</div>
         </div>
       </div>
-      <el-button type="primary" size="large" round class="px-10 !h-12 shadow-lg shadow-blue-200 font-bold" @click="openDrawer" :disabled="cartStore.cart.length === 0">
+      <el-button type="primary" size="large" round class="px-10 !h-12 shadow-lg shadow-indigo-200 font-bold" @click="openDrawer" :disabled="cartStore.cart.length === 0">
         去结算
       </el-button>
     </div>

@@ -1,51 +1,101 @@
 <template>
   <div class="flex flex-col h-full bg-slate-50">
-    <!-- 顶部固定区域：状态栏与搜索框 -->
-    <div class="p-4 bg-white shadow-sm z-10 flex-shrink-0">
-      <div class="flex justify-between items-center mb-3">
-        <div class="flex items-center gap-2">
-          <div class="w-1.5 h-5 bg-blue-600 rounded-full"></div>
-          <h1 class="text-xl font-bold text-slate-800 tracking-tight">收银台</h1>
-        </div>
-        <div class="text-slate-400 text-xs font-mono tracking-wider">{{ new Date().toLocaleDateString() }}</div>
+    <!-- 顶部固定区域：搜索 + 分类 -->
+    <div class="px-4 pt-3 pb-2.5 bg-white shadow-sm z-10 flex-shrink-0">
+      <div class="flex items-center gap-2 mb-2.5">
+        <div class="w-1.5 h-5 bg-indigo-600 rounded-full"></div>
+        <h1 class="text-lg font-bold text-slate-800 tracking-tight">收银台</h1>
+        <span class="text-slate-300 text-xs ml-1">|</span>
+        <span class="text-slate-400 text-xs font-mono">{{ todayText }}</span>
+        <el-badge :value="cartStore.cart.length" :hidden="cartStore.cart.length === 0" class="ml-auto" type="warning">
+          <el-icon size="20" class="text-indigo-600"><ShoppingCart /></el-icon>
+        </el-badge>
       </div>
-      <div class="flex gap-2 mb-3">
+
+      <div class="flex gap-2">
         <el-input
           v-model="searchQuery"
           placeholder="搜索商品名称、型号或备注..."
           prefix-icon="Search"
           clearable
-          size="large"
           class="pos-search-input flex-1"
-          @input="fetchProducts"
+          @input="onSearchInput"
         />
-        <el-button 
-          type="primary" 
-          size="large" 
-          class="search-btn shadow-md shadow-blue-200" 
-          @click="fetchProducts"
+        <!-- 分类选择按钮：点击弹出分类网格 -->
+        <el-popover
+          v-model:visible="categoryPickerVisible"
+          trigger="click"
+          placement="bottom-end"
+          :width="isMobile ? 300 : 440"
+          popper-class="category-picker-popover"
         >
-          搜索
-        </el-button>
+          <template #reference>
+            <el-button size="large" class="category-trigger-btn">
+              <el-icon class="mr-1 text-indigo-500"><Grid /></el-icon>
+              <span class="max-w-[96px] truncate">{{ currentCategoryName }}</span>
+              <el-icon class="el-icon--right text-slate-400"><ArrowDown /></el-icon>
+            </el-button>
+          </template>
+          <!-- 分类网格弹层（两级分组） -->
+          <div class="cat-picker">
+            <div class="text-[11px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-0.5">选择商品分类</div>
+            <div
+              class="cat-group-row"
+              :class="{ active: selectedCategoryId === '' }"
+              @click="selectCategory('')"
+            >
+              全部商品
+            </div>
+            <div v-for="root in categoryTree" :key="root.id" class="mb-1.5">
+              <div class="flex items-center gap-1">
+                <div
+                  class="cat-group-title"
+                  :class="{ active: selectedCategoryId === root.id }"
+                  @click="selectCategory(root.id)"
+                >
+                  {{ root.name }}
+                  <span class="text-[9px] font-normal opacity-60">{{ root.children.length ? `${root.children.length} 个子类` : '整类' }}</span>
+                </div>
+              </div>
+              <div v-if="root.children.length" class="grid grid-cols-3 gap-1.5 mt-1.5">
+                <div
+                  v-for="child in root.children"
+                  :key="child.id"
+                  class="cat-picker-item"
+                  :class="{ active: selectedCategoryId === child.id }"
+                  @click="selectCategory(child.id)"
+                >
+                  {{ child.name }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-popover>
       </div>
 
-      <!-- 分类横向导航 -->
-      <div class="flex overflow-x-auto no-scrollbar gap-2 pb-1">
-        <div 
-          class="px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer"
-          :class="selectedCategoryId === '' ? 'bg-blue-600 text-white shadow-md shadow-blue-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'"
+      <!-- 常用分类快捷 chips -->
+      <div class="flex overflow-x-auto no-scrollbar gap-1.5 mt-2.5 pb-0.5">
+        <div
+          class="px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer"
+          :class="selectedCategoryId === '' ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'"
           @click="selectCategory('')"
         >
           全部
         </div>
-        <div 
-          v-for="cat in categories" 
-          :key="cat.id"
-          class="px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer"
-          :class="selectedCategoryId === cat.id ? 'bg-blue-600 text-white shadow-md shadow-blue-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'"
+        <div
+          v-for="cat in hotCategories"
+          :key="'f-' + cat.id"
+          class="px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap transition-all cursor-pointer"
+          :class="selectedCategoryId === cat.id ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'"
           @click="selectCategory(cat.id)"
         >
           {{ cat.name }}
+        </div>
+        <div
+          class="px-3 py-1 rounded-full text-xs font-bold whitespace-nowrap bg-slate-100 text-indigo-500 hover:bg-indigo-50 transition-all cursor-pointer flex items-center gap-1"
+          @click="categoryPickerVisible = true"
+        >
+          <el-icon size="12"><Grid /></el-icon>全部分类
         </div>
       </div>
     </div>
@@ -77,13 +127,13 @@
       <div v-else-if="productList.length === 0" class="py-10 text-center">
         <el-empty description="暂无符合条件的商品" :image-size="100" />
       </div>
-      
+
       <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-        <div 
-          v-for="row in productList" 
-          :key="row.id" 
-          v-memo="[row.id, row.store_stock, row.cloud_stock, row.avg_cost, row.latest_cost, row.special_price, isSpecialActive(row)]"
-          class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-blue-300 transition-all cursor-pointer group relative overflow-hidden"
+        <div
+          v-for="row in productList"
+          :key="row.id"
+          v-memo="[row.id, row.store_stock, row.cloud_stock, row.avg_cost, row.latest_cost, row.special_price, row.sales_qty, isSpecialActive(row)]"
+          class="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col p-3 hover:border-indigo-300 hover:shadow-md transition-all cursor-pointer group relative overflow-hidden"
           :class="isSpecialActive(row) ? 'special-offer-card border-red-200' : ''"
           @click="handleAddToCart(row)"
         >
@@ -96,11 +146,15 @@
 
           <!-- Info Section -->
           <div class="flex-1 min-w-0">
-            <div class="font-bold text-slate-800 text-sm line-clamp-2 leading-tight h-9 mb-1 group-hover:text-blue-600 transition-colors">
+            <div class="font-bold text-slate-800 text-sm line-clamp-2 leading-tight h-9 mb-1 group-hover:text-indigo-600 transition-colors">
               {{ row.name }}
             </div>
             <div class="flex flex-wrap gap-1 mb-2">
-            <el-tag v-if="getProductCost(row) <= 0" type="danger" size="small" class="!px-1.5 !h-5 !text-[10px]">成本待维护</el-tag>
+              <span
+                v-if="(row.sales_qty || 0) > 0"
+                class="bg-indigo-50 text-indigo-600 border border-indigo-100 text-[10px] font-bold px-1.5 rounded !h-5 inline-flex items-center whitespace-nowrap"
+              >售 {{ row.sales_qty }}</span>
+              <el-tag v-if="getProductCost(row) <= 0" type="danger" size="small" class="!px-1.5 !h-5 !text-[10px]">成本待维护</el-tag>
               <el-tag :type="row.store_stock > 0 ? 'success' : 'danger'" size="small" class="!px-1.5 !h-5 !text-[10px]">
                 店:{{ row.store_stock }}
               </el-tag>
@@ -132,7 +186,7 @@
                 <span v-if="getProductCost(row) > 0" class="text-[9px] text-slate-400 mt-0.5">成本参考: ¥{{ getProductCost(row).toFixed(1) }}</span>
               </div>
             </div>
-            <div class="bg-blue-600 text-white p-1.5 rounded-lg shadow-sm shadow-blue-200 group-hover:scale-110 transition-transform">
+            <div class="bg-indigo-600 text-white p-1.5 rounded-lg shadow-sm shadow-indigo-200 group-hover:scale-110 transition-transform">
               <el-icon :size="16"><Plus /></el-icon>
             </div>
           </div>
@@ -143,10 +197,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { Plus, Lightning } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { Plus, Lightning, Grid, ArrowDown, ShoppingCart } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { fetchCategories as fetchCategoriesApi, fetchProducts as fetchProductsApi } from '../../api/products'
+import { buildCategoryTree } from '../../utils/categories'
 import { useCartStore } from '../../store/cart'
 
 const cartStore = useCartStore()
@@ -156,10 +211,49 @@ const categories = ref([])
 const selectedCategoryId = ref('')
 const searchQuery = ref('')
 const loading = ref(false)
+const categoryPickerVisible = ref(false)
+const isMobile = ref(window.innerWidth < 768)
+
+const todayText = new Date().toLocaleDateString()
+
+const handleResize = () => { isMobile.value = window.innerWidth < 768 }
+onMounted(() => window.addEventListener('resize', handleResize))
+onUnmounted(() => window.removeEventListener('resize', handleResize))
+
+// ---------- 热销分类（按历史总销量，接口 with_sales=1 返回，无需本地记忆） ----------
+
+// 热销 chips：销量最高的前 6 个分类（销量>0），后端已按销量降序返回
+const hotCategories = computed(() => {
+  return categories.value
+    .filter(cat => (Number(cat.sales_qty) || 0) > 0)
+    .slice(0, 6)
+})
+
+const pickerCategories = computed(() => [{ id: '', name: '全部' }, ...categories.value])
+
+// 两级分类树：弹层网格按 大分类 → 二级分组展示
+const categoryTree = computed(() => buildCategoryTree(categories.value))
+
+const currentCategoryName = computed(() => {
+  if (selectedCategoryId.value === '') return '全部分类'
+  const cat = categories.value.find(c => c.id === selectedCategoryId.value)
+  if (!cat) return '全部分类'
+  if (!cat.parent_id) return cat.name
+  const parent = categories.value.find(c => c.id === cat.parent_id)
+  return parent ? `${parent.name}·${cat.name}` : cat.name
+})
+
+// ---------- 数据获取 ----------
+let searchTimer = null
+const onSearchInput = () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(fetchProducts, 300)
+}
 
 const fetchCategories = async () => {
   try {
-    const res = await fetchCategoriesApi()
+    // with_sales=1：附带每个分类的销量并按销量降序（热销分类靠前）
+    const res = await fetchCategoriesApi({ with_sales: 1 })
     if (res.code === 200) {
       categories.value = res.result
     }
@@ -170,6 +264,7 @@ const fetchCategories = async () => {
 
 const selectCategory = (id) => {
   selectedCategoryId.value = id
+  categoryPickerVisible.value = false
   fetchProducts()
 }
 
@@ -178,7 +273,9 @@ const fetchProducts = async () => {
   try {
     const response = await fetchProductsApi({
       keyword: searchQuery.value,
-      category_id: selectedCategoryId.value
+      category_id: selectedCategoryId.value,
+      // 按历史销量降序（排除已取消订单），热销商品自动靠前，响应附带 sales_qty
+      order_by: 'sales_qty'
     })
     if (response.code === 200) {
       productList.value = response.result
@@ -192,6 +289,7 @@ const fetchProducts = async () => {
   }
 }
 
+// ---------- 加购 ----------
 const isSpecialActive = (product) => {
   if (!product.special_price || product.special_price <= 0) return false
   if (!product.special_price_start || !product.special_price_end) return false
@@ -255,22 +353,102 @@ defineExpose({
 
 :deep(.pos-search-input .el-input__wrapper.is-focus) {
   background: #ffffff;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1) !important;
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1) !important;
 }
 
-.search-btn {
+.category-trigger-btn {
   border-radius: 12px;
-  padding: 0 24px;
-  font-weight: 600;
-  border: none;
-  background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  height: 40px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  font-weight: 700;
+  color: #334155;
+}
+
+.cat-picker-item {
+  padding: 9px 4px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.15s;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cat-picker-item:hover {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.cat-picker-item.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);
+}
+
+.cat-group-row {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: all 0.15s;
+}
+
+.cat-group-row:hover {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.cat-group-row.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #ffffff;
+}
+
+.cat-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: #eef2ff;
+  border: 1px solid #e0e7ff;
+  color: #3730a3;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.cat-group-title:hover {
+  background: #e0e7ff;
+}
+
+.cat-group-title.active {
+  background: #4f46e5;
+  border-color: #4f46e5;
+  color: #ffffff;
 }
 
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;  
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
 
@@ -286,5 +464,13 @@ defineExpose({
 
 .special-offer-card .text-slate-800 {
   color: #991b1b !important;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 </style>

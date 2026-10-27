@@ -40,7 +40,12 @@
             <template #prefix><el-icon><Search /></el-icon></template>
           </el-input>
           <el-select v-model="productFilters.category_id" clearable placeholder="全部分类" @change="handleProductFilter">
-            <el-option v-for="category in categories" :key="category.id" :label="category.name" :value="category.id" />
+            <template v-for="root in categoryTree" :key="root.id">
+              <el-option :label="root.children.length ? `${root.name}（整类）` : root.name" :value="root.id" />
+              <el-option-group v-if="root.children.length" :label="root.name">
+                <el-option v-for="child in root.children" :key="child.id" :label="child.name" :value="child.id" />
+              </el-option-group>
+            </template>
           </el-select>
           <el-select v-if="!blindStockMode" v-model="productFilters.stock_filter" clearable placeholder="全部库存状态" @change="handleProductFilter">
             <el-option label="门店有库存" value="store" />
@@ -359,6 +364,7 @@ import {
   fetchMyPendingStocktakes
 } from '../api/inventory'
 import StocktakeBatchManager from '../components/inventory/StocktakeBatchManager.vue'
+import { buildCategoryTree } from '../utils/categories'
 
 const router = useRouter()
 const currentEmployee = ref(null)
@@ -366,6 +372,8 @@ const activeTab = ref('stocktake')
 const blindStockMode = ref(true)
 const products = ref([])
 const categories = ref([])
+// 两级分类树：筛选下拉按 大分类（整类）→ 二级 分组展示
+const categoryTree = computed(() => buildCategoryTree(categories.value))
 const productsLoading = ref(false)
 const productKeyword = ref('')
 const productPage = ref(1)
