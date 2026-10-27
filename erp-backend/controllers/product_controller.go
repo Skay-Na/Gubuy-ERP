@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
@@ -47,6 +48,7 @@ type UpdateProductRequest struct {
 // @Param category_id query int false "分类ID"
 // @Param stock_filter query string false "库存筛选：store/cloud/available/none"
 // @Param only_special query string false "是否仅拉取特价商品(1:是)"
+// @Param order_by query string false "排序：sales_qty 按历史销量降序（排除已取消订单），同时每个商品附带 sales_qty 字段"
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
 // @Success 200 {object} APIResponse "成功响应"
@@ -61,6 +63,8 @@ func GetProducts(c *gin.Context) {
 	keyword := c.Query("keyword")
 	categoryID := c.Query("category_id")
 	stockFilter := c.Query("stock_filter")
+	orderBy := c.Query("order_by")
+	orderBySales := orderBy == "sales_qty"
 	if blindStocktakeMode {
 		// Inventory-based filters would reveal whether a product has stock even
 		// when the quantities themselves are removed from the response.
@@ -79,11 +83,13 @@ func GetProducts(c *gin.Context) {
 	}
 
 	if keyword != "" {
+		// 商品备注存在 sku 列（模型 Remark->column:sku），name/sku 已覆盖名称+备注搜索
 		db = db.Where("(name LIKE ? OR sku LIKE ?)", "%"+keyword+"%", "%"+keyword+"%")
 	}
 
 	if categoryID != "" {
-		db = db.Where("category_id = ?", categoryID)
+		// 选中一级大分类时，包含其下所有二级分类的商品
+		db = db.Where("category_id = ? OR category_id IN (SELECT id FROM categories WHERE parent_id = ? AND deleted_at IS NULL)", categoryID, categoryID)
 	}
 	switch stockFilter {
 	case "store":
@@ -114,6 +120,22 @@ func GetProducts(c *gin.Context) {
 		}
 
 		offset := (page - 1) * pageSize
+		// order_by=sales_qty：销量聚合做成 JOIN 计算列（JOIN 在 Count 之后才加，不影响 total）
+		if orderBySales {
+			var rows []productWithSales
+			if err := productSalesQuery(db).Offset(offset).Limit(pageSize).Find(&rows).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{
+				"code":                 200,
+				"msg":                  "success",
+				"data":                 productsWithSalesForEmployeeStocktake(rows, blindStocktakeMode),
+				"total":                total,
+				"blind_stocktake_mode": blindStocktakeMode,
+			})
+			return
+		}
 		if err := db.Offset(offset).Limit(pageSize).Find(&products).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
 			return
@@ -130,6 +152,21 @@ func GetProducts(c *gin.Context) {
 	}
 
 	// 否则全量拉取，保证向后兼容性
+	if orderBySales {
+		var rows []productWithSales
+		if err := productSalesQuery(db).Find(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"code":                 200,
+			"msg":                  "success",
+			"data":                 productsWithSalesForEmployeeStocktake(rows, blindStocktakeMode),
+			"blind_stocktake_mode": blindStocktakeMode,
+		})
+		return
+	}
+
 	if err := db.Find(&products).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": err.Error()})
 		return
@@ -141,6 +178,41 @@ func GetProducts(c *gin.Context) {
 		"data":                 productsForEmployeeStocktake(products, blindStocktakeMode),
 		"blind_stocktake_mode": blindStocktakeMode,
 	})
+}
+
+// productWithSales 带历史销量的商品行（order_by=sales_qty 时返回，销量为 JSON 平铺字段）
+type productWithSales struct {
+	models.Product
+	SalesQty int64 `json:"sales_qty"`
+}
+
+// productSalesJoin 销量聚合子查询：历史成交数量合计，口径同财务销售分析（排除已取消订单 order_status=1）
+const productSalesJoin = "LEFT JOIN (SELECT oi.product_id AS pid, SUM(oi.quantity) AS qty " +
+	"FROM order_items oi JOIN orders o ON o.id = oi.order_id " +
+	"WHERE o.order_status = 1 GROUP BY oi.product_id) sales_agg ON sales_agg.pid = products.id"
+
+const productSalesSelect = "products.*, COALESCE(sales_agg.qty, 0) AS sales_qty"
+
+// productSalesQuery 构建带销量计算列的商品查询（order_by=sales_qty 时使用，分页/全量两分支共用）。
+// 必须显式指定 Model：全量拉取分支的 db 从未经过 Count，若不设 Model，
+// GORM 会按目标结构体 productWithSales 推断表名（product_with_sales，不存在）导致 500。
+func productSalesQuery(db *gorm.DB) *gorm.DB {
+	return db.Model(&models.Product{}).
+		Joins(productSalesJoin).
+		Select(productSalesSelect).
+		Order("sales_qty DESC, products.id ASC")
+}
+
+// productsWithSalesForEmployeeStocktake 盲盘模式下隐藏库存字段（销量字段一并隐藏，保持盲盘口径）
+func productsWithSalesForEmployeeStocktake(rows []productWithSales, blindStocktakeMode bool) interface{} {
+	if !blindStocktakeMode {
+		return rows
+	}
+	redacted := make([]productWithoutStock, len(rows))
+	for i, row := range rows {
+		redacted[i] = productWithoutStock{Product: row.Product}
+	}
+	return redacted
 }
 
 type productWithoutStock struct {
@@ -459,7 +531,8 @@ func ExportProducts(c *gin.Context) {
 	}
 
 	if categoryID != "" {
-		db = db.Where("category_id = ?", categoryID)
+		// 选中一级大分类时，包含其下所有二级分类的商品
+		db = db.Where("category_id = ? OR category_id IN (SELECT id FROM categories WHERE parent_id = ? AND deleted_at IS NULL)", categoryID, categoryID)
 	}
 
 	if err := db.Order("id desc").Find(&products).Error; err != nil {

@@ -73,6 +73,7 @@ docker-compose.override.yaml
 *.gz
 /erp-app.tar
 *.sql
+!docs/migrations/*.sql
 chunk_*.txt
 scripts/archive/
 scripts/.router-pass.clixml

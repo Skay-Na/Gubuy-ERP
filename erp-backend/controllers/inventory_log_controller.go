@@ -65,6 +65,24 @@ func WriteInventoryLog(tx *gorm.DB, productID uint, warehouseType int, logType s
 	return tx.Create(&log).Error
 }
 
+// applyInventoryLogScopeFilters 库存流水的范围过滤：商品分类（选中一级时含二级分类的商品）与日期区间
+func applyInventoryLogScopeFilters(query *gorm.DB, c *gin.Context) *gorm.DB {
+	categoryID := c.Query("category_id")
+	if categoryID != "" {
+		query = query.Joins("JOIN products ON inventory_logs.product_id = products.id").
+			Where("(products.category_id = ? OR products.category_id IN (SELECT id FROM categories WHERE parent_id = ? AND deleted_at IS NULL))", categoryID, categoryID)
+	}
+	startDate := c.Query("start_date")
+	if startDate != "" {
+		query = query.Where("inventory_logs.created_at >= ?", startDate+" 00:00:00")
+	}
+	endDate := c.Query("end_date")
+	if endDate != "" {
+		query = query.Where("inventory_logs.created_at <= ?", endDate+" 23:59:59")
+	}
+	return query
+}
+
 // GetInventoryLogs 查询指定商品的库存流水记录
 // GET /api/products/{id}/logs?warehouse_type=&page=&page_size=
 // @Summary 获取指定商品库存流水
@@ -196,6 +214,7 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 		query = query.Joins("JOIN products ON inventory_logs.product_id = products.id").
 			Where("(products.name LIKE ? OR products.sku LIKE ? OR inventory_logs.remark LIKE ? OR inventory_logs.related_no LIKE ?)", k, k, k, k)
 	}
+	query = applyInventoryLogScopeFilters(query, c)
 
 	var total int64
 	query.Model(&models.InventoryLog{}).Count(&total)
@@ -258,6 +277,7 @@ func ExportInventoryLogs(c *gin.Context) {
 		query = query.Joins("JOIN products ON inventory_logs.product_id = products.id").
 			Where("(products.name LIKE ? OR products.sku LIKE ? OR inventory_logs.remark LIKE ? OR inventory_logs.related_no LIKE ?)", k, k, k, k)
 	}
+	query = applyInventoryLogScopeFilters(query, c)
 
 	var logs []models.InventoryLog
 	if err := query.Find(&logs).Error; err != nil {

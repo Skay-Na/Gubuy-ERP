@@ -23,7 +23,7 @@ export const stocktakeProduct = (productId, data) => request.post(`/api/products
 export const recalculateProductCosts = () => request.post('/api/products/recalculate-costs')
 
 // 查询分类列表
-export const fetchCategories = () => request.get('/api/categories')
+export const fetchCategories = params => request.get('/api/categories', { params })
 
 // 新建分类
 export const createCategory = data => request.post('/api/categories', data)

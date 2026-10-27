@@ -42,7 +42,8 @@ type TransferRecord struct {
 // Category 商品分类表
 type Category struct {
 	ID        uint           `gorm:"primaryKey;comment:主键ID" json:"id"`
-	Name      string         `gorm:"type:varchar(100);not null;uniqueIndex;comment:分类名称" json:"name"`
+	Name      string         `gorm:"type:varchar(100);not null;index;comment:分类名称" json:"name"`
+	ParentID  *uint          `gorm:"index;comment:父分类ID（NULL=一级大分类）" json:"parent_id"`
 	SortOrder int            `gorm:"type:int;default:0;comment:排序权重" json:"sort_order"`
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

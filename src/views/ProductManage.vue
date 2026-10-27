@@ -7,26 +7,29 @@
         <p class="text-sm text-slate-400">维护商品基础档案，设定编码与毛利率</p>
       </div>
       <div class="flex flex-wrap gap-3">
-        <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-blue-400" @click="handleRecalculateCosts">
-          <el-icon class="mr-1 text-orange-500"><MagicStick /></el-icon>重构历史成本
-        </el-button>
-        <el-button
-          plain
-          class="!rounded-xl h-10"
-          :type="onlyInStock ? 'primary' : 'default'"
-          :aria-pressed="onlyInStock"
-          @click="toggleInStock"
-        >
-          <el-icon class="mr-1"><Box /></el-icon>只显示有库存
-        </el-button>
-        <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-blue-400" @click="openCategoryManage">
-          <el-icon class="mr-1"><Setting /></el-icon>分类管理
-        </el-button>
-        <el-button type="primary" class="!rounded-xl h-10 shadow-md shadow-blue-100" @click="openAddDialog">
+        <el-dropdown trigger="click" @command="handleDesktopMenuCommand">
+          <el-button plain class="!rounded-xl h-10 !border-slate-200 hover:!border-indigo-400">
+            <el-icon class="mr-1 text-slate-500"><MoreFilled /></el-icon>更多操作<el-icon class="el-icon--right ml-1 text-slate-400"><arrow-down /></el-icon>
+          </el-button>
+          <template #dropdown>
+            <el-dropdown-menu>
+              <el-dropdown-item command="recalculate">
+                <el-icon class="text-orange-500"><MagicStick /></el-icon>重构历史成本
+              </el-dropdown-item>
+              <el-dropdown-item command="category">
+                <el-icon><Setting /></el-icon>分类管理
+              </el-dropdown-item>
+              <el-dropdown-item command="export">
+                <el-icon><Download /></el-icon>导出清单
+              </el-dropdown-item>
+              <el-dropdown-item command="stockFilter" divided>
+                <el-icon><Box /></el-icon>{{ onlyInStock ? '取消仅看有库存' : '只显示有库存' }}
+              </el-dropdown-item>
+            </el-dropdown-menu>
+          </template>
+        </el-dropdown>
+        <el-button type="primary" class="!rounded-xl h-10 shadow-md shadow-indigo-100" @click="openAddDialog">
           <el-icon class="mr-1"><Plus /></el-icon>新增商品
-        </el-button>
-        <el-button type="success" plain class="!rounded-xl h-10 border-green-200" @click="handleExport">
-          <el-icon class="mr-1"><Download /></el-icon>导出清单
         </el-button>
       </div>
     </div>
@@ -66,64 +69,59 @@
         </el-dropdown>
       </div>
       
-      <!-- Mobile Categories (Horizontal Scroll) -->
-      <div class="flex items-center gap-2 overflow-x-auto hide-scrollbar pb-1">
-        <div class="flex gap-2 whitespace-nowrap">
-          <div class="category-chip" :class="{ active: selectedCategoryId === '' }" @click="selectCategory('')">全部</div>
-          <div v-for="cat in categories" :key="cat.id" class="category-chip" :class="{ active: selectedCategoryId === cat.id }" @click="selectCategory(cat.id)">{{ cat.name }}</div>
-        </div>
-      </div>
-      
-      <!-- Mobile Status Chips -->
+      <!-- Mobile Filters: 分类级联 + 特价开关 -->
       <div class="flex items-center gap-2 mt-2">
-        <div class="flex items-center gap-1 px-3 py-1.5 rounded-full border text-[11px] font-bold transition-all"
+        <el-cascader
+          v-model="selectedCategoryId"
+          :options="categoryOptions"
+          :props="categoryCascaderProps"
+          placeholder="全部分类"
+          clearable
+          class="flex-1 mobile-category-select"
+          @change="selectCategory"
+        />
+        <div class="flex items-center gap-1 px-3 py-2 rounded-xl border text-xs font-bold transition-all shrink-0"
           :class="onlySpecial ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-slate-200 text-slate-500'"
           @click="toggleSpecial"
         >
-          <el-icon><Lightning /></el-icon> 仅看特价促销
+          <el-icon><Lightning /></el-icon> 特价
         </div>
       </div>
     </div>
 
-    <!-- Desktop Enhanced Filter Bar -->
-    <div class="hidden md:block bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-6 space-y-4">
-      <div class="flex flex-col md:flex-row gap-4 items-center">
-        <!-- Search Input -->
-        <div class="w-full md:w-96">
-          <el-input
-            v-model="searchQuery"
-            placeholder="输入商品名称、备注关键词..."
-            class="custom-search-input"
-            clearable
-            @input="handleSearch"
-          >
-            <template #prefix>
-              <el-icon size="18" class="text-blue-500"><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        
-        <!-- Status Filters -->
-        <div class="flex items-center gap-4 ml-auto">
-          <div 
-            class="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all cursor-pointer select-none"
-            :class="onlySpecial ? 'bg-red-50 border-red-200 text-red-600 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-200'"
-            @click="toggleSpecial"
-          >
-            <el-icon :class="{'animate-pulse': onlySpecial}"><Lightning /></el-icon>
-            <span class="text-sm font-bold">仅看特价促销</span>
-            <el-switch v-model="onlySpecial" size="small" @click.stop @change="handleSearch" class="ml-1" />
-          </div>
-        </div>
+    <!-- Desktop Compact Filter Bar -->
+    <div class="hidden md:flex bg-white rounded-2xl px-4 py-3 shadow-sm border border-slate-100 mb-6 gap-4 items-center">
+        <el-cascader
+          v-model="selectedCategoryId"
+          :options="categoryOptions"
+          :props="categoryCascaderProps"
+          placeholder="全部分类（可选大分类或二级）"
+          clearable
+          filterable
+          class="!w-64 category-select"
+          @change="selectCategory"
+        />
+      <div class="w-80">
+        <el-input
+          v-model="searchQuery"
+          placeholder="输入商品名称、备注关键词..."
+          class="custom-search-input"
+          clearable
+          @input="handleSearch"
+        >
+          <template #prefix>
+            <el-icon size="16" class="text-indigo-400"><Search /></el-icon>
+          </template>
+        </el-input>
       </div>
 
-      <!-- Category Chips -->
-      <div class="flex items-center gap-2 pt-2 border-t border-slate-50">
-        <div class="text-xs font-bold text-slate-400 uppercase tracking-widest mr-2">分类筛选:</div>
-        <div class="flex-1 flex flex-wrap gap-2">
-          <div class="category-chip" :class="{ active: selectedCategoryId === '' }" @click="selectCategory('')">全部</div>
-          <div v-for="cat in categories" :key="cat.id" class="category-chip" :class="{ active: selectedCategoryId === cat.id }" @click="selectCategory(cat.id)">{{ cat.name }}</div>
-        </div>
+      <div
+        class="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all cursor-pointer select-none ml-auto"
+        :class="onlySpecial ? 'bg-red-50 border-red-200 text-red-600 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-200'"
+        @click="toggleSpecial"
+      >
+        <el-icon :class="{'animate-pulse': onlySpecial}"><Lightning /></el-icon>
+        <span class="text-sm font-bold">仅看特价促销</span>
       </div>
     </div>
 
@@ -143,7 +141,7 @@
           <template #default="{ row }">
             <div class="compact-cell">
               <strong class="compact-primary" :title="row.name">{{ row.name }}</strong>
-              <span class="compact-meta">#{{ row.id }} · {{ row.category?.name || '未分类' }} · 毛利 {{ (row.margin_rate * 100).toFixed(0) }}%</span>
+              <span class="compact-meta">#{{ row.id }} · {{ categoryLabel(row.category_id) }} · 毛利 {{ (row.margin_rate * 100).toFixed(0) }}%</span>
               <span v-if="row.remark || row.no_commission" class="compact-meta" :title="row.remark || ''">{{ row.remark || '' }}<span v-if="row.no_commission" class="text-amber-600">{{ row.remark ? ' · ' : '' }}无提成</span></span>
             </div>
           </template>
@@ -333,40 +331,48 @@
       class="custom-dialog"
     >
       <el-form ref="productFormRef" :model="productForm" :rules="formRules" label-position="top" class="product-form">
-        <el-form-item label="商品名称" prop="name">
-          <el-input v-model="productForm.name" placeholder="请输入商品完整名称" />
-        </el-form-item>
-        <el-form-item label="商品备注 (特征说明)" prop="remark">
-          <el-input v-model="productForm.remark" placeholder="请输入商品特征或备注" />
-        </el-form-item>
-        <el-form-item label="商品分类" prop="category_id">
-          <el-select v-model="productForm.category_id" placeholder="请选择分类" class="w-full">
-            <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="固定毛利率 (小数，如 0.15 代表 15%)" prop="margin_rate">
-          <el-input-number v-model="productForm.margin_rate" :precision="2" :step="0.01" :min="0" :max="1" style="width: 100%" />
-          <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? formatMoney((productForm.avg_cost || 0) / (1 - productForm.margin_rate)) : '0.00' }}</div>
-        </el-form-item>
-        <el-form-item label="销售提成" prop="no_commission">
-          <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
-          <div class="input-tip">开启后，新订单中该商品的成交金额不参与员工及商会订单提成。</div>
-        </el-form-item>
+        <div class="form-section">
+          <div class="form-section-title"><el-icon class="text-indigo-500"><Files /></el-icon>基本信息</div>
+          <el-form-item label="商品名称" prop="name">
+            <el-input v-model="productForm.name" placeholder="请输入商品完整名称" />
+          </el-form-item>
+          <el-form-item label="商品备注 (特征说明)" prop="remark">
+            <el-input v-model="productForm.remark" placeholder="请输入商品特征或备注" />
+          </el-form-item>
+          <el-form-item label="商品分类" prop="category_id">
+            <el-cascader
+              v-model="productForm.category_id"
+              :options="categoryOptions"
+              :props="categoryCascaderProps"
+              placeholder="选择大分类 / 二级分类"
+              class="w-full"
+              filterable
+            />
+          </el-form-item>
+        </div>
 
-        <div v-if="isEdit" class="mt-4 p-4 bg-blue-50/50 rounded-2xl border border-blue-100">
-          <div class="text-xs font-bold text-blue-600 mb-3 flex items-center gap-1">
-            <el-icon><InfoFilled /></el-icon>成本校准
-          </div>
+        <div class="form-section">
+          <div class="form-section-title"><el-icon class="text-indigo-500"><Coin /></el-icon>价格与提成</div>
+          <el-form-item label="固定毛利率 (小数，如 0.15 代表 15%)" prop="margin_rate">
+            <el-input-number v-model="productForm.margin_rate" :precision="2" :step="0.01" :min="0" :max="1" style="width: 100%" />
+            <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? formatMoney((productForm.avg_cost || 0) / (1 - productForm.margin_rate)) : '0.00' }}</div>
+          </el-form-item>
+          <el-form-item label="销售提成" prop="no_commission">
+            <el-switch v-model="productForm.no_commission" active-text="无提成" inactive-text="正常提成" />
+            <div class="input-tip">开启后，新订单中该商品的成交金额不参与员工及商会订单提成。</div>
+          </el-form-item>
+        </div>
+
+        <div v-if="isEdit" class="form-section bg-blue-50/50 border-blue-100">
+          <div class="form-section-title text-blue-600"><el-icon><InfoFilled /></el-icon>成本校准</div>
           <el-form-item label="平均成本" prop="avg_cost">
             <el-input-number v-model="productForm.avg_cost" :precision="2" :min="0" style="width: 100%" />
             <p class="mt-1 text-xs text-slate-400">手动调整会记录成本基准；最新进价仍以实际入库流水为准。</p>
           </el-form-item>
         </div>
 
-        <div class="mt-4 p-4 bg-orange-50/50 rounded-2xl border border-orange-100">
-          <div class="text-xs font-bold text-orange-600 mb-3 flex items-center gap-1">
-            <el-icon><Calendar /></el-icon>限时特价设置
-          </div>
+        <div class="form-section bg-orange-50/50 border-orange-100">
+          <div class="form-section-title text-orange-600"><el-icon><Calendar /></el-icon>限时特价设置</div>
           <el-form-item label="特价金额" prop="special_price">
             <el-input-number v-model="productForm.special_price" :precision="2" :min="0" style="width: 100%" />
           </el-form-item>
@@ -406,9 +412,14 @@
             <el-input v-model="productForm.remark" size="large" placeholder="请输入商品特征或备注" />
           </el-form-item>
           <el-form-item label="商品分类" prop="category_id">
-            <el-select v-model="productForm.category_id" size="large" placeholder="请选择分类" class="w-full">
-              <el-option v-for="cat in categories" :key="cat.id" :label="cat.name" :value="cat.id" />
-            </el-select>
+            <el-cascader
+              v-model="productForm.category_id"
+              :options="categoryOptions"
+              :props="categoryCascaderProps"
+              size="large"
+              placeholder="选择大分类 / 二级分类"
+              class="w-full"
+            />
           </el-form-item>
           <el-form-item label="固定毛利率" prop="margin_rate">
             <el-input-number v-model="productForm.margin_rate" size="large" :precision="2" :step="0.01" :min="0" :max="1" style="width: 100%" />
@@ -667,25 +678,33 @@
     </el-drawer>
 
         <!-- 分类管理 -->
-    <el-dialog v-if="!isMobile" v-model="categoryDialogVisible" title="分类管理" width="500px" destroy-on-close class="custom-dialog">
-      <div class="mb-4 flex gap-2">
-        <el-input v-model="newCategoryName" placeholder="新分类名称" class="flex-1" />
-        <el-button type="primary" @click="handleAddCategory">添加</el-button>
+    <el-dialog v-if="!isMobile" v-model="categoryDialogVisible" title="分类管理" width="560px" destroy-on-close class="custom-dialog">
+      <div class="mb-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
+        <div class="text-xs font-bold text-slate-500 mb-2">新增分类</div>
+        <div class="flex gap-2">
+          <el-select v-model="newCategoryParentId" class="!w-40" placeholder="作为一级分类">
+            <el-option label="作为一级大分类" value="" />
+            <el-option v-for="root in categoryTree" :key="root.id" :label="`挂在「${root.name}」下`" :value="root.id" />
+          </el-select>
+          <el-input v-model="newCategoryName" placeholder="新分类名称" class="flex-1" @keyup.enter="handleAddCategory" />
+          <el-button type="primary" @click="handleAddCategory">添加</el-button>
+        </div>
       </div>
-      <el-table  :data="categories" border stripe size="small" height="300">
-        <el-table-column prop="name" label="分类名称">
+      <el-table :data="categoryTree" row-key="id" border default-expand-all :tree-props="{ children: 'children' }" size="small" height="320">
+        <el-table-column prop="name" label="分类名称" min-width="200">
           <template #default="{ row }">
             <el-input v-if="row.isEditing" v-model="row.editName" size="small" />
-            <span v-else>{{ row.name }}</span>
+            <span v-else :class="{ 'font-bold': !row.parent_id }">{{ row.name }}<el-tag v-if="row.parent_id" size="small" type="info" class="ml-1.5">二级</el-tag></span>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="120" align="center">
+        <el-table-column label="操作" width="170" align="center">
           <template #default="{ row }">
             <template v-if="row.isEditing">
               <el-button link type="primary" @click="saveCategoryEdit(row)">保存</el-button>
               <el-button link @click="row.isEditing = false">取消</el-button>
             </template>
             <template v-else>
+              <el-button v-if="!row.parent_id" link type="success" @click="newCategoryParentId = row.id; newCategoryName = ''; ">加子分类</el-button>
               <el-button link type="primary" @click="startCategoryEdit(row)">编辑</el-button>
               <el-popconfirm title="确定删除吗？" @confirm="handleDeleteCategory(row.id)">
                 <template #reference>
@@ -704,33 +723,68 @@
         <el-button link @click="categoryDialogVisible = false" class="!text-slate-400">关闭</el-button>
       </div>
       <div class="p-4 flex-1 overflow-y-auto safe-area-pb bg-slate-50">
-        <div class="mb-4 flex gap-2">
-        <el-input v-model="newCategoryName" placeholder="新分类名称" class="flex-1 h-10" />
-        <el-button type="primary" class="h-10 px-6 !rounded-lg" @click="handleAddCategory">添加</el-button>
-      </div>
-        <div v-if="categories.length === 0" class="py-10 text-center text-slate-400">暂无分类</div>
-        <div v-else class="space-y-3 mt-4">
-          <div v-for="row in categories" :key="row.id" class="bg-white rounded-xl p-3 border border-slate-100 shadow-sm flex items-center justify-between">
-            <div v-if="row.isEditing" class="flex-1 flex gap-2">
-              <el-input v-model="row.editName" size="small" class="flex-1" />
-              <el-button type="primary" size="small" @click="saveCategoryEdit(row)">保存</el-button>
-              <el-button size="small" @click="row.isEditing = false">取消</el-button>
+        <div class="mb-4 p-3 rounded-xl bg-white border border-slate-100">
+          <div class="text-xs font-bold text-slate-500 mb-2">新增分类</div>
+          <el-select v-model="newCategoryParentId" class="w-full mb-2" placeholder="作为一级分类">
+            <el-option label="作为一级大分类" value="" />
+            <el-option v-for="root in categoryTree" :key="root.id" :label="`挂在「${root.name}」下`" :value="root.id" />
+          </el-select>
+          <div class="flex gap-2">
+            <el-input v-model="newCategoryName" placeholder="新分类名称" class="flex-1 h-10" />
+            <el-button type="primary" class="h-10 px-6 !rounded-lg" @click="handleAddCategory">添加</el-button>
+          </div>
+        </div>
+        <div v-if="categoryTree.length === 0" class="py-10 text-center text-slate-400">暂无分类</div>
+        <div v-else class="space-y-3 mt-2">
+          <div v-for="root in categoryTree" :key="root.id" class="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+            <div class="p-3 flex items-center justify-between bg-slate-50/60">
+              <template v-if="root.isEditing">
+                <div class="flex-1 flex gap-2 pr-2">
+                  <el-input v-model="root.editName" size="small" class="flex-1" />
+                  <el-button type="primary" size="small" @click="saveCategoryEdit(root)">保存</el-button>
+                  <el-button size="small" @click="root.isEditing = false">取消</el-button>
+                </div>
+              </template>
+              <template v-else>
+                <div class="font-bold text-slate-800 text-sm">{{ root.name }}</div>
+                <div class="flex gap-1">
+                  <el-button link type="success" size="small" @click="newCategoryParentId = root.id; newCategoryName = ''">+子分类</el-button>
+                  <el-button link type="primary" size="small" @click="startCategoryEdit(root)">编辑</el-button>
+                  <el-popconfirm title="确定删除吗？" @confirm="handleDeleteCategory(root.id)">
+                    <template #reference>
+                      <el-button link type="danger" size="small">删除</el-button>
+                    </template>
+                  </el-popconfirm>
+                </div>
+              </template>
             </div>
-            <template v-else>
-              <div class="font-bold text-slate-700 text-sm">{{ row.name }}</div>
-              <div class="flex gap-1">
-                <el-button link type="primary" @click="startCategoryEdit(row)">编辑</el-button>
-                <el-popconfirm title="确定删除吗？" @confirm="handleDeleteCategory(row.id)">
-                  <template #reference>
-                    <el-button link type="danger">删除</el-button>
-                  </template>
-                </el-popconfirm>
+            <div v-if="root.children?.length" class="divide-y divide-slate-50">
+              <div v-for="child in root.children" :key="child.id" class="px-3 py-2.5 flex items-center justify-between pl-7">
+                <template v-if="child.isEditing">
+                  <div class="flex-1 flex gap-2 pr-2">
+                    <el-input v-model="child.editName" size="small" class="flex-1" />
+                    <el-button type="primary" size="small" @click="saveCategoryEdit(child)">保存</el-button>
+                    <el-button size="small" @click="child.isEditing = false">取消</el-button>
+                  </div>
+                </template>
+                <template v-else>
+                  <div class="text-sm text-slate-600 flex items-center gap-1.5"><span class="text-slate-300">└</span>{{ child.name }}</div>
+                  <div class="flex gap-1">
+                    <el-button link type="primary" size="small" @click="startCategoryEdit(child)">编辑</el-button>
+                    <el-popconfirm title="确定删除吗？" @confirm="handleDeleteCategory(child.id)">
+                      <template #reference>
+                        <el-button link type="danger" size="small">删除</el-button>
+                      </template>
+                    </el-popconfirm>
+                  </div>
+                </template>
               </div>
-            </template>
+            </div>
+            <div v-else class="px-7 pb-2.5 text-[11px] text-slate-300">暂无子分类</div>
           </div>
         </div>
 
-        
+
       </div>
     </el-drawer>
 
@@ -739,7 +793,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
-import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit, Box } from '@element-plus/icons-vue'
+import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit, Box, Menu, Files, Coin } from '@element-plus/icons-vue'
 import {
   fetchCategories as fetchCategoriesApi,
   fetchProducts as fetchProductsApi,
@@ -755,6 +809,7 @@ import {
 } from '../api/products'
 import { formatMoney, formatDateTime } from '../utils/format'
 import { downloadExcel } from '../utils/export'
+import { buildCategoryTree, categoryFullPath, categoryCascaderProps } from '../utils/categories'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 const windowWidth = ref(window.innerWidth)
@@ -770,6 +825,15 @@ const dialogVisible = ref(false)
 const productList = ref([])
 const categories = ref([])
 const selectedCategoryId = ref('')
+
+// 两级分类：树（级联/管理用）与完整路径显示
+const categoryTree = computed(() => buildCategoryTree(categories.value))
+const categoryLabel = (id) => categoryFullPath(categories.value, id)
+// 级联选项：无子分类的一级不给空 children，避免出现可展开的空面板
+const categoryOptions = computed(() => categoryTree.value.map(root => ({
+  ...root,
+  children: root.children.length ? root.children : undefined
+})))
 const onlySpecial = ref(false)
 const onlyInStock = ref(false)
 const searchQuery = ref('')
@@ -814,6 +878,13 @@ const handleMobileCommand = (cmd) => {
 }
 
 const handleMobileMenuCommand = (cmd) => {
+  if (cmd === 'recalculate') handleRecalculateCosts()
+  if (cmd === 'stockFilter') toggleInStock()
+  if (cmd === 'category') openCategoryManage()
+  if (cmd === 'export') handleExport()
+}
+
+const handleDesktopMenuCommand = (cmd) => {
   if (cmd === 'recalculate') handleRecalculateCosts()
   if (cmd === 'stockFilter') toggleInStock()
   if (cmd === 'category') openCategoryManage()
@@ -909,22 +980,29 @@ const handleSizeChange = (val) => {
   fetchProducts()
 }
 
-// 分类管理相关
+// 分类管理相关（两级：大分类 / 二级分类）
 const categoryDialogVisible = ref(false)
 const newCategoryName = ref('')
-const openCategoryManage = () => categoryDialogVisible.value = true
+const newCategoryParentId = ref('') // 空=作为一级大分类
+const openCategoryManage = () => {
+  newCategoryParentId.value = ''
+  categoryDialogVisible.value = true
+}
 
 const handleAddCategory = async () => {
   if (!newCategoryName.value) return
   try {
-    const res = await createCategory({ name: newCategoryName.value })
+    const res = await createCategory({
+      name: newCategoryName.value,
+      parent_id: newCategoryParentId.value || null
+    })
     if (res.data.code === 200) {
       ElMessage.success('添加成功')
       newCategoryName.value = ''
       fetchCategories()
     }
   } catch (error) {
-    ElMessage.error('添加失败')
+    ElMessage.error(error.response?.data?.msg || '添加失败')
   }
 }
 
@@ -935,13 +1013,14 @@ const startCategoryEdit = (row) => {
 
 const saveCategoryEdit = async (row) => {
   try {
-    const res = await updateCategory(row.id, { name: row.editName })
+    // parent_id 必须显式回传，否则后端会把二级分类提升为一级
+    const res = await updateCategory(row.id, { name: row.editName, parent_id: row.parent_id || null })
     if (res.data.code === 200) {
       ElMessage.success('修改成功')
       fetchCategories()
     }
   } catch (error) {
-    ElMessage.error('修改失败')
+    ElMessage.error(error.response?.data?.msg || '修改失败')
   }
 }
 
@@ -998,7 +1077,8 @@ const handleRecalculateCosts = async () => {
 }
 
 const selectCategory = (id) => {
-  selectedCategoryId.value = id
+  // cascader 清空时回调 null，统一归一为 ''（全部分类）
+  selectedCategoryId.value = id ?? ''
   currentPage.value = 1
   fetchProducts()
 }
@@ -1094,7 +1174,7 @@ const handleCommand = (command, row) => {
 }
 
 const syncStocktakeExpectedStock = () => {
-  const product = products.value.find(item => item.id === stocktakeForm.productId)
+  const product = productList.value.find(item => item.id === stocktakeForm.productId)
   if (!product) return
   const stock = Number(stocktakeForm.warehouse_type === 2 ? product.store_stock : product.cloud_stock) || 0
   stocktakeForm.expected_stock = stock
@@ -1323,6 +1403,33 @@ onMounted(() => {
   padding: 0 4px;
 }
 
+.form-section {
+  padding: 14px 16px 4px;
+  border-radius: 14px;
+  border: 1px solid #f1f5f9;
+  background: #fafbfc;
+  margin-bottom: 14px;
+}
+
+.form-section.bg-blue-50\/50 {
+  background: rgba(239, 246, 255, 0.5);
+}
+.form-section.bg-orange-50\/50 {
+  background: rgba(255, 247, 237, 0.5);
+}
+
+.form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .input-tip {
   font-size: 12px;
   color: #94a3b8;
@@ -1367,31 +1474,22 @@ onMounted(() => {
 
 .custom-search-input :deep(.el-input__wrapper.is-focus) {
   background-color: #fff;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.1);
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
 }
 
-.category-chip {
-  padding: 6px 16px;
-  border-radius: 10px;
-  background-color: #f1f5f9;
-  color: #64748b;
-  font-size: 13px;
+/* 分类下拉 */
+.category-select :deep(.el-select__wrapper),
+.mobile-category-select :deep(.el-select__wrapper) {
+  border-radius: 12px;
+  background-color: #f8fafc;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) inset, 0 0 0 1px #e2e8f0 inset;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: 1px solid transparent;
 }
-
-.category-chip:hover {
-  background-color: #e2e8f0;
-  color: #1e293b;
-}
-
-.category-chip.active {
-  background-color: #3b82f6;
-  color: #ffffff;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+.category-select :deep(.el-select__wrapper.is-focused),
+.mobile-category-select :deep(.el-select__wrapper.is-focused) {
+  background-color: #fff;
+  box-shadow: 0 0 0 1px #4f46e5 inset, 0 0 0 4px rgba(79, 70, 229, 0.1);
 }
 
 .special-offer-card {
@@ -1419,14 +1517,14 @@ onMounted(() => {
   font-family: 'Inter', system-ui;
 }
 .custom-pagination :deep(.el-pager li:hover) {
-  color: #3b82f6;
-  border-color: #3b82f6;
+  color: #4f46e5;
+  border-color: #4f46e5;
 }
 .custom-pagination :deep(.el-pager li.is-active) {
-  background-color: #3b82f6 !important;
+  background-color: #4f46e5 !important;
   color: #ffffff !important;
-  border-color: #3b82f6;
-  box-shadow: 0 4px 10px rgba(59, 130, 246, 0.2);
+  border-color: #4f46e5;
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);
 }
 .custom-pagination :deep(.btn-prev),
 .custom-pagination :deep(.btn-next) {

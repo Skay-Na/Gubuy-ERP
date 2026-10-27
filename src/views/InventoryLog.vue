@@ -36,6 +36,23 @@
           <el-option label="云仓" :value="3" />
           <el-option label="样机" :value="4" />
         </el-select>
+        <el-select v-model="filters.category_id" placeholder="商品分类" clearable class="!w-[calc(50%-4px)] md:!w-36" @change="handleFilter">
+          <el-option label="全部分类" value="" />
+          <el-option-group v-for="root in categoryTree" :key="root.id" :label="root.name">
+            <el-option :label="`${root.name}（整类）`" :value="root.id" />
+            <el-option v-for="child in root.children" :key="child.id" :label="child.name" :value="child.id" />
+          </el-option-group>
+        </el-select>
+        <el-date-picker
+          v-model="dateRange"
+          type="daterange"
+          range-separator="至"
+          start-placeholder="开始日期"
+          end-placeholder="结束日期"
+          value-format="YYYY-MM-DD"
+          class="!w-[calc(50%-4px)] md:!w-64"
+          @change="handleDateChange"
+        />
         <el-select v-model="filters.operator_id" placeholder="操作员工" clearable filterable class="!w-[calc(50%-4px)] md:!w-36" @change="handleFilter">
           <el-option v-for="employee in employees" :key="employee.id" :label="employee.name" :value="employee.id" />
         </el-select>
@@ -175,11 +192,13 @@
       <div class="flex justify-end border-t border-slate-100 p-3">
         <el-pagination
           background
-          layout="prev, pager, next, total"
+          layout="total, sizes, prev, pager, next"
           :current-page="page"
           :page-size="pageSize"
+          :page-sizes="[20, 50, 100]"
           :total="total"
           @current-change="changePage"
+          @size-change="changeSize"
         />
       </div>
     </el-card>
@@ -214,9 +233,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted, reactive } from 'vue'
+import { ref, onMounted, reactive, computed } from 'vue'
 import { Search, Right, Download } from '@element-plus/icons-vue'
 import StocktakeBatchAdminManager from '../components/inventory/StocktakeBatchAdminManager.vue'
+import { fetchCategories as fetchCategoriesApi } from '../api/products'
+import { buildCategoryTree } from '../utils/categories'
 import {
   fetchInventoryLogs,
   fetchPendingStocktakes as fetchPendingStocktakesApi,
@@ -232,8 +253,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const loading = ref(false)
 const logList = ref([])
 const employees = ref([])
+const categories = ref([])
+const categoryTree = computed(() => buildCategoryTree(categories.value))
 const page = ref(1)
-const pageSize = 50
+const pageSize = ref(20)
 const total = ref(0)
 const pendingStocktakesVisible = ref(false)
 const pendingStocktakesLoading = ref(false)
@@ -244,8 +267,18 @@ const filters = reactive({
   log_type: '',
   warehouse_type: '',
   product_id: '',
-  operator_id: ''
+  operator_id: '',
+  category_id: '',
+  start_date: '',
+  end_date: ''
 })
+const dateRange = ref(null)
+
+const handleDateChange = () => {
+  filters.start_date = dateRange.value?.[0] || ''
+  filters.end_date = dateRange.value?.[1] || ''
+  handleFilter()
+}
 
 const handleExport = () => {
   downloadExcel('/api/inventory/logs/export', filters)
@@ -254,7 +287,7 @@ const handleExport = () => {
 const fetchLogs = async () => {
   loading.value = true
   try {
-    const res = await fetchInventoryLogs({ ...filters, page: page.value, page_size: pageSize })
+    const res = await fetchInventoryLogs({ ...filters, page: page.value, page_size: pageSize.value })
     if (res.data.code === 200) {
       logList.value = res.data.data || []
       total.value = Number(res.data.total) || 0
@@ -349,12 +382,22 @@ const changePage = (nextPage) => {
   fetchLogs()
 }
 
+const changeSize = (size) => {
+  pageSize.value = size
+  page.value = 1
+  fetchLogs()
+}
+
 const resetFilters = () => {
   filters.keyword = ''
   filters.log_type = ''
   filters.warehouse_type = ''
   filters.product_id = ''
   filters.operator_id = ''
+  filters.category_id = ''
+  filters.start_date = ''
+  filters.end_date = ''
+  dateRange.value = null
   page.value = 1
   fetchLogs()
 }
@@ -365,6 +408,15 @@ const fetchEmployees = async () => {
     if (res.data.code === 200) employees.value = (res.data.data || []).filter(employee => !employee.is_outsourced)
   } catch {
     ElMessage.error('获取员工列表失败')
+  }
+}
+
+const fetchCategories = async () => {
+  try {
+    const res = await fetchCategoriesApi()
+    if (res.code === 200) categories.value = res.result || []
+  } catch {
+    ElMessage.error('获取商品分类失败')
   }
 }
 
@@ -465,6 +517,7 @@ const getLogTypeTag = (type) => {
 onMounted(() => {
   fetchLogs()
   fetchEmployees()
+  fetchCategories()
   fetchPendingStocktakes()
 })
 </script>
