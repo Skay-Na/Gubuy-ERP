@@ -1,5 +1,5 @@
 <template>
-  <div class="h-[100dvh] w-full bg-slate-50 flex flex-col md:flex-row overflow-hidden relative font-sans text-slate-800 tracking-tight">
+  <div class="h-[100dvh] w-full bg-[#f6f9fc] flex flex-col md:flex-row overflow-hidden relative font-sans text-slate-800 tracking-tight">
     
     <!-- Mobile Header (auto-hide on scroll down) -->
     <header ref="headerRef"
@@ -7,7 +7,7 @@
       :class="headerVisible ? 'translate-y-0' : '-translate-y-full'"
     >
       <div class="flex items-center gap-3">
-        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-indigo-400 shadow-md flex items-center justify-center text-white font-bold text-base">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-[#635bff] to-[#8b85ff] shadow-md flex items-center justify-center text-white font-bold text-base">
           E
         </div>
         <span class="font-bold text-lg tracking-tight text-slate-900">美的智慧 Erp</span>
@@ -37,7 +37,7 @@
       <!-- PC/Mobile Logo Section -->
       <div class="px-6 py-8 flex items-center justify-between overflow-hidden">
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-indigo-400 shadow-lg shadow-indigo-300 flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#635bff] to-[#8b85ff] shadow-lg shadow-[#635bff] flex items-center justify-center text-white font-bold text-xl flex-shrink-0">
             E
           </div>
           <span v-if="!isCollapsed || mobileMenuOpen" class="font-bold text-xl tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-300">
@@ -63,7 +63,7 @@
           <div @click="() => { navigate(); mobileMenuOpen = false }"
                class="flex items-center rounded-2xl cursor-pointer transition-all duration-200 group relative"
                :class="[
-                 isActive ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 text-white shadow-md shadow-indigo-600/25' : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900',
+                 isActive ? 'bg-gradient-to-r from-[#635bff] to-[#4b44c8] text-white shadow-md shadow-[#635bff]/25' : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900',
                  isCollapsed && !mobileMenuOpen ? 'justify-center w-12 h-12 mx-auto px-0' : 'px-4 py-3 gap-3'
                ]">
             <div class="flex-shrink-0 w-6 h-6 flex items-center justify-center">
@@ -132,7 +132,7 @@
     </aside>
 
     <!-- Main Content Area -->
-    <main class="min-w-0 flex-1 overflow-hidden flex flex-col relative z-0 bg-slate-50">
+    <main class="min-w-0 flex-1 overflow-hidden flex flex-col relative z-0" style="background:#f6f9fc">
       <div
         ref="scrollContainer"
         :style="{ paddingTop: scrollPaddingTop }"

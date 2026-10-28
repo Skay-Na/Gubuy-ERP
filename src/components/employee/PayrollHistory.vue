@@ -321,8 +321,8 @@ defineExpose({ fetchHistory })
 .employee-chip .chip-name { font-weight: 700; font-size: 14px; color: #334155; }
 .employee-chip .chip-meta { font-size: 11px; color: #8490a4; }
 .employee-chip:hover { border-color: #93b4f8; background: #f5f8ff; }
-.employee-chip.active { border-color: #2563eb; background: #eff6ff; }
-.employee-chip.active .chip-name { color: #1d4ed8; }
+.employee-chip.active { border-color: #635bff; background: #eef0ff; }
+.employee-chip.active .chip-name { color: #4b44c8; }
 .employee-chip.departed .chip-name { color: #94a3b8; }
 .year-picker { display: flex; flex-wrap: wrap; gap: 8px; }
 .year-chip {
@@ -330,12 +330,12 @@ defineExpose({ fetchHistory })
   font-size: 13px; color: #475569; cursor: pointer; transition: all .15s ease;
 }
 .year-chip:hover { border-color: #93b4f8; background: #f5f8ff; }
-.year-chip.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+.year-chip.active { border-color: #635bff; background: #eef0ff; color: #4b44c8; font-weight: 700; }
 .history-hint { color: #8490a4; font-size: 12px; }
 .expand-body { padding: 6px 12px 14px; }
 .expand-body h4 { margin: 14px 0 8px; color: #334155; font-size: 13px; }
 .expand-body h4:first-child { margin-top: 4px; }
-.order-link { padding: 0; border: 0; background: transparent; color: #2563eb; font: inherit; font-weight: 800; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.order-link { padding: 0; border: 0; background: transparent; color: #635bff; font: inherit; font-weight: 800; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .order-meta { display: block; margin-top: 3px; color: #7b8798; font-size: 11px; line-height: 1.35; }
 .difference { font-weight: 700; }
 .paid-finalized { color: #16a34a; }
@@ -351,8 +351,8 @@ defineExpose({ fetchHistory })
 .salary-breakdown span { color: #64748b; font-size: 12px; }
 .salary-breakdown strong { color: #0f172a; font-size: 17px; }
 .salary-breakdown .deduction { color: #ef4444; }
-.salary-total { background: #eff6ff; border-color: #bfdbfe; }
-.salary-total strong { color: #2563eb; }
+.salary-total { background: #eef0ff; border-color: #dcdaff; }
+.salary-total strong { color: #635bff; }
 .slip-note { margin: 12px 0 16px; color: #64748b; font-size: 12px; }
 .detail-heading { margin: 0 0 10px; color: #334155; font-size: 14px; font-weight: 700; }
 @media (max-width: 760px) {

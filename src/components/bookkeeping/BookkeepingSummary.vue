@@ -77,8 +77,8 @@ function formatCurrency(value) {
 .summary-card.income .summary-card-heading .el-icon, .summary-card.net-positive .summary-card-heading .el-icon { color: #047857; background: #d1fae5; }
 .summary-card.expense { border-color: #fecdd3; background: linear-gradient(145deg, #fff1f2, #fff); }
 .summary-card.expense .summary-card-heading .el-icon, .summary-card.net-negative .summary-card-heading .el-icon { color: #be123c; background: #ffe4e6; }
-.summary-card.balance { color: #fff; border-color: #1e293b; background: linear-gradient(135deg, #0f172a, #334155); }
-.summary-card.balance strong { color: #fff; }.summary-card.balance .summary-card-heading, .summary-card.balance small { color: #cbd5e1; }.summary-card.balance .summary-card-heading .el-icon { color: #fff; background: rgba(255, 255, 255, .12); }
+.summary-card.balance { border-color: #e3e8ee; background: #fff; }
+.summary-card.balance strong { color: #635bff; }.summary-card.balance .summary-card-heading, .summary-card.balance small { color: #64748b; }.summary-card.balance .summary-card-heading .el-icon { color: #635bff; background: #e8e9ff; }
 @media (max-width: 920px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 560px) { .summary-grid { gap: 9px; }.summary-card { min-height: 110px; padding: 14px; border-radius: 15px; }.summary-card strong { font-size: 19px; }.summary-card small { font-size: 10px; }.summary-card-heading .el-icon { width: 27px; height: 27px; } }
 </style>

@@ -152,7 +152,7 @@ const employeeChartOption = computed(() => {
       barWidth: 16,
       data: list.map(e => ({
         value: Number(e.sales_amount || 0),
-        itemStyle: { color: salesFilterEmp.value !== null && salesFilterEmp.value === empKeyOf(e) ? '#4338ca' : '#6366f1', borderRadius: [0, 8, 8, 0] }
+        itemStyle: { color: salesFilterEmp.value !== null && salesFilterEmp.value === empKeyOf(e) ? '#4b44c8' : '#7a70ff', borderRadius: [0, 8, 8, 0] }
       })),
       label: { show: true, position: 'right', color: '#0f172a', fontWeight: 700, formatter: p => '¥' + shortMoney(p.value) }
     }]
@@ -238,7 +238,7 @@ const heatChartOption = computed(() => {
       itemHeight: 80,
       text: ['多', '少'],
       textStyle: { color: '#94a3b8', fontSize: 10 },
-      inRange: { color: ['#eef2ff', '#c7d2fe', '#818cf8'] }
+      inRange: { color: ['#eef0ff', '#dcdaff', '#9a91ff'] }
     },
     series: [{
       name: salesMetric.value === 'amount' ? '销售额' : '销量',
@@ -370,7 +370,7 @@ const submitting = ref(false)
 const accountFormRef = ref()
 const transferFormRef = ref()
 const accounts = computed(() => funds.value.accounts || [])
-const accountColors = ['#6366f1', '#0ea5e9', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6']
+const accountColors = ['#7a70ff', '#0ea5e9', '#f59e0b', '#10b981', '#f43f5e', '#8b5cf6']
 const accountForm = reactive({ name: '', balance: 0 })
 const transferForm = reactive({ from_account_id: null, to_account_id: null, amount: 0, remark: '' })
 const calibrateForm = reactive({ accountId: null, accountName: '', currentBalance: 0, realBalance: 0, remark: '' })
@@ -663,10 +663,10 @@ onMounted(refreshAll)
 <style scoped>
 .finance-page { max-width: 1320px; min-height: 100%; margin: 0 auto; padding: 28px; display: grid; gap: 18px; background: linear-gradient(180deg, #eef0f8 0%, #f6f7fb 320px); align-content: start; }
 .finance-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 4px 2px; }
-.page-kicker { color: #4f46e5; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
+.page-kicker { color: #635bff; font-size: 11px; font-weight: 800; letter-spacing: .16em; }
 .finance-header h1 { margin: 4px 0; color: #0f172a; font-size: 27px; letter-spacing: -.04em; }
 .finance-header p { margin: 0; color: #64748b; font-size: 13px; }
-.finance-header p .hl { color: #4f46e5; }
+.finance-header p .hl { color: #635bff; }
 .header-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .ws-alert { border-radius: 12px; }
 
@@ -674,7 +674,7 @@ onMounted(refreshAll)
 .ws-card { border-radius: 18px; border: 1px solid #e9edf5; box-shadow: 0 1px 2px rgba(15, 23, 42, .03), 0 14px 36px -22px rgba(15, 23, 42, .16); transition: box-shadow .2s; }
 .ws-card:hover { box-shadow: 0 2px 4px rgba(15, 23, 42, .04), 0 18px 44px -22px rgba(15, 23, 42, .2); }
 .ws-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; color: #0f172a; margin-bottom: 14px; }
-.ws-card-title::before { content: ''; flex: none; width: 4px; height: 15px; border-radius: 2px; background: linear-gradient(180deg, #818cf8, #4f46e5); }
+.ws-card-title::before { content: ''; flex: none; width: 4px; height: 15px; border-radius: 2px; background: linear-gradient(180deg, #9a91ff, #635bff); }
 .ws-card-title small { font-weight: 400; }
 .full-width { width: 100%; }
 .dialog-alert { margin-bottom: 18px; }
@@ -688,14 +688,14 @@ onMounted(refreshAll)
 /* 首屏双卡：钱在哪 + 待我处理 */
 .hero-grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 18px; align-items: stretch; }
 .funds-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(280px, 1.15fr); gap: 22px; align-items: center; height: 100%; }
-.funds-available { font-size: 36px; font-weight: 900; letter-spacing: -.04em; font-variant-numeric: tabular-nums; background: linear-gradient(120deg, #0f172a 35%, #4f46e5 115%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.funds-available { font-size: 36px; font-weight: 900; letter-spacing: -.04em; font-variant-numeric: tabular-nums; background: linear-gradient(120deg, #0f172a 35%, #635bff 115%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
 .funds-sub { color: #64748b; font-size: 13px; margin-top: 2px; }
 .funds-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .funds-total { color: #64748b; font-size: 13px; }
 .funds-total b { color: #334155; }
 .funds-list { display: grid; gap: 8px; }
 .funds-account { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 1px solid #eef1f7; border-radius: 12px; background: #fafbfe; cursor: pointer; transition: all .15s; }
-.funds-account:hover { background: #eef2ff; border-color: #c7d2fe; transform: translateY(-1px); }
+.funds-account:hover { background: #eef0ff; border-color: #dcdaff; transform: translateY(-1px); }
 .funds-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .funds-account-name { flex: 1; font-weight: 700; color: #334155; }
 .funds-account b { font-variant-numeric: tabular-nums; color: #0f172a; }
@@ -703,12 +703,12 @@ onMounted(refreshAll)
 
 .todo-rows { display: grid; gap: 8px; }
 .todo-row { display: grid; grid-template-columns: 1fr 64px minmax(96px, auto) 24px; align-items: center; gap: 12px; padding: 13px 14px; border: 1px solid #eef1f7; border-radius: 12px; background: #fafbfe; cursor: pointer; transition: all .15s; }
-.todo-row:hover { background: #eef2ff; border-color: #c7d2fe; transform: translateY(-1px); }
+.todo-row:hover { background: #eef0ff; border-color: #dcdaff; transform: translateY(-1px); }
 .todo-label { font-weight: 700; color: #334155; }
 .todo-count { color: #64748b; font-size: 13px; }
 .todo-amount { color: #0f172a; font-variant-numeric: tabular-nums; }
 .todo-amount.is-zero, .todo-count.is-zero { color: #cbd5e1; }
-.todo-go { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #eef2ff; color: #4f46e5; font-size: 12px; }
+.todo-go { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: #eef0ff; color: #635bff; font-size: 12px; }
 
 .month-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .month-head .ws-card-title { margin-bottom: 0; }
@@ -732,7 +732,7 @@ onMounted(refreshAll)
 .sales-month-picker { width: 132px !important; }
 .sales-toolbar .el-divider--vertical { height: 18px; margin: 0 2px; }
 .sales-filterbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; padding: 10px 14px; border: 1px solid #eef1f7; border-radius: 12px; background: #fafbfe; }
-.sales-filterbar.is-active { border-color: #c7d2fe; background: #eef2ff; }
+.sales-filterbar.is-active { border-color: #dcdaff; background: #eef0ff; }
 .sales-filter-select { width: 132px; }
 .sales-filter-tip { color: #94a3b8; font-size: 11.5px; }
 .sales-uncat-tag { margin-left: auto; }

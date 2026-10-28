@@ -114,6 +114,9 @@ func SetupRouter() *gin.Engine {
 			auth.GET("/search/related", controllers.SearchRelated)
 			auth.GET("/finance/logs", controllers.GetFinancialLogs)
 			auth.GET("/finance/summary", controllers.GetFinanceSummary)
+			// 看板利润计算过程透明化：公式汇总与逐项明细钻取（均为只读查询）
+			auth.GET("/finance/profit-breakdown", controllers.GetProfitBreakdown)
+			auth.GET("/finance/breakdown/:type", controllers.GetBreakdownDetail)
 			auth.GET("/bookkeeping/orders", controllers.SearchBookkeepingOrders)
 			auth.POST("/bookkeeping/entries", middlewares.AdminAuthRequired(), controllers.CreateBookkeepingEntry)
 			auth.POST("/payroll/confirm", middlewares.AdminAuthRequired(), controllers.ConfirmPayroll)

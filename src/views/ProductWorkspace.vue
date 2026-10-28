@@ -80,8 +80,8 @@ const sections = [
 
 .product-section-link--active {
   color: white;
-  background: rgb(15 23 42);
-  box-shadow: 0 4px 12px rgb(15 23 42 / 0.16);
+  background: #635bff;
+  box-shadow: 0 4px 12px rgb(99 91 255 / 0.28);
 }
 
 .product-section-label {
@@ -97,7 +97,7 @@ const sections = [
 }
 
 .product-section-link--active .product-section-description {
-  color: rgb(203 213 225);
+  color: rgb(224 221 255);
 }
 
 @media (max-width: 767px) {

@@ -64,7 +64,7 @@ const mismatchText = item =>
 </template>
 
 <style scoped>
-.important-reminders{margin:0 0 16px;padding:18px 20px;background:#fff;border:1px solid #e8edf3;border-radius:17px}
+.important-reminders{margin:0 0 16px;padding:18px 20px;background:#fff;border:1px solid #e3e8ee;border-radius:12px;box-shadow:0 1px 3px rgba(10,37,64,.06)}
 .reminders-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:13px}
 .reminders-eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#94a3b8}
 .reminders-heading h2{margin:4px 0 0;color:#172033;font-size:18px;font-weight:750}

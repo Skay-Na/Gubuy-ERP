@@ -127,11 +127,11 @@ const handleShare = async () => {
 .salary-breakdown span, .salary-note { color: #64748b; font-size: 12px; }
 .salary-breakdown strong { color: #0f172a; font-size: 17px; }
 .salary-breakdown .deduction { color: #ef4444; }
-.salary-breakdown .salary-total { background: #eff6ff; border-color: #bfdbfe; }
-.salary-breakdown .salary-total strong { color: #2563eb; }
+.salary-breakdown .salary-total { background: #eef0ff; border-color: #dcdaff; }
+.salary-breakdown .salary-total strong { color: #635bff; }
 .salary-note { margin: 12px 0 18px; }
 .detail-heading { margin: 0 0 10px; color: #334155; font-size: 14px; font-weight: 700; }
-.order-link { padding: 0; border: 0; background: transparent; color: #2563eb; font: inherit; font-weight: 800; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.order-link { padding: 0; border: 0; background: transparent; color: #635bff; font: inherit; font-weight: 800; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .order-meta, .order-models { display: block; margin-top: 3px; color: #7b8798; font-size: 11px; line-height: 1.35; }
 .order-models { color: #52657e; }
 @media (max-width: 560px) {

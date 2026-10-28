@@ -332,11 +332,11 @@
 
         <!-- 底部固定：汇总结算 -->
         <div class="flex-shrink-0 border-t border-slate-100 p-4 space-y-3 bg-white">
-          <div class="bg-slate-900 p-3.5 rounded-2xl text-white shadow-lg space-y-1">
+          <div class="p-3.5 rounded-2xl text-white shadow-lg space-y-1 bg-[linear-gradient(135deg,#635bff,#4b44c8)]">
             <div class="flex justify-between text-xs opacity-60"><span>订单金额</span><span>¥{{ originalTotal.toFixed(2) }}</span></div>
             <div v-if="isSubsidized" class="flex justify-between text-xs text-orange-300"><span>国补优惠 (15%)</span><span>-¥{{ subsidyAmount.toFixed(2) }}</span></div>
             <div v-if="isTradeIn" class="flex justify-between text-xs text-emerald-300"><span>以旧换新折抵</span><span>-¥{{ (tradeInAmount || 0).toFixed(2) }}</span></div>
-            <div class="flex justify-between items-end mt-1.5 pt-1 border-t border-slate-800">
+            <div class="flex justify-between items-end mt-1.5 pt-1 border-t border-white/20">
               <span class="text-sm font-bold opacity-80">{{ isDepositMode ? '本次预收定金' : '本次应付全款' }}</span>
               <div class="flex flex-col items-end">
                 <span v-if="wipeZeroAmount > 0" class="text-xs text-emerald-400">抹零优惠 -¥{{ wipeZeroAmount.toFixed(2) }}</span>
@@ -997,7 +997,7 @@ onMounted(() => {
 }
 
 .pos-submit-btn {
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%) !important;
+  background: linear-gradient(135deg, #635bff 0%, #4b44c8 100%) !important;
   transition: all 0.3s ease;
 }
 

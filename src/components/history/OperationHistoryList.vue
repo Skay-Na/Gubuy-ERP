@@ -85,8 +85,8 @@ function formatTime(value) {
   align-items: center;
   justify-content: center;
   border-radius: 14px;
-  background: #eff6ff;
-  color: #2563eb;
+  background: #eef0ff;
+  color: #635bff;
 }
 
 .history-icon-undone {

@@ -51,21 +51,21 @@ body {
 }
 
 /* ============================================================
-   全站统一设计令牌（与财务页同语言：靛蓝主色、大圆角、柔和投影）
+   全站统一设计令牌（Stripe 风：品牌紫 #635BFF、大圆角、柔和投影）
    ============================================================ */
 :root {
-  /* Element Plus 主色 → 靛蓝（按钮/开关/选中态/Tab 下划线全站生效） */
-  --el-color-primary: #4f46e5;
-  --el-color-primary-light-3: #847eed;
-  --el-color-primary-light-5: #a7a3f2;
-  --el-color-primary-light-7: #cac8f7;
-  --el-color-primary-light-8: #dcdafa;
-  --el-color-primary-light-9: #ededfc;
-  --el-color-primary-dark-2: #3f38b7;
+  /* Element Plus 主色 → 品牌紫（按钮/开关/选中态/Tab 下划线全站生效） */
+  --el-color-primary: #635bff;
+  --el-color-primary-light-3: #8b85ff;
+  --el-color-primary-light-5: #b1adff;
+  --el-color-primary-light-7: #d6d4ff;
+  --el-color-primary-light-8: #e2e1ff;
+  --el-color-primary-light-9: #eeedff;
+  --el-color-primary-dark-2: #4f49cc;
 }
 
 body {
-  background-color: #f4f6fb;
+  background-color: #f6f9fc;
 }
 
 /* 卡片：白底大圆角 + 发丝边框 + 柔和投影（覆盖 shadow=always/hover/never 三态） */
@@ -120,7 +120,7 @@ body {
 
 /* 页面标题统一节奏（供各页复用的语义类） */
 .page-kicker {
-  color: #4f46e5;
+  color: #635bff;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.16em;

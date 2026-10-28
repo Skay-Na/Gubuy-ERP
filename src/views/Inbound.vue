@@ -68,7 +68,7 @@
         <el-col v-show="!isMobile || mobileManualEntryOpen" :xs="24" :sm="24" :md="8" :lg="8" class="!px-0 md:!px-3 mb-6 md:mb-0">
           <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 sticky top-6">
             <h3 class="text-lg font-bold text-slate-700 mb-6 flex items-center gap-2">
-              <el-icon color="#4f46e5"><Download /></el-icon>
+              <el-icon color="#635bff"><Download /></el-icon>
               新增入库登记
             </h3>
          

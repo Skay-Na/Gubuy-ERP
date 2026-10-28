@@ -3,6 +3,7 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"errors"
 	"net/http"
 	"time"
 
@@ -94,24 +95,13 @@ func CalculateNetProfit(grossProfit, operatingExpense float64) float64 {
 	return grossProfit - operatingExpense
 }
 
-// GetFinanceSummary 聚合查询财务统计数据
-// @Summary 获取财务数据汇总
-// @Description 获取财务数据汇总
-// @Tags Finance
-// @Accept json
-// @Param period query string false "时间维度 (today, month, last_month, year, custom, all)"
-// @Param start_date query string false "开始日期 (当 period=custom 时有效)"
-// @Param end_date query string false "结束日期 (当 period=custom 时有效)"
-// @Produce json
-// @Success 200 {object} APIResponse "成功响应"
-// @Security ApiKeyAuth
-// @ID get_api_finance_summary
-// @Router /api/finance/summary [get]
-func GetFinanceSummary(c *gin.Context) {
+// resolvePeriodRange 解析 period/start_date/end_date 查询参数为统计起止时间。
+// period 支持 today/month/last_month/year/custom/all；其余值按 today 处理（与历史行为一致）。
+// 返回零值时间表示全量（period=all）；custom 日期无效时返回错误。
+func resolvePeriodRange(c *gin.Context) (time.Time, time.Time, error) {
 	period := c.DefaultQuery("period", "today")
 	startDateStr := c.Query("start_date")
 	endDateStr := c.Query("end_date")
-	var summary FinanceSummaryResponse
 
 	now := time.Now()
 	var startTime time.Time
@@ -136,8 +126,7 @@ func GetFinanceSummary(c *gin.Context) {
 		start, startErr := time.ParseInLocation("2006-01-02", startDateStr, location)
 		end, endErr := time.ParseInLocation("2006-01-02", endDateStr, location)
 		if startErr != nil || endErr != nil || end.Before(start) {
-			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "自定义日期范围无效"})
-			return
+			return time.Time{}, time.Time{}, errors.New("自定义日期范围无效")
 		}
 		startTime = start
 		endTime = time.Date(end.Year(), end.Month(), end.Day(), 23, 59, 59, 999999999, location)
@@ -146,6 +135,31 @@ func GetFinanceSummary(c *gin.Context) {
 	default:
 		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, location)
 		endTime = startTime.AddDate(0, 0, 1).Add(-time.Nanosecond)
+	}
+
+	return startTime, endTime, nil
+}
+
+// GetFinanceSummary 聚合查询财务统计数据
+// @Summary 获取财务数据汇总
+// @Description 获取财务数据汇总
+// @Tags Finance
+// @Accept json
+// @Param period query string false "时间维度 (today, month, last_month, year, custom, all)"
+// @Param start_date query string false "开始日期 (当 period=custom 时有效)"
+// @Param end_date query string false "结束日期 (当 period=custom 时有效)"
+// @Produce json
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID get_api_finance_summary
+// @Router /api/finance/summary [get]
+func GetFinanceSummary(c *gin.Context) {
+	var summary FinanceSummaryResponse
+
+	startTime, endTime, periodErr := resolvePeriodRange(c)
+	if periodErr != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": periodErr.Error()})
+		return
 	}
 
 	// 1. 营业额 (Revenue) - 仅统计正常订单
@@ -181,19 +195,14 @@ func GetFinanceSummary(c *gin.Context) {
 	}
 	expenseDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.TotalExpense)
 
-	// 3. 国补待回款：统一口径，逐单 pending 可用额 = subsidy_pending_amount - subsidy_received_amt。
-	//    不再对历史单回退 subsidy_amount，也不再直接用回款池入账额冲抵（未核销部分是池余额）。
-	var totalSubsidyGenerated float64
-	var totalSubsidyReceived float64
+	// 3. 国补待回款：统一口径，逐单 pending 可用额 = GREATEST(subsidy_pending_amount - subsidy_received_amt, 0)。
+	//    逐单 clamp（主理人已拍板），与明细钻取接口的合计完全一致，不再依赖生成/回款两个总额相减。
+	var pendingSubsidyTotal float64
 	config.DB.Model(&models.Order{}).
 		Where("order_status = 1 AND subsidy_pending_amount > 0").
-		Select("COALESCE(SUM(subsidy_pending_amount), 0)").
-		Scan(&totalSubsidyGenerated)
-	config.DB.Model(&models.Order{}).
-		Where("order_status = 1").
-		Select("COALESCE(SUM(subsidy_received_amt), 0)").
-		Scan(&totalSubsidyReceived)
-	summary.PendingSubsidy = CalculatePendingSubsidy(totalSubsidyGenerated, totalSubsidyReceived)
+		Select("COALESCE(SUM(GREATEST(subsidy_pending_amount - subsidy_received_amt, 0)), 0)").
+		Scan(&pendingSubsidyTotal)
+	summary.PendingSubsidy = pendingSubsidyTotal
 
 	// 4. 订单数 (OrderCount) - 仅正常订单
 	orderCountDB := config.DB.Model(&models.Order{}).Where("order_status = 1")

@@ -353,7 +353,7 @@ defineExpose({
 
 :deep(.pos-search-input .el-input__wrapper.is-focus) {
   background: #ffffff;
-  border-color: #4f46e5;
+  border-color: #635bff;
   box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1) !important;
 }
 
@@ -383,14 +383,14 @@ defineExpose({
 }
 
 .cat-picker-item:hover {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4f46e5;
+  border-color: #dcdaff;
+  background: #eef0ff;
+  color: #635bff;
 }
 
 .cat-picker-item.active {
-  background: #4f46e5;
-  border-color: #4f46e5;
+  background: #635bff;
+  border-color: #635bff;
   color: #ffffff;
   box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);
 }
@@ -409,14 +409,14 @@ defineExpose({
 }
 
 .cat-group-row:hover {
-  border-color: #c7d2fe;
-  background: #eef2ff;
-  color: #4f46e5;
+  border-color: #dcdaff;
+  background: #eef0ff;
+  color: #635bff;
 }
 
 .cat-group-row.active {
-  background: #4f46e5;
-  border-color: #4f46e5;
+  background: #635bff;
+  border-color: #635bff;
   color: #ffffff;
 }
 
@@ -426,9 +426,9 @@ defineExpose({
   gap: 6px;
   padding: 6px 12px;
   border-radius: 10px;
-  background: #eef2ff;
-  border: 1px solid #e0e7ff;
-  color: #3730a3;
+  background: #eef0ff;
+  border: 1px solid #e8e9ff;
+  color: #3a35a0;
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
@@ -436,12 +436,12 @@ defineExpose({
 }
 
 .cat-group-title:hover {
-  background: #e0e7ff;
+  background: #e8e9ff;
 }
 
 .cat-group-title.active {
-  background: #4f46e5;
-  border-color: #4f46e5;
+  background: #635bff;
+  border-color: #635bff;
   color: #ffffff;
 }
 

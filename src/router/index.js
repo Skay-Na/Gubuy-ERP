@@ -134,6 +134,15 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
+  // 支持 ?token= 直达：存入登录态后剥掉 URL 中的 token（本地演示/多端快速登录用）
+  const queryToken = typeof to.query.token === 'string' ? to.query.token : ''
+  if (queryToken) {
+    localStorage.setItem('erp_token', queryToken)
+    const query = { ...to.query }
+    delete query.token
+    next({ path: to.path, query, replace: true })
+    return
+  }
   const token = localStorage.getItem('erp_token')
   if (to.path !== '/' && !to.path.startsWith('/terminal') && !token) {
     next('/')

@@ -135,15 +135,15 @@ watch(() => props.resetToken, reset)
   max-width: 1280px;
   margin: 0 auto 14px;
   padding: clamp(15px, 1.6vw, 22px);
-  border: 1px solid #bfdbfe;
+  border: 1px solid #dcdaff;
   border-radius: 22px;
-  background: linear-gradient(115deg, #eff6ff, #ffffff 46%, #f0fdfa);
+  background: linear-gradient(115deg, #eef0ff, #ffffff 46%, #f0fdfa);
   box-shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
 }
 
 .quick-expense-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
-.quick-expense-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 15px; background: #2563eb; color: #fff; font-size: 21px; }
-.quick-expense-eyebrow { color: #2563eb; font-size: 11px; font-weight: 900; letter-spacing: .12em; }
+.quick-expense-icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 15px; background: #635bff; color: #fff; font-size: 21px; }
+.quick-expense-eyebrow { color: #635bff; font-size: 11px; font-weight: 900; letter-spacing: .12em; }
 .quick-expense-heading h2 { margin: 1px 0 2px; color: #0f172a; font-size: 18px; font-weight: 900; }
 .quick-expense-heading p { margin: 0; color: #64748b; font-size: 12px; }
 .quick-expense-body { display: grid; grid-template-columns: minmax(260px, 1.55fr) minmax(130px, .55fr) minmax(160px, .8fr) minmax(180px, 1fr) auto; align-items: end; gap: 12px; }
@@ -152,13 +152,13 @@ watch(() => props.resetToken, reset)
 .quick-expense-field label span { color: #94a3b8; font-weight: 500; }
 .expense-type-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .expense-type { padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; transition: all .15s ease; }
-.expense-type:hover, .expense-type.active { border-color: #2563eb; background: #2563eb; color: #fff; }
+.expense-type:hover, .expense-type.active { border-color: #635bff; background: #635bff; color: #fff; }
 .custom-expense-type { margin-top: 7px; }
 .amount-input, .account-select { width: 100%; }
 .account-hint { display: flex; align-items: center; gap: 4px; margin-top: 7px; color: #64748b; font-size: 11px; }
 .account-option { display: flex; justify-content: space-between; gap: 20px; }
 .account-option small { color: #94a3b8; }
-.quick-expense-submit { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; padding: 0 18px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font-weight: 800; white-space: nowrap; cursor: pointer; box-shadow: 0 8px 18px rgba(37, 99, 235, .24); }
+.quick-expense-submit { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 7px; padding: 0 18px; border: 0; border-radius: 10px; background: #635bff; color: #fff; font-weight: 800; white-space: nowrap; cursor: pointer; box-shadow: 0 8px 18px rgba(37, 99, 235, .24); }
 .quick-expense-submit:disabled { cursor: not-allowed; opacity: .58; box-shadow: none; }
 
 @media (max-width: 980px) {

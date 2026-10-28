@@ -1495,8 +1495,8 @@ onMounted(() => {
   margin-top: 10px;
   padding: 10px 12px;
   border-radius: 14px;
-  background: linear-gradient(135deg, #eff6ff 0%, #ffffff 100%);
-  border: 1px solid #dbeafe;
+  background: linear-gradient(135deg, #eef0ff 0%, #ffffff 100%);
+  border: 1px solid #e8e9ff;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1528,7 +1528,7 @@ onMounted(() => {
 
 .custom-search-input :deep(.el-input__wrapper.is-focus) {
   background-color: #fff;
-  border-color: #4f46e5;
+  border-color: #635bff;
   box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1);
 }
 
@@ -1543,7 +1543,7 @@ onMounted(() => {
 .category-select :deep(.el-select__wrapper.is-focused),
 .mobile-category-select :deep(.el-select__wrapper.is-focused) {
   background-color: #fff;
-  box-shadow: 0 0 0 1px #4f46e5 inset, 0 0 0 4px rgba(79, 70, 229, 0.1);
+  box-shadow: 0 0 0 1px #635bff inset, 0 0 0 4px rgba(79, 70, 229, 0.1);
 }
 
 .special-offer-card {
@@ -1571,13 +1571,13 @@ onMounted(() => {
   font-family: 'Inter', system-ui;
 }
 .custom-pagination :deep(.el-pager li:hover) {
-  color: #4f46e5;
-  border-color: #4f46e5;
+  color: #635bff;
+  border-color: #635bff;
 }
 .custom-pagination :deep(.el-pager li.is-active) {
-  background-color: #4f46e5 !important;
+  background-color: #635bff !important;
   color: #ffffff !important;
-  border-color: #4f46e5;
+  border-color: #635bff;
   box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);
 }
 .custom-pagination :deep(.btn-prev),

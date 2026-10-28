@@ -528,7 +528,7 @@ const docProgress = computed(() => {
       label: '资料已提交政府',
       amount: (submitted.reduce((s, o) => s + Number(o.subsidy_pending_amount || 0), 0) + finished.reduce((s, o) => s + Number(o.subsidy_pending_amount || 0), 0)),
       count: (submitted.length + finished.length),
-      color: '#3b82f6'
+      color: '#7a70ff'
     }
   ]
 })
@@ -542,7 +542,7 @@ const progressSegments = computed(() => {
   const pending = orders.value.filter(o => o.subsidy_status === 1)
   const segments = [
     { label: '已回款', amount: Number(summary.value.total_received || 0), count: finished.length, color: '#10b981' },
-    { label: '已提交待回', amount: submitted.reduce((s, o) => s + remainingOf(o), 0), count: submitted.length, color: '#3b82f6' },
+    { label: '已提交待回', amount: submitted.reduce((s, o) => s + remainingOf(o), 0), count: submitted.length, color: '#7a70ff' },
     { label: '待提交', amount: pending.reduce((s, o) => s + remainingOf(o), 0), count: pending.length, color: '#f59e0b' }
   ]
   const total = segments.reduce((sum, seg) => sum + seg.amount, 0)
