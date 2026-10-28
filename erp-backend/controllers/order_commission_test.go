@@ -5,12 +5,10 @@ import (
 	"testing"
 )
 
-func commItem(sales float64, qty int, mode int, rate, fixed float64) CommissionItemInput {
+func commItem(sales float64, qty int, fixed float64) CommissionItemInput {
 	return CommissionItemInput{
 		SalesAmount:           sales,
 		Quantity:              qty,
-		CommissionMode:        mode,
-		CommissionRate:        rate,
 		CommissionFixedAmount: fixed,
 	}
 }
@@ -22,8 +20,8 @@ func assertCommission(t *testing.T, name string, got, want float64) {
 	}
 }
 
-// 用例1：全 mode=0 与旧公式 commissionableOrderAmount 逐分一致（回归基线）
-func TestCalcOrderCommissionMode0MatchesLegacyFormula(t *testing.T) {
+// 用例1：无固定提成商品时与旧公式 commissionableOrderAmount 逐分一致（回归基线，oracle 对拍）
+func TestCalcOrderCommissionDefaultMatchesLegacyFormula(t *testing.T) {
 	cases := []struct {
 		name            string
 		totalAmount     float64
@@ -48,7 +46,7 @@ func TestCalcOrderCommissionMode0MatchesLegacyFormula(t *testing.T) {
 				if !noComm {
 					commissionableSales += sales
 				}
-				items = append(items, commItem(sales, 1, 0, 0, 0))
+				items = append(items, commItem(sales, 1, 0))
 				items[i].ProductNoCommission = noComm
 			}
 			want := float64(moneyCents(commissionableOrderAmount(tc.totalAmount, tc.actualPayAmount, commissionableSales, tc.isSubsidy)*tc.employeeRate)) / 100
@@ -58,118 +56,60 @@ func TestCalcOrderCommissionMode0MatchesLegacyFormula(t *testing.T) {
 	}
 }
 
-// 用例2：全 mode=1，不同 rate 两项，逐项取分后求和
-func TestCalcOrderCommissionMode1TwoRates(t *testing.T) {
+// 用例2：固定提成+默认提成混算（折扣单）。默认部分按剔除固定商品后的销售额摊折扣，固定部分原额照发
+func TestCalcOrderCommissionMixedFixedAndDefault(t *testing.T) {
 	items := []CommissionItemInput{
-		commItem(400, 1, 1, 0.05, 0),
-		commItem(600, 1, 1, 0.02, 0),
+		commItem(500, 1, 0),  // 默认
+		commItem(300, 1, 20), // 固定 ¥20/台
+		commItem(200, 2, 10), // 固定 ¥10/台 ×2
 	}
-	// 400*1*0.05=20.00 + 600*1*0.02=12.00
-	assertCommission(t, "mode1", calcOrderCommission(items, 0.03, true, 1000, 1000, false), 32.00)
-}
-
-// 用例3：mode=1 与 mode=0 混合，默认部分只按 defaultSales 摊
-func TestCalcOrderCommissionMixedMode0And1(t *testing.T) {
-	items := []CommissionItemInput{
-		commItem(500, 1, 0, 0, 0),
-		commItem(500, 1, 1, 0.10, 0),
-	}
-	// 默认：800*500/1000=400 → 400*0.03=12.00；自定义：500*0.8*0.10=40.00
+	// total=1000, actualPay=800：默认 800×500/1000×0.03=12.00；固定 20+20=40.00
 	assertCommission(t, "mixed", calcOrderCommission(items, 0.03, true, 1000, 800, false), 52.00)
 }
 
-// 用例4：mode=2 多台，qty=3 fixed=50，与成交价无关
-func TestCalcOrderCommissionMode2MultiQty(t *testing.T) {
-	items := []CommissionItemInput{commItem(1000, 3, 2, 0, 50)}
-	// 大额折扣下仍为 150
-	assertCommission(t, "mode2 qty3", calcOrderCommission(items, 0.05, true, 1000, 700, false), 150.00)
+// 用例3：国补单默认部分保持原销售额口径，固定部分不受影响
+func TestCalcOrderCommissionSubsidyBasis(t *testing.T) {
+	items := []CommissionItemInput{
+		commItem(600, 1, 0),
+		commItem(400, 1, 30),
+	}
+	// total=1000, actualPay=850，国补：默认 1000×600/1000×0.05=30.00；固定 30.00
+	assertCommission(t, "subsidy", calcOrderCommission(items, 0.05, true, 1000, 850, true), 60.00)
 }
 
-// 用例5：mode=2 商品 + 同商品赠品行，赠品不发固定提成
+// 用例4：固定提成商品的赠品行不发提成（普通台照发）
 func TestCalcOrderCommissionGiftSkipsFixedCommission(t *testing.T) {
-	normal := commItem(200, 2, 2, 0, 50)
-	gift := commItem(0, 1, 2, 0, 50)
+	normal := commItem(200, 2, 50)
+	gift := commItem(0, 1, 50)
 	gift.IsGift = true
 	assertCommission(t, "gift fixed", calcOrderCommission([]CommissionItemInput{normal, gift}, 0.05, true, 200, 200, false), 100.00)
 }
 
-// 用例6：普通单带折扣，mode=1 按 K=actualPay/total 缩水
-func TestCalcOrderCommissionMode1ShrinksWithDiscount(t *testing.T) {
-	items := []CommissionItemInput{commItem(1000, 1, 1, 0.1, 0)}
-	assertCommission(t, "k factor", calcOrderCommission(items, 0.05, true, 1000, 900, false), 90.00)
-}
-
-// 用例7：国补单 K=1，mode=1 按原销售额口径
-func TestCalcOrderCommissionSubsidyKeepsSalesBasis(t *testing.T) {
-	items := []CommissionItemInput{commItem(600, 1, 1, 0.1, 0)}
-	assertCommission(t, "subsidy", calcOrderCommission(items, 0.05, true, 1000, 850, true), 60.00)
-}
-
-// 用例8：mode=2 + 大额折扣，固定金额不缩水
-func TestCalcOrderCommissionMode2NotAffectedByDiscount(t *testing.T) {
-	items := []CommissionItemInput{commItem(1000, 1, 2, 0, 20)}
-	assertCommission(t, "fixed discount", calcOrderCommission(items, 0.05, true, 1000, 100, false), 20.00)
-}
-
-// 用例9：no_commission=true 但 mode 残留非 0（防御），两部分都不计
-func TestCalcOrderCommissionNoCommissionResidualMode(t *testing.T) {
-	residual := commItem(500, 1, 1, 0.5, 0)
+// 用例5：no_commission=true 但固定金额残留非 0（防御），默认与固定都不计
+func TestCalcOrderCommissionNoCommissionResidualFixed(t *testing.T) {
+	residual := commItem(500, 1, 50)
 	residual.ProductNoCommission = true
-	normal := commItem(500, 1, 0, 0, 0)
-	assertCommission(t, "residual mode", calcOrderCommission([]CommissionItemInput{residual, normal}, 0.03, true, 1000, 1000, false), 15.00)
+	normal := commItem(500, 1, 0)
+	assertCommission(t, "residual fixed", calcOrderCommission([]CommissionItemInput{residual, normal}, 0.03, true, 1000, 1000, false), 15.00)
 }
 
-// 用例10：无员工返回 0
-func TestCalcOrderCommissionNoEmployee(t *testing.T) {
-	items := []CommissionItemInput{commItem(1000, 1, 1, 0.1, 0)}
-	assertCommission(t, "no employee", calcOrderCommission(items, 0, false, 1000, 1000, false), 0)
-}
-
-// 用例11：全额折扣 actualPayAmount=0，mode=1 为 0，mode=2 照发
-func TestCalcOrderCommissionFullDiscount(t *testing.T) {
+// 用例6：全额折扣 actualPayAmount=0，默认部分为 0，固定提成照发
+func TestCalcOrderCommissionFullDiscountFixedStillPaid(t *testing.T) {
 	items := []CommissionItemInput{
-		commItem(500, 1, 1, 0.1, 0),
-		commItem(500, 2, 2, 0, 30),
+		commItem(500, 1, 0),
+		commItem(500, 2, 30),
 	}
 	assertCommission(t, "full discount", calcOrderCommission(items, 0.05, true, 1000, 0, false), 60.00)
 }
 
-// 用例12：mode=1 逐项取分，无累计漂移（3×0.17 元×0.03 逐项各进 1 分）
-func TestCalcOrderCommissionMode1CentRounding(t *testing.T) {
-	items := []CommissionItemInput{
-		commItem(0.17, 1, 1, 0.03, 0),
-		commItem(0.17, 1, 1, 0.03, 0),
-		commItem(0.17, 1, 1, 0.03, 0),
-	}
-	// 逐项：round(0.51分)=1分 ×3 = 3分；汇总取分会得到 2 分（0.51*0.03 元）
-	assertCommission(t, "cent rounding", calcOrderCommission(items, 0, true, 0.51, 0.51, false), 0.03)
+// 用例7：无员工返回 0
+func TestCalcOrderCommissionNoEmployee(t *testing.T) {
+	items := []CommissionItemInput{commItem(1000, 1, 20)}
+	assertCommission(t, "no employee", calcOrderCommission(items, 0, false, 1000, 1000, false), 0)
 }
 
-// 用例13：赠品 mode=1 商品，销售额 0 贡献 0
-func TestCalcOrderCommissionGiftMode1(t *testing.T) {
-	gift := commItem(0, 1, 1, 0.5, 0)
-	gift.IsGift = true
-	assertCommission(t, "gift mode1", calcOrderCommission([]CommissionItemInput{gift}, 0.05, true, 100, 100, false), 0)
-}
-
-// 用例14：customSales=0 且 defaultSales>0，等价旧逻辑
-func TestCalcOrderCommissionDefaultOnlyEqualsLegacy(t *testing.T) {
-	items := []CommissionItemInput{commItem(600, 1, 0, 0, 0)}
-	want := float64(moneyCents(commissionableOrderAmount(1000, 900, 600, false)*0.03)) / 100
-	assertCommission(t, "default only", calcOrderCommission(items, 0.03, true, 1000, 900, false), want)
-}
-
-// 用例15：defaultSales=0 且全部 mode=2
-func TestCalcOrderCommissionFixedOnly(t *testing.T) {
-	items := []CommissionItemInput{
-		commItem(600, 1, 2, 0, 30),
-		commItem(400, 2, 2, 0, 10),
-	}
-	assertCommission(t, "fixed only", calcOrderCommission(items, 0.05, true, 1000, 900, false), 50.00)
-}
-
-// 用例16：min(defaultSales,totalAmount) 钳制，病态输入不放大提成
+// 用例8：min(defaultSales,totalAmount) 钳制，病态输入不放大提成
 func TestCalcOrderCommissionClampsDefaultSales(t *testing.T) {
-	items := []CommissionItemInput{commItem(2000, 1, 0, 0, 0)}
+	items := []CommissionItemInput{commItem(2000, 1, 0)}
 	assertCommission(t, "clamp", calcOrderCommission(items, 0.1, true, 1000, 1000, false), 100.00)
 }

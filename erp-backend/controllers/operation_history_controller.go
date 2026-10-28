@@ -551,8 +551,6 @@ func describeProductChange(before, after map[string]interface{}) string {
 		{key: "special_price", label: "特价"},
 		{key: "margin_rate", label: "固定毛利率"},
 		{key: "no_commission", label: "不计提成"},
-		{key: "commission_mode", label: "提成模式"},
-		{key: "commission_rate", label: "单独提成比例"},
 		{key: "commission_fixed_amount", label: "每台固定提成"},
 	} {
 		if oldValue, newValue, changed := operationChangedValue(before, after, field.key); changed {
@@ -1015,14 +1013,6 @@ func operationFieldValue(key string, value interface{}) string {
 		return operationCurrency(operationNumber(value))
 	case "margin_rate":
 		return fmt.Sprintf("%.2f%%", operationNumber(value)*100)
-	case "commission_mode":
-		switch int(operationNumber(value)) {
-		case 1:
-			return "按销售额百分比"
-		case 2:
-			return "固定金额每台"
-		}
-		return "跟随默认"
 	case "check_in", "check_out":
 		if result := operationClockLabel(value); result != "" {
 			return result

@@ -8,9 +8,7 @@ type CommissionItemInput struct {
 	Quantity              int
 	IsGift                bool
 	ProductNoCommission   bool
-	CommissionMode        int     // 0/1/2
-	CommissionRate        float64
-	CommissionFixedAmount float64
+	CommissionFixedAmount float64 // >0 表示该商品按每台固定金额计提
 }
 
 // calcOrderCommission 纯函数：输入订单项快照 + 金额信息 + 员工比例，输出订单提成（元，两位小数）。
@@ -26,20 +24,16 @@ func calcOrderCommission(
 		return 0
 	}
 
-	// 分摊因子 K：普通单把订单级减免（折扣/以旧换新/国补）按销售额比例摊入；国补单保持原销售额口径
+	// 国补单保持原销售额口径；普通单把订单级减免（折扣/以旧换新/国补）按销售额比例摊入
 	commissionBase := actualPayAmount
 	if isSubsidy {
 		commissionBase = totalAmount
 	}
-	k := 0.0
-	if totalAmount > 0 {
-		k = commissionBase / totalAmount
-	}
 
-	// 默认部分：仅 mode=0 商品参与，与原 commissionBase * min(commissionableSales,total)/total 完全同构
+	// 默认部分：剔除固定提成商品后的销售额走员工比例，与原 commissionBase * min(commissionableSales,total)/total 同构
 	var defaultSales float64
 	for _, item := range items {
-		if item.IsGift || item.ProductNoCommission || item.CommissionMode != 0 {
+		if item.IsGift || item.ProductNoCommission || item.CommissionFixedAmount > 0 {
 			continue
 		}
 		defaultSales += item.SalesAmount
@@ -47,22 +41,17 @@ func calcOrderCommission(
 	defaultPart := 0.0
 	if defaultSales > 0 {
 		defaultBase := commissionBase * math.Min(defaultSales, totalAmount) / totalAmount
-		defaultPart = float64(moneyCents(defaultBase * employeeRate)) / 100
+		defaultPart = float64(moneyCents(defaultBase*employeeRate)) / 100
 	}
 
-	// 自定义部分：mode=1 逐项按分取整累加；mode=2 固定金额不参与折扣分摊（类计件工资，与成交价无关）
-	customPart := 0.0
+	// 固定提成部分：类计件工资按台计，不参与折扣分摊
+	// 项级排除：赠品不发"每台固定提成"；NoCommission 商品保存时已归零，此处兜底防御
+	fixedPart := 0.0
 	for _, item := range items {
-		// 项级排除：赠品销售额为 0 且不发"每台固定提成"；NoCommission 无论 mode 整体排除（保存时已归零，此处兜底防御）
-		if item.IsGift || item.ProductNoCommission {
+		if item.IsGift || item.ProductNoCommission || item.CommissionFixedAmount <= 0 {
 			continue
 		}
-		switch item.CommissionMode {
-		case 1:
-			customPart += float64(moneyCents(item.SalesAmount*k*item.CommissionRate)) / 100
-		case 2:
-			customPart += float64(moneyCents(item.CommissionFixedAmount*float64(item.Quantity))) / 100
-		}
+		fixedPart += float64(moneyCents(item.CommissionFixedAmount*float64(item.Quantity))) / 100
 	}
-	return defaultPart + customPart
+	return defaultPart + fixedPart
 }

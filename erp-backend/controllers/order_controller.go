@@ -501,9 +501,8 @@ func CreateOrder(c *gin.Context) {
 	orderNo := GenerateOrderNo(orderTime, dailySeq)
 
 	var totalAmount float64
-	// defaultSales=跟随默认提成（mode=0）的销售额，customSales=单独设置提成（mode=1/2）的销售额；
-	// 两者之和即原 commissionableSales 口径（NoCommission 商品与赠品均不计入）
-	var defaultSales, customSales float64
+	// 商会单提成池仍按销售额口径：所有非 NoCommission、非赠品商品的销售额都计入（与原 commissionableSales 一致）
+	var chamberSales float64
 	commissionItems := make([]CommissionItemInput, 0, len(req.Items))
 	orderItems := make([]models.OrderItem, 0)
 
@@ -646,19 +645,13 @@ func CreateOrder(c *gin.Context) {
 		itemSales := unitPrice * float64(item.Quantity)
 		totalAmount += itemSales
 		if !product.NoCommission {
-			if product.CommissionMode == 0 {
-				defaultSales += itemSales
-			} else {
-				customSales += itemSales
-			}
+			chamberSales += itemSales
 		}
 		commissionItems = append(commissionItems, CommissionItemInput{
 			SalesAmount:           itemSales,
 			Quantity:              item.Quantity,
 			IsGift:                item.IsGift,
 			ProductNoCommission:   product.NoCommission,
-			CommissionMode:        product.CommissionMode,
-			CommissionRate:        product.CommissionRate,
 			CommissionFixedAmount: product.CommissionFixedAmount,
 		})
 		orderItems = append(orderItems, models.OrderItem{
@@ -751,8 +744,7 @@ func CreateOrder(c *gin.Context) {
 	// 5.5 计算业务提成金额（商会单资金池公式不变；普通单走 calcOrderCommission）
 	var commissionAmount float64
 	if req.OrderType == 2 {
-		// defaultSales+customSales 与原 commissionableSales 口径一致
-		commissionAmount = float64(chamberCommissionCents(defaultSales+customSales)) / 100
+		commissionAmount = float64(chamberCommissionCents(chamberSales)) / 100
 	} else if req.EmployeeID != nil && !req.NoCommission {
 		var employee models.Employee
 		if err := tx.First(&employee, *req.EmployeeID).Error; err == nil {

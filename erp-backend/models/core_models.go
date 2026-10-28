@@ -27,13 +27,13 @@ type AdminUser struct {
 
 // TransferRecord 账户划拨记录
 type TransferRecord struct {
-	ID            uint      `gorm:"primaryKey;comment:主键ID" json:"id"`
-	FromAccountID uint      `gorm:"not null;comment:转出账户ID" json:"from_account_id"`
-	ToAccountID   uint      `gorm:"not null;comment:转入账户ID" json:"to_account_id"`
-	Amount        float64   `gorm:"type:decimal(12,2);not null;comment:划拨金额" json:"amount"`
-	Remark        string    `gorm:"type:text;comment:备注说明" json:"remark"`
-	FromAccount   *Account  `gorm:"foreignKey:FromAccountID" json:"from_account,omitempty"`
-	ToAccount     *Account  `gorm:"foreignKey:ToAccountID" json:"to_account,omitempty"`
+	ID            uint     `gorm:"primaryKey;comment:主键ID" json:"id"`
+	FromAccountID uint     `gorm:"not null;comment:转出账户ID" json:"from_account_id"`
+	ToAccountID   uint     `gorm:"not null;comment:转入账户ID" json:"to_account_id"`
+	Amount        float64  `gorm:"type:decimal(12,2);not null;comment:划拨金额" json:"amount"`
+	Remark        string   `gorm:"type:text;comment:备注说明" json:"remark"`
+	FromAccount   *Account `gorm:"foreignKey:FromAccountID" json:"from_account,omitempty"`
+	ToAccount     *Account `gorm:"foreignKey:ToAccountID" json:"to_account,omitempty"`
 	// 客户端幂等键：资金划拨可选携带，防重复划拨
 	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_transfer_records_client_request_id;comment:客户端幂等键(防重复划拨)" json:"client_request_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -52,32 +52,28 @@ type Category struct {
 
 // Product 商品表
 type Product struct {
-	ID                uint           `gorm:"primaryKey;comment:主键ID" json:"id"`
-	Name              string         `gorm:"type:varchar(255);not null;comment:商品名称" json:"name"`
-	Remark            *string        `gorm:"column:sku;type:varchar(255);comment:商品备注" json:"remark"`
-	LatestCost        float64        `gorm:"type:decimal(10,2);not null;default:0;comment:最新进价" json:"latest_cost"`
-	AvgCost           float64        `gorm:"type:decimal(10,2);not null;default:0;comment:平均成本" json:"avg_cost"`
-	MarginRate        float64        `gorm:"type:decimal(5,2);not null;default:0.1;comment:固定毛利率" json:"margin_rate"`
-	MainStock         int            `gorm:"type:int;not null;default:0;comment:已停用主仓库存（历史兼容字段）" json:"main_stock"`
-	StoreStock        int            `gorm:"type:int;not null;default:0;comment:门店可用库存" json:"store_stock"`
-	SampleStock       int            `gorm:"type:int;not null;default:0;comment:门店样机数量" json:"sample_stock"`
-	CloudStock        int            `gorm:"type:int;not null;default:0;comment:云仓自有库存" json:"cloud_stock"`
-	SupportCloud      bool           `gorm:"not null;default:true;comment:历史兼容字段，所有商品均可云仓代发" json:"-"`
-	NoCommission      bool           `gorm:"not null;default:false;comment:销售该商品是否不计提成" json:"no_commission"`
-	// 商品单独提成设置：0=跟随默认（按员工比例），1=按销售额百分比，2=固定金额每台
-	CommissionMode        int     `gorm:"type:tinyint;not null;default:0;comment:提成模式 0跟随默认 1按销售额百分比 2固定金额每台" json:"commission_mode"`
-	// mode=1 时的提成比例，0 < rate <= 1（decimal(5,4) 与 Employee.CommissionRate 同精度）
-	CommissionRate        float64 `gorm:"type:decimal(5,4);not null;default:0;comment:单独提成比例(0~1，仅模式1生效)" json:"commission_rate"`
-	// mode=2 时的每台固定提成金额
-	CommissionFixedAmount float64 `gorm:"type:decimal(10,2);not null;default:0;comment:每台固定提成金额(仅模式2生效)" json:"commission_fixed_amount"`
-	SpecialPrice      float64        `gorm:"type:decimal(10,2);default:0;comment:特价金额" json:"special_price"`
-	SpecialPriceStart *time.Time     `gorm:"comment:特价开始时间" json:"special_price_start"`
-	SpecialPriceEnd   *time.Time     `gorm:"comment:特价结束时间" json:"special_price_end"`
-	CategoryID        uint           `gorm:"index;comment:所属分类ID" json:"category_id"`
-	Category          *Category      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+	ID           uint    `gorm:"primaryKey;comment:主键ID" json:"id"`
+	Name         string  `gorm:"type:varchar(255);not null;comment:商品名称" json:"name"`
+	Remark       *string `gorm:"column:sku;type:varchar(255);comment:商品备注" json:"remark"`
+	LatestCost   float64 `gorm:"type:decimal(10,2);not null;default:0;comment:最新进价" json:"latest_cost"`
+	AvgCost      float64 `gorm:"type:decimal(10,2);not null;default:0;comment:平均成本" json:"avg_cost"`
+	MarginRate   float64 `gorm:"type:decimal(5,2);not null;default:0.1;comment:固定毛利率" json:"margin_rate"`
+	MainStock    int     `gorm:"type:int;not null;default:0;comment:已停用主仓库存（历史兼容字段）" json:"main_stock"`
+	StoreStock   int     `gorm:"type:int;not null;default:0;comment:门店可用库存" json:"store_stock"`
+	SampleStock  int     `gorm:"type:int;not null;default:0;comment:门店样机数量" json:"sample_stock"`
+	CloudStock   int     `gorm:"type:int;not null;default:0;comment:云仓自有库存" json:"cloud_stock"`
+	SupportCloud bool    `gorm:"not null;default:true;comment:历史兼容字段，所有商品均可云仓代发" json:"-"`
+	NoCommission bool    `gorm:"not null;default:false;comment:销售该商品是否不计提成" json:"no_commission"`
+	// 0=跟随员工提成比例，>0=每台固定提成金额（不参与订单折扣分摊）
+	CommissionFixedAmount float64        `gorm:"type:decimal(10,2);not null;default:0;comment:每台固定提成金额(0=跟随员工比例)" json:"commission_fixed_amount"`
+	SpecialPrice          float64        `gorm:"type:decimal(10,2);default:0;comment:特价金额" json:"special_price"`
+	SpecialPriceStart     *time.Time     `gorm:"comment:特价开始时间" json:"special_price_start"`
+	SpecialPriceEnd       *time.Time     `gorm:"comment:特价结束时间" json:"special_price_end"`
+	CategoryID            uint           `gorm:"index;comment:所属分类ID" json:"category_id"`
+	Category              *Category      `gorm:"foreignKey:CategoryID" json:"category,omitempty"`
+	CreatedAt             time.Time      `json:"created_at"`
+	UpdatedAt             time.Time      `json:"updated_at"`
+	DeletedAt             gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // Employee 员工表
@@ -307,9 +303,9 @@ type Expense struct {
 	Amount      float64 `gorm:"type:decimal(10,2);not null;comment:支出金额" json:"amount"`
 	Remark      string  `gorm:"type:text;comment:备注说明" json:"remark"`
 	// 新增：关联账户
-	AccountID *uint     `gorm:"index;comment:支出账户ID" json:"account_id"`
-	Account   *Account  `gorm:"foreignKey:AccountID" json:"account,omitempty"`
-	RelatedNo string    `gorm:"type:varchar(100);comment:关联人员或单号" json:"related_no"`
+	AccountID *uint    `gorm:"index;comment:支出账户ID" json:"account_id"`
+	Account   *Account `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	RelatedNo string   `gorm:"type:varchar(100);comment:关联人员或单号" json:"related_no"`
 	// 客户端幂等键：可选；携带时用于防重复提交（AutoMigrate 自动加列，历史数据为 NULL 不受影响）
 	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_expenses_client_request_id;comment:客户端幂等键(防重复提交)" json:"client_request_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
@@ -318,18 +314,18 @@ type Expense struct {
 
 // FinancialLog 全口径财务流水表
 type FinancialLog struct {
-	ID             uint      `gorm:"primaryKey;comment:主键ID" json:"id"`
-	AccountID      uint      `gorm:"not null;index;comment:关联资金账户ID" json:"account_id"`
-	Account        *Account  `gorm:"foreignKey:AccountID" json:"account,omitempty"`
-	FlowType       int       `gorm:"type:tinyint;not null;comment:资金流向" json:"flow_type"`
-	Category       string    `gorm:"type:varchar(50);not null;comment:细分分类" json:"category"`
-	Amount         float64   `gorm:"type:decimal(10,2);not null;comment:变动金额(绝对值)" json:"amount"`
-	BalanceAfter   float64   `gorm:"type:decimal(10,2);not null;comment:变动后该账户余额快照" json:"balance_after"`
-	RelatedNo      string    `gorm:"type:varchar(100);comment:关联单号(订单号等)" json:"related_no"`
-	Remark         string    `gorm:"type:varchar(255);comment:备注说明" json:"remark"`
-	Counterparty   string    `gorm:"type:varchar(100);comment:往来对象" json:"counterparty"`
-	SourceType     string    `gorm:"type:varchar(30);not null;default:'system';index;comment:来源类型 system/manual" json:"source_type"`
-	ReversalPairID *uint     `gorm:"index;comment:冲销配对ID；配对日志(定金+退定金 / 销售+退款)汇总时排除" json:"reversal_pair_id,omitempty"`
+	ID             uint     `gorm:"primaryKey;comment:主键ID" json:"id"`
+	AccountID      uint     `gorm:"not null;index;comment:关联资金账户ID" json:"account_id"`
+	Account        *Account `gorm:"foreignKey:AccountID" json:"account,omitempty"`
+	FlowType       int      `gorm:"type:tinyint;not null;comment:资金流向" json:"flow_type"`
+	Category       string   `gorm:"type:varchar(50);not null;comment:细分分类" json:"category"`
+	Amount         float64  `gorm:"type:decimal(10,2);not null;comment:变动金额(绝对值)" json:"amount"`
+	BalanceAfter   float64  `gorm:"type:decimal(10,2);not null;comment:变动后该账户余额快照" json:"balance_after"`
+	RelatedNo      string   `gorm:"type:varchar(100);comment:关联单号(订单号等)" json:"related_no"`
+	Remark         string   `gorm:"type:varchar(255);comment:备注说明" json:"remark"`
+	Counterparty   string   `gorm:"type:varchar(100);comment:往来对象" json:"counterparty"`
+	SourceType     string   `gorm:"type:varchar(30);not null;default:'system';index;comment:来源类型 system/manual" json:"source_type"`
+	ReversalPairID *uint    `gorm:"index;comment:冲销配对ID；配对日志(定金+退定金 / 销售+退款)汇总时排除" json:"reversal_pair_id,omitempty"`
 	// 客户端幂等键：手工记账可选携带，防重复记账
 	ClientRequestID *string   `gorm:"type:varchar(64);uniqueIndex:uniq_financial_logs_client_request_id;comment:客户端幂等键(防重复记账)" json:"client_request_id,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`

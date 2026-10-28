@@ -358,27 +358,16 @@
             <div class="input-tip">预览价格：¥{{ productForm.margin_rate < 1 ? formatMoney((productForm.avg_cost || 0) / (1 - productForm.margin_rate)) : '0.00' }}</div>
           </el-form-item>
           <el-form-item label="销售提成">
-            <el-radio-group v-model="commissionOption" @change="onCommissionOptionChange">
+            <el-radio-group v-model="commissionOption">
               <el-radio value="normal">正常提成</el-radio>
               <el-radio value="none">无提成</el-radio>
-              <el-radio value="custom">单独设置提成</el-radio>
+              <el-radio value="custom">固定提成（每台）</el-radio>
             </el-radio-group>
             <template v-if="commissionOption === 'custom'">
-              <el-form-item label="提成模式" prop="commission_mode" class="w-full mt-2">
-                <el-radio-group v-model="productForm.commission_mode">
-                  <el-radio :value="1">按销售额百分比</el-radio>
-                  <el-radio :value="2">固定金额每台</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item v-if="productForm.commission_mode === 1" label="提成比例（小数，如 0.05 代表 5%）" prop="commission_rate" class="w-full">
-                <el-input-number v-model="productForm.commission_rate" :precision="4" :step="0.01" :min="0.0001" :max="1" style="width: 100%" />
-                <div class="input-tip">按该商品成交销售额乘比例计提，随订单折扣缩水。</div>
-              </el-form-item>
-              <el-form-item v-else label="每台固定提成（元/台）" prop="commission_fixed_amount" class="w-full">
+              <el-form-item label="每台固定提成（元/台）" prop="commission_fixed_amount" class="w-full mt-2">
                 <el-input-number v-model="productForm.commission_fixed_amount" :precision="2" :step="1" :min="0.01" style="width: 100%" />
-                <div class="input-tip">每卖一台计固定提成，不受订单折扣影响。</div>
+                <div class="input-tip">每卖一台计固定提成，不受订单折扣影响；商会订单不使用商品固定提成。</div>
               </el-form-item>
-              <div class="input-tip">商会订单不使用商品单独提成。</div>
             </template>
             <div v-else-if="commissionOption === 'none'" class="input-tip">开启后，新订单中该商品的成交金额不参与员工及商会订单提成。</div>
           </el-form-item>
@@ -450,27 +439,16 @@
             </div>
           </el-form-item>
           <el-form-item label="销售提成">
-            <el-radio-group v-model="commissionOption" class="flex flex-wrap" @change="onCommissionOptionChange">
+            <el-radio-group v-model="commissionOption" class="flex flex-wrap">
               <el-radio value="normal">正常提成</el-radio>
               <el-radio value="none">无提成</el-radio>
-              <el-radio value="custom">单独设置提成</el-radio>
+              <el-radio value="custom">固定提成（每台）</el-radio>
             </el-radio-group>
             <template v-if="commissionOption === 'custom'">
-              <el-form-item label="提成模式" prop="commission_mode" class="w-full mt-2">
-                <el-radio-group v-model="productForm.commission_mode" class="w-full flex gap-2">
-                  <el-radio-button :value="1" class="flex-1 text-center">按销售额百分比</el-radio-button>
-                  <el-radio-button :value="2" class="flex-1 text-center">固定金额每台</el-radio-button>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item v-if="productForm.commission_mode === 1" label="提成比例（小数，如 0.05 代表 5%）" prop="commission_rate">
-                <el-input-number v-model="productForm.commission_rate" size="large" :precision="4" :step="0.01" :min="0.0001" :max="1" style="width: 100%" />
-                <div class="input-tip">按该商品成交销售额乘比例计提，随订单折扣缩水。</div>
-              </el-form-item>
-              <el-form-item v-else label="每台固定提成（元/台）" prop="commission_fixed_amount">
+              <el-form-item label="每台固定提成（元/台）" prop="commission_fixed_amount">
                 <el-input-number v-model="productForm.commission_fixed_amount" size="large" :precision="2" :step="1" :min="0.01" style="width: 100%" />
-                <div class="input-tip">每卖一台计固定提成，不受订单折扣影响。</div>
+                <div class="input-tip">每卖一台计固定提成，不受订单折扣影响；商会订单不使用商品固定提成。</div>
               </el-form-item>
-              <div class="input-tip">商会订单不使用商品单独提成。</div>
             </template>
             <div v-else-if="commissionOption === 'none'" class="input-tip">开启后，新订单中该商品的成交金额不参与提成。</div>
           </el-form-item>
@@ -956,21 +934,14 @@ const productForm = reactive({
   category_id: null,
   margin_rate: 0.15,
   no_commission: false,
-  commission_mode: 0,
-  commission_rate: 0,
   commission_fixed_amount: 0,
   special_price: 0,
   special_range: [],
   avg_cost: 0
 })
 
-// 销售提成三选一：normal=跟随员工比例 / none=无提成 / custom=单独设置提成
+// 销售提成三选一：normal=跟随员工比例 / none=无提成 / custom=每台固定提成
 const commissionOption = ref('normal')
-
-const onCommissionOptionChange = (val) => {
-  // 进入单独设置时给一个有效初始模式，避免 mode=0 的无效自定义
-  if (val === 'custom' && !productForm.commission_mode) productForm.commission_mode = 1
-}
 
 const previewPrice = computed(() => {
   if (productForm.margin_rate >= 1) return '0.00'
@@ -982,19 +953,9 @@ const formRules = {
   remark: [{ required: false, message: '请输入备注', trigger: 'blur' }],
   category_id: [{ required: true, message: '请选择商品分类', trigger: 'change' }],
   margin_rate: [{ required: true, message: '请设置毛利率', trigger: 'blur' }],
-  commission_rate: [{
-    validator: (rule, value, callback) => {
-      if (commissionOption.value === 'custom' && productForm.commission_mode === 1 && (!(value > 0) || value > 1)) {
-        callback(new Error('请设置提成比例（大于0且不超过1）'))
-      } else {
-        callback()
-      }
-    },
-    trigger: 'blur'
-  }],
   commission_fixed_amount: [{
     validator: (rule, value, callback) => {
-      if (commissionOption.value === 'custom' && productForm.commission_mode === 2 && !(value > 0)) {
+      if (commissionOption.value === 'custom' && !(value > 0)) {
         callback(new Error('请设置每台固定提成金额'))
       } else {
         callback()
@@ -1176,8 +1137,6 @@ const openAddDialog = () => {
   productForm.category_id = null
   productForm.margin_rate = 0.15
   productForm.no_commission = false
-  productForm.commission_mode = 0
-  productForm.commission_rate = 0
   productForm.commission_fixed_amount = 0
   commissionOption.value = 'normal'
   productForm.special_price = 0
@@ -1195,11 +1154,9 @@ const handleEdit = (row) => {
   productForm.margin_rate = row.margin_rate
   productForm.avg_cost = Number(row.avg_cost) || 0
   productForm.no_commission = row.no_commission || false
-  // 老数据无三个新字段时回退 0（mode=0=跟随默认），防止编辑一次丢配置
-  productForm.commission_mode = row.commission_mode || 0
-  productForm.commission_rate = row.commission_rate || 0
+  // 老数据无该字段时回退 0（0=跟随员工比例），防止编辑一次丢配置
   productForm.commission_fixed_amount = row.commission_fixed_amount || 0
-  commissionOption.value = row.no_commission ? 'none' : (productForm.commission_mode ? 'custom' : 'normal')
+  commissionOption.value = row.no_commission ? 'none' : (productForm.commission_fixed_amount > 0 ? 'custom' : 'normal')
   productForm.special_price = row.special_price || 0
   if (row.special_price_start && row.special_price_end) {
     productForm.special_range = [row.special_price_start, row.special_price_end]
@@ -1363,13 +1320,11 @@ const submitProduct = async () => {
     if (valid) {
       submitting.value = true
       try {
-        // 三选一状态落回后端字段：无提成与单独提成互斥，非自定义模式时提成参数归零
+        // 三选一状态落回后端字段：固定提成与无提成互斥，非固定提成时金额归零
         if (commissionOption.value === 'custom') {
           productForm.no_commission = false
         } else {
           productForm.no_commission = commissionOption.value === 'none'
-          productForm.commission_mode = 0
-          productForm.commission_rate = 0
           productForm.commission_fixed_amount = 0
         }
         const submitData = { ...productForm }
@@ -1405,12 +1360,11 @@ const submitProduct = async () => {
   })
 }
 
-// 列表角标文案：无提成 / 提成X% / 提成¥N/台，三者互斥
+// 列表角标文案：无提成 / 提成¥N/台，两者互斥
 const commissionBadge = (row) => {
   if (row.no_commission) return '无提成'
-  const mode = Number(row.commission_mode) || 0
-  if (mode === 1) return `提成${((Number(row.commission_rate) || 0) * 100).toFixed(2).replace(/\.?0+$/, '')}%`
-  if (mode === 2) return `提成¥${Number(row.commission_fixed_amount) || 0}/台`
+  const fixed = Number(row.commission_fixed_amount) || 0
+  if (fixed > 0) return `提成¥${fixed}/台`
   return ''
 }
 
