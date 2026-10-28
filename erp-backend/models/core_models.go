@@ -64,6 +64,12 @@ type Product struct {
 	CloudStock        int            `gorm:"type:int;not null;default:0;comment:云仓自有库存" json:"cloud_stock"`
 	SupportCloud      bool           `gorm:"not null;default:true;comment:历史兼容字段，所有商品均可云仓代发" json:"-"`
 	NoCommission      bool           `gorm:"not null;default:false;comment:销售该商品是否不计提成" json:"no_commission"`
+	// 商品单独提成设置：0=跟随默认（按员工比例），1=按销售额百分比，2=固定金额每台
+	CommissionMode        int     `gorm:"type:tinyint;not null;default:0;comment:提成模式 0跟随默认 1按销售额百分比 2固定金额每台" json:"commission_mode"`
+	// mode=1 时的提成比例，0 < rate <= 1（decimal(5,4) 与 Employee.CommissionRate 同精度）
+	CommissionRate        float64 `gorm:"type:decimal(5,4);not null;default:0;comment:单独提成比例(0~1，仅模式1生效)" json:"commission_rate"`
+	// mode=2 时的每台固定提成金额
+	CommissionFixedAmount float64 `gorm:"type:decimal(10,2);not null;default:0;comment:每台固定提成金额(仅模式2生效)" json:"commission_fixed_amount"`
 	SpecialPrice      float64        `gorm:"type:decimal(10,2);default:0;comment:特价金额" json:"special_price"`
 	SpecialPriceStart *time.Time     `gorm:"comment:特价开始时间" json:"special_price_start"`
 	SpecialPriceEnd   *time.Time     `gorm:"comment:特价结束时间" json:"special_price_end"`

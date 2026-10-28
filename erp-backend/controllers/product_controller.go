@@ -16,26 +16,56 @@ import (
 )
 
 type CreateProductRequest struct {
-	Name              string  `json:"name" binding:"required"`
-	Remark            string  `json:"remark"`
-	CategoryID        uint    `json:"category_id"`
-	MarginRate        float64 `json:"margin_rate"`
-	NoCommission      bool    `json:"no_commission"`
-	SpecialPrice      float64 `json:"special_price"`
-	SpecialPriceStart *string `json:"special_price_start"`
-	SpecialPriceEnd   *string `json:"special_price_end"`
+	Name                  string  `json:"name" binding:"required"`
+	Remark                string  `json:"remark"`
+	CategoryID            uint    `json:"category_id"`
+	MarginRate            float64 `json:"margin_rate"`
+	NoCommission          bool    `json:"no_commission"`
+	CommissionMode        int     `json:"commission_mode"`
+	CommissionRate        float64 `json:"commission_rate"`
+	CommissionFixedAmount float64 `json:"commission_fixed_amount"`
+	SpecialPrice          float64 `json:"special_price"`
+	SpecialPriceStart     *string `json:"special_price_start"`
+	SpecialPriceEnd       *string `json:"special_price_end"`
 }
 
 type UpdateProductRequest struct {
-	Name              string   `json:"name" binding:"required"`
-	Remark            string   `json:"remark"`
-	CategoryID        *uint    `json:"category_id"`
-	MarginRate        float64  `json:"margin_rate"`
-	NoCommission      bool     `json:"no_commission"`
-	SpecialPrice      float64  `json:"special_price"`
-	SpecialPriceStart *string  `json:"special_price_start"`
-	SpecialPriceEnd   *string  `json:"special_price_end"`
-	AvgCost           *float64 `json:"avg_cost"`
+	Name                  string   `json:"name" binding:"required"`
+	Remark                string   `json:"remark"`
+	CategoryID            *uint    `json:"category_id"`
+	MarginRate            float64  `json:"margin_rate"`
+	NoCommission          bool     `json:"no_commission"`
+	CommissionMode        int      `json:"commission_mode"`
+	CommissionRate        float64  `json:"commission_rate"`
+	CommissionFixedAmount float64  `json:"commission_fixed_amount"`
+	SpecialPrice          float64  `json:"special_price"`
+	SpecialPriceStart     *string  `json:"special_price_start"`
+	SpecialPriceEnd       *string  `json:"special_price_end"`
+	AvgCost               *float64 `json:"avg_cost"`
+}
+
+// normalizeProductCommission 校验并归一化商品提成三字段。
+// no_commission 与单独提成互斥且优先级最高，静默归零；mode 非法或参数越界返回 400 文案。
+func normalizeProductCommission(noCommission bool, mode int, rate, fixed float64) (int, float64, float64, string) {
+	if noCommission {
+		return 0, 0, 0, ""
+	}
+	switch mode {
+	case 1:
+		if rate <= 0 || rate > 1 {
+			return 0, 0, 0, "请设置提成比例（大于0且不超过1）"
+		}
+		return mode, rate, 0, ""
+	case 2:
+		if fixed <= 0 {
+			return 0, 0, 0, "请设置每台固定提成金额"
+		}
+		return mode, 0, fixed, ""
+	case 0:
+		return 0, 0, 0, ""
+	default:
+		return 0, 0, 0, "提成模式非法"
+	}
 }
 
 // GetProducts 获取商品列表
@@ -264,13 +294,22 @@ func CreateProduct(c *gin.Context) {
 		return
 	}
 
+	commissionMode, commissionRate, commissionFixed, commErr := normalizeProductCommission(input.NoCommission, input.CommissionMode, input.CommissionRate, input.CommissionFixedAmount)
+	if commErr != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": commErr})
+		return
+	}
+
 	product := models.Product{
-		Name:         input.Name,
-		CategoryID:   input.CategoryID,
-		MarginRate:   input.MarginRate,
-		SupportCloud: true,
-		NoCommission: input.NoCommission,
-		SpecialPrice: input.SpecialPrice,
+		Name:                  input.Name,
+		CategoryID:            input.CategoryID,
+		MarginRate:            input.MarginRate,
+		SupportCloud:          true,
+		NoCommission:          input.NoCommission,
+		CommissionMode:        commissionMode,
+		CommissionRate:        commissionRate,
+		CommissionFixedAmount: commissionFixed,
+		SpecialPrice:          input.SpecialPrice,
 	}
 
 	if input.SpecialPriceStart != nil && *input.SpecialPriceStart != "" {
@@ -323,6 +362,13 @@ func UpdateProduct(c *gin.Context) {
 		return
 	}
 
+	// 归零在构造更新 map 前完成，mode=0 的更新会同时把另外两列清零
+	commissionMode, commissionRate, commissionFixed, commErr := normalizeProductCommission(input.NoCommission, input.CommissionMode, input.CommissionRate, input.CommissionFixedAmount)
+	if commErr != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": commErr})
+		return
+	}
+
 	tx := config.DB.Begin()
 	if tx.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": tx.Error.Error()})
@@ -360,12 +406,15 @@ func UpdateProduct(c *gin.Context) {
 	}
 
 	updates := map[string]interface{}{
-		"name":          input.Name,
-		"sku":           remarkPtr,
-		"margin_rate":   input.MarginRate,
-		"support_cloud": true,
-		"no_commission": input.NoCommission,
-		"special_price": input.SpecialPrice,
+		"name":                    input.Name,
+		"sku":                     remarkPtr,
+		"margin_rate":             input.MarginRate,
+		"support_cloud":           true,
+		"no_commission":           input.NoCommission,
+		"commission_mode":         commissionMode,
+		"commission_rate":         commissionRate,
+		"commission_fixed_amount": commissionFixed,
+		"special_price":           input.SpecialPrice,
 	}
 	costChanged := false
 	if input.AvgCost != nil {

@@ -501,7 +501,10 @@ func CreateOrder(c *gin.Context) {
 	orderNo := GenerateOrderNo(orderTime, dailySeq)
 
 	var totalAmount float64
-	var commissionableSales float64
+	// defaultSales=跟随默认提成（mode=0）的销售额，customSales=单独设置提成（mode=1/2）的销售额；
+	// 两者之和即原 commissionableSales 口径（NoCommission 商品与赠品均不计入）
+	var defaultSales, customSales float64
+	commissionItems := make([]CommissionItemInput, 0, len(req.Items))
 	orderItems := make([]models.OrderItem, 0)
 
 	// Lock product rows in a stable order so concurrent multi-item orders cannot
@@ -640,10 +643,24 @@ func CreateOrder(c *gin.Context) {
 			}
 		}
 
-		totalAmount += unitPrice * float64(item.Quantity)
+		itemSales := unitPrice * float64(item.Quantity)
+		totalAmount += itemSales
 		if !product.NoCommission {
-			commissionableSales += unitPrice * float64(item.Quantity)
+			if product.CommissionMode == 0 {
+				defaultSales += itemSales
+			} else {
+				customSales += itemSales
+			}
 		}
+		commissionItems = append(commissionItems, CommissionItemInput{
+			SalesAmount:           itemSales,
+			Quantity:              item.Quantity,
+			IsGift:                item.IsGift,
+			ProductNoCommission:   product.NoCommission,
+			CommissionMode:        product.CommissionMode,
+			CommissionRate:        product.CommissionRate,
+			CommissionFixedAmount: product.CommissionFixedAmount,
+		})
 		orderItems = append(orderItems, models.OrderItem{
 			ProductID:         item.ProductID,
 			UnitPrice:         unitPrice,
@@ -731,20 +748,16 @@ func CreateOrder(c *gin.Context) {
 		orderPaymentMethod = 4
 	}
 
-	// 5.5 计算默认业务提成金额
+	// 5.5 计算业务提成金额（商会单资金池公式不变；普通单走 calcOrderCommission）
 	var commissionAmount float64
 	if req.OrderType == 2 {
-		commissionAmount = float64(chamberCommissionCents(commissionableSales)) / 100
+		// defaultSales+customSales 与原 commissionableSales 口径一致
+		commissionAmount = float64(chamberCommissionCents(defaultSales+customSales)) / 100
 	} else if req.EmployeeID != nil && !req.NoCommission {
 		var employee models.Employee
 		if err := tx.First(&employee, *req.EmployeeID).Error; err == nil {
-			commissionBase := commissionableOrderAmount(
-				totalAmount,
-				actualPayAmount,
-				commissionableSales,
-				req.IsSubsidy,
-			)
-			commissionAmount = float64(moneyCents(commissionBase*employee.CommissionRate)) / 100
+			commissionAmount = calcOrderCommission(commissionItems, employee.CommissionRate, true,
+				totalAmount, actualPayAmount, req.IsSubsidy)
 		}
 	}
 	if req.NoCommission && req.ReferrerName == "" {
