@@ -267,6 +267,9 @@ func GetPayrollHistory(c *gin.Context) {
 		if record.Status == "unpaid" && monthKey >= currentMonth {
 			record.Status = "upcoming"
 			record.Difference = 0
+		} else if record.Status == "unpaid" && record.Payable == 0 && record.Paid == 0 {
+			// 应发与实付均为 0（离职结算定稿为 0、或当月无底薪无提成）→ 没有待发金额，不再挂"待确认"
+			record.Status = "settled"
 		}
 		months = append(months, record)
 	}

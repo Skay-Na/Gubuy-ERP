@@ -32,6 +32,7 @@ const statusMeta = {
   confirmed: { label: '已发放·定稿', type: 'success' },
   paid: { label: '已发放·台账', type: 'primary' },
   unpaid: { label: '待确认', type: 'warning' },
+  settled: { label: '无需发放', type: 'info' },
   upcoming: { label: '未到发薪', type: 'info' }
 }
 
