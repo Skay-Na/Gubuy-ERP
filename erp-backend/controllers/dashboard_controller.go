@@ -3,6 +3,7 @@ package controllers
 import (
 	"erp-backend/config"
 	"erp-backend/models"
+	"erp-backend/services"
 	"errors"
 	"net/http"
 	"time"
@@ -61,9 +62,16 @@ type FinanceSummaryResponse struct {
 	PendingPayrollMismatches    []PayrollMismatchItem `json:"pending_payroll_mismatches"`
 	OperatingExpense            float64               `json:"operating_expense"` // 日常经营费用，不含货款与以旧换新
 	NetProfit                   float64               `json:"net_profit"`        // 经营净利润
-	EmployeeRankings            []EmployeeRankStat    `json:"employee_rankings"`
-	CategorySales               []CategorySaleStat    `json:"category_sales"`
-	SalesTrend                  []DailySaleTrend      `json:"sales_trend"`
+	// 工程业务线（独立核算，不写资金账户）：按验收/结算日 accept_date 归期，仅统计已结清项目。
+	// 零售订单与工程零耦合，因此单列一组字段，由前端「含工程合计」卡展示。
+	EngProjectCount   int64              `json:"eng_project_count"`   // 期间内已结清的工程单数
+	EngContractTotal  float64            `json:"eng_contract_total"`  // 期间内工程合同额
+	EngGrossProfit    float64            `json:"eng_gross_profit"`    // 期间内工程设备毛利（合同额 − 设备成本）
+	EngNetProfit      float64            `json:"eng_net_profit"`      // 期间内工程净利（再减工程费用）
+	CombinedNetProfit float64            `json:"combined_net_profit"` // 经营净利润 + 工程净利
+	EmployeeRankings  []EmployeeRankStat `json:"employee_rankings"`
+	CategorySales     []CategorySaleStat `json:"category_sales"`
+	SalesTrend        []DailySaleTrend   `json:"sales_trend"`
 }
 
 // CalculatePendingSubsidy 计算累计应回款扣除累计回款后的余额。
@@ -335,6 +343,42 @@ func GetFinanceSummary(c *gin.Context) {
 	}
 	operatingExpenseDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.OperatingExpense)
 	summary.NetProfit = CalculateNetProfit(summary.GrossProfit, summary.OperatingExpense)
+
+	// 8.5 工程业务线（独立核算）：工程单不写资金账户，故不参与上面的毛利/开销口径，
+	//     这里按验收结算日 accept_date 归期单独聚合，仅统计已结清项目（status=5）。
+	//     作废单（status=9）天然排除。
+	var engPeriodStart, engPeriodEnd interface{}
+	if !startTime.IsZero() {
+		engPeriodStart = startTime
+	}
+	if !endTime.IsZero() {
+		engPeriodEnd = endTime
+	}
+	engDB := config.DB.Model(&models.EngineeringProject{}).
+		Where("status = ?", services.EngStatusSettled).
+		Where("accept_date IS NOT NULL")
+	if engPeriodStart != nil {
+		engDB = engDB.Where("accept_date >= ?", engPeriodStart)
+	}
+	if engPeriodEnd != nil {
+		engDB = engDB.Where("accept_date <= ?", engPeriodEnd)
+	}
+	var engAgg struct {
+		ProjectCount  int64   `gorm:"column:project_count"`
+		ContractTotal float64 `gorm:"column:contract_total"`
+		GrossProfit   float64 `gorm:"column:gross_profit"`
+		NetProfit     float64 `gorm:"column:net_profit"`
+	}
+	engDB.Select("COUNT(*) AS project_count, " +
+		"COALESCE(SUM(contract_total), 0) AS contract_total, " +
+		"COALESCE(SUM(contract_total - cost_total), 0) AS gross_profit, " +
+		"COALESCE(SUM(contract_total - cost_total - expense_total), 0) AS net_profit").
+		Scan(&engAgg)
+	summary.EngProjectCount = engAgg.ProjectCount
+	summary.EngContractTotal = engAgg.ContractTotal
+	summary.EngGrossProfit = engAgg.GrossProfit
+	summary.EngNetProfit = engAgg.NetProfit
+	summary.CombinedNetProfit = summary.NetProfit + engAgg.NetProfit
 
 	// 9. 员工排行 (EmployeeRankings)
 	// 管理员端开单没有 employee_id，按老板客户归属；显式标记“老板客户”的订单也归入老板客户。

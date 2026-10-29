@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, shallowRef } from 'vue'
 import { useRouter } from 'vue-router'
-import { Refresh, Right, TrendCharts, Coin, Wallet, Money } from '@element-plus/icons-vue'
+import { Refresh, Right, TrendCharts, Coin, Wallet, Money, Histogram } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { resolveOffboardingAlert } from '../../api/employees'
 import { useDashboard } from '../../composables/useDashboard'
@@ -30,6 +30,11 @@ const orderCount = computed(() => Number(summary.value.order_count || 0))
 const revenue = computed(() => Number(summary.value.today_revenue || 0))
 const netProfit = computed(() => Number(summary.value.net_profit || 0))
 const costIncomplete = computed(() => Boolean(summary.value.cost_incomplete))
+// 工程业务线独立核算：不写资金账户，故单独从看板接口取一组字段，与零售净利相加得「含工程合计」
+const engNetProfit = computed(() => Number(summary.value.eng_net_profit || 0))
+const engProjectCount = computed(() => Number(summary.value.eng_project_count || 0))
+const engContractTotal = computed(() => Number(summary.value.eng_contract_total || 0))
+const combinedProfit = computed(() => Number(summary.value.combined_net_profit || 0))
 
 // 环比：与上一周期（昨日/上月/去年/等长前移）对比，上一周期数据缺失时不展示
 const deltaBaseLabel = computed(() => ({ today: '较昨日', month: '较上月', last_month: '较上上月', year: '较去年', custom: '较上一周期' }[period.value] || '较上一周期'))
@@ -46,16 +51,26 @@ function buildDelta(current, previous) {
 }
 const revenueDelta = computed(() => prevSummary.value ? buildDelta(revenue.value, prevSummary.value.today_revenue) : null)
 const profitDelta = computed(() => (prevSummary.value && !costIncomplete.value) ? buildDelta(netProfit.value, prevSummary.value.net_profit) : null)
+const combinedDelta = computed(() => (prevSummary.value && !costIncomplete.value) ? buildDelta(combinedProfit.value, prevSummary.value.combined_net_profit) : null)
+
+/** 「含工程合计」卡备注：把工程的具体盈利写清楚，无工程结算时明确说明 */
+const combinedNote = computed(() => {
+  if (engProjectCount.value > 0) {
+    return `工程净利 ${formatCurrency(engNetProfit.value)} · ${engProjectCount.value} 单已结算`
+  }
+  return '本期无工程结算，与上一栏相同'
+})
 
 const kpis = computed(() => [
   { label: '销售额', value: formatCurrency(revenue.value), delta: revenueDelta.value, note: `${orderCount.value} 单 · 客单 ${formatCurrency(orderCount.value ? revenue.value / orderCount.value : 0)}`, drill: { type: 'revenue' }, fallbackRoute: '/admin/orders', tone: 'primary' },
-  { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), delta: profitDelta.value, note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : '点击卡片查看利润计算过程', drill: { type: 'net_profit' }, fallbackRoute: '/admin/finance', tone: 'profit' },
+  { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), delta: profitDelta.value, note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : '零售 + 国补口径，不含工程', drill: { type: 'net_profit' }, fallbackRoute: '/admin/finance', tone: 'profit' },
+  { label: '含工程合计', value: costIncomplete.value ? '待核算' : formatCurrency(combinedProfit.value), delta: combinedDelta.value, note: combinedNote.value, fallbackRoute: '/admin/engineering', tone: 'combined' },
   { label: '待收尾款', value: formatCurrency(summary.value.pending_balance), note: `${summary.value.pending_balance_count || 0} 单未结清 · 点击查看欠款明细`, drill: { type: 'pending_balance' }, fallbackRoute: '/admin/orders?tab=pending_balance', tone: 'balance' },
   { label: '国补待回款', value: formatCurrency(summary.value.pending_subsidy), note: '点击查看核销与回款明细', drill: { type: 'pending_subsidy' }, fallbackRoute: '/admin/subsidy', tone: 'subsidy' }
 ])
 
 /** KPI 卡图标（按 tone 分配，纯视觉） */
-const KPI_ICONS = { primary: TrendCharts, profit: Coin, balance: Wallet, subsidy: Money }
+const KPI_ICONS = { primary: TrendCharts, profit: Coin, combined: Histogram, balance: Wallet, subsidy: Money }
 
 function selectPeriod(value) {
   if (period.value === value) return
@@ -235,7 +250,7 @@ onMounted(refresh)
 </template>
 
 <style scoped>
-.dashboard{padding:0 0 30px;color:#263449}.page-header{display:flex;justify-content:space-between;align-items:end;gap:24px;margin:3px 0 22px}.eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#8898aa}.page-heading h1{margin:5px 0 3px;color:#172033;font-size:28px;font-weight:760;letter-spacing:-.04em}.page-heading p{margin:0;color:#8390a2;font-size:12px}.controls{display:flex;align-items:center;gap:10px}.periods{display:flex;gap:3px;padding:4px;background:#eef2f7;border-radius:10px}.periods button{border:0;border-radius:8px;padding:8px 12px;background:transparent;color:#66758a;font-size:12px;cursor:pointer;white-space:nowrap}.periods button.active{background:#fff;color:#635bff;box-shadow:0 1px 3px rgba(10,37,64,.1);font-weight:700}.refresh{display:flex;align-items:center;gap:5px;height:37px;padding:0 12px;background:#fff;border:1px solid #e3e8ee;border-radius:10px;color:#425466;font-size:12px;cursor:pointer;box-shadow:0 1px 2px rgba(10,37,64,.04)}.refresh:disabled{opacity:.6;cursor:wait}.spinning{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-range{display:flex;align-items:center;gap:12px;margin:-6px 0 18px}.desktop-date{max-width:290px}.mobile-dates{display:none}.date-help{font-size:12px;color:#8793a5}.error-banner{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:16px;border:1px solid #f5c7c7;background:#fff4f3;border-radius:10px;color:#bd4141;font-size:13px}.error-banner button{border:0;background:none;color:#b02f2f;font-weight:700;cursor:pointer}.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:16px}.kpi{min-width:0;min-height:150px;display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:left;padding:18px 20px;background:#fff;border:1px solid #e3e8ee;border-radius:12px;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;box-shadow:0 1px 3px rgba(10,37,64,.06)}.kpi:hover{transform:translateY(-2px);border-color:#cfd7df;box-shadow:0 4px 12px rgba(10,37,64,.09)}.kpi-head{display:flex;align-items:center;gap:10px;width:100%}.kpi-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border-radius:10px;font-size:18px}.kpi .kpi-badge{background:#e8e9ff;color:#635bff}.kpi-label{flex:1;display:flex;justify-content:space-between;align-items:center;min-width:0;font-size:12px;font-weight:600;color:#64748b}.kpi-label .el-icon{opacity:.55}.kpi strong{display:block;flex:none;margin:0;color:#172033;font-size:26px;line-height:1.1;letter-spacing:-.04em;white-space:nowrap;font-variant-numeric:tabular-nums}.kpi-note{margin-top:auto;width:100%;color:#8a94a6;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dashboard{padding:0 0 30px;color:#263449}.page-header{display:flex;justify-content:space-between;align-items:end;gap:24px;margin:3px 0 22px}.eyebrow{font-size:10px;font-weight:800;letter-spacing:.14em;color:#8898aa}.page-heading h1{margin:5px 0 3px;color:#172033;font-size:28px;font-weight:760;letter-spacing:-.04em}.page-heading p{margin:0;color:#8390a2;font-size:12px}.controls{display:flex;align-items:center;gap:10px}.periods{display:flex;gap:3px;padding:4px;background:#eef2f7;border-radius:10px}.periods button{border:0;border-radius:8px;padding:8px 12px;background:transparent;color:#66758a;font-size:12px;cursor:pointer;white-space:nowrap}.periods button.active{background:#fff;color:#635bff;box-shadow:0 1px 3px rgba(10,37,64,.1);font-weight:700}.refresh{display:flex;align-items:center;gap:5px;height:37px;padding:0 12px;background:#fff;border:1px solid #e3e8ee;border-radius:10px;color:#425466;font-size:12px;cursor:pointer;box-shadow:0 1px 2px rgba(10,37,64,.04)}.refresh:disabled{opacity:.6;cursor:wait}.spinning{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}.date-range{display:flex;align-items:center;gap:12px;margin:-6px 0 18px}.desktop-date{max-width:290px}.mobile-dates{display:none}.date-help{font-size:12px;color:#8793a5}.error-banner{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;margin-bottom:16px;border:1px solid #f5c7c7;background:#fff4f3;border-radius:10px;color:#bd4141;font-size:13px}.error-banner button{border:0;background:none;color:#b02f2f;font-weight:700;cursor:pointer}.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:14px;margin-bottom:16px}.kpi{min-width:0;min-height:150px;display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:left;padding:18px 20px;background:#fff;border:1px solid #e3e8ee;border-radius:12px;cursor:pointer;transition:transform .15s,border-color .15s,box-shadow .15s;box-shadow:0 1px 3px rgba(10,37,64,.06)}.kpi:hover{transform:translateY(-2px);border-color:#cfd7df;box-shadow:0 4px 12px rgba(10,37,64,.09)}.kpi-head{display:flex;align-items:center;gap:10px;width:100%}.kpi-badge{display:inline-flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border-radius:10px;font-size:18px}.kpi .kpi-badge{background:#e8e9ff;color:#635bff}.kpi-label{flex:1;display:flex;justify-content:space-between;align-items:center;min-width:0;font-size:12px;font-weight:600;color:#64748b}.kpi-label .el-icon{opacity:.55}.kpi strong{display:block;flex:none;margin:0;color:#172033;font-size:26px;line-height:1.1;letter-spacing:-.04em;white-space:nowrap;font-variant-numeric:tabular-nums}.kpi-note{margin-top:auto;width:100%;color:#8a94a6;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media(max-width:1100px){.page-header{align-items:flex-start;flex-direction:column}.kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:767px){.dashboard{padding:3px 0 24px}.page-header{gap:15px;margin:0 0 16px}.page-heading h1{font-size:24px}.controls{width:100%}.periods{flex:1;min-width:0;overflow-x:auto}.periods button{padding:8px 10px;flex:1}.refresh{flex:none;padding:0 10px}.refresh span{display:none}.desktop-date{display:none}.mobile-dates{display:flex;align-items:center;gap:7px;width:100%}.mobile-dates input{min-width:0;flex:1;box-sizing:border-box;padding:8px 5px;border:1px solid #dce4ed;border-radius:8px;background:#fff;color:#435268;font-size:12px}.date-range{flex-wrap:wrap}.kpi-grid{gap:10px;margin-bottom:12px}.kpi{min-height:126px;padding:14px;border-radius:12px;gap:8px}.kpi-head{gap:8px}.kpi-badge{width:32px;height:32px;border-radius:9px;font-size:16px}.kpi strong{font-size:19px}.kpi-note{font-size:10px}.kpi-delta{height:18px;padding:0 7px;font-size:9px}}
 /* 环比胶囊：固定高度，间距交给 .kpi 的 flex gap，不再用 margin 叠加 */
@@ -247,6 +262,12 @@ onMounted(refresh)
 .kpi.subsidy{background:#fff;border-color:#e3e8ee}
 .kpi.subsidy:hover{border-color:#cfd7df}
 .kpi.subsidy strong{color:#635bff}
+/* 含工程合计卡：工程为独立核算口径，用青绿区分于零售净利（紫/黑），并在左侧加一道细边提示口径不同 */
+.kpi.combined{position:relative;background:#fff;border-color:#e3e8ee;overflow:hidden}
+.kpi.combined::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#0d9488}
+.kpi.combined:hover{border-color:#cfd7df}
+.kpi.combined strong{color:#0f766e}
+.kpi.combined .kpi-note{color:#5f7d79;white-space:normal;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 </style>
 
 <style scoped>
