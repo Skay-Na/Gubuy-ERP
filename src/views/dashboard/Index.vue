@@ -58,12 +58,12 @@ const revenueDelta = computed(() => prevSummary.value ? buildDelta(revenue.value
 const profitDelta = computed(() => (prevSummary.value && !costIncomplete.value) ? buildDelta(netProfit.value, prevSummary.value.net_profit) : null)
 const engDelta = computed(() => prevSummary.value ? buildDelta(engNetProfit.value, prevSummary.value.eng_net_profit) : null)
 
-/** 「工程纯利」卡备注：写清扣掉了什么，避免被当成毛利；无结算时说明归期口径 */
+/** 「工程纯利」卡备注：写清扣掉了什么、口径边界，避免被当成毛利或含公司开销；无结算时说明归期口径 */
 const engNote = computed(() => {
   if (engProjectCount.value === 0) return '本期无工程结算 · 工程验收结清后才计入'
   const cost = Math.max(engContractTotal.value - engGrossProfit.value, 0)
   const expense = Math.max(engGrossProfit.value - engNetProfit.value, 0)
-  return `${engProjectCount.value} 单已结算 · 已扣成本 ${compactMoney(cost)} 与开销 ${compactMoney(expense)}`
+  return `${engProjectCount.value} 单已结算 · 扣进货 ${compactMoney(cost)} + 施工费 ${compactMoney(expense)} · 税前`
 })
 
 const kpis = computed(() => [
