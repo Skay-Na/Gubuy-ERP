@@ -61,15 +61,15 @@
 
         <template v-for="row in navRows" :key="row.type === 'group' ? 'g-' + row.key : row.path">
           <!-- 分组头：图标栏模式下退化为一条细分割线 -->
-          <div v-if="row.type === 'group'" class="pt-2 pb-0.5">
+          <div v-if="row.type === 'group'" class="pt-2.5 pb-1">
             <!-- 移动端抽屉不折叠，组头只作静态标签，避免出现点了没反应的箭头 -->
-            <div v-if="mobileMenuOpen" class="pl-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">{{ row.title }}</div>
+            <div v-if="mobileMenuOpen" class="pl-3 text-[13px] font-semibold text-slate-600">{{ row.title }}</div>
             <button v-else-if="!isIconRail"
                     @click="toggleGroup(row.key)"
-                    class="w-full flex items-center justify-between pl-3 pr-1 text-[10px] font-bold uppercase tracking-widest transition-colors"
-                    :class="row.collapsed ? 'text-slate-300 hover:text-slate-500' : 'text-slate-400 hover:text-slate-600'">
+                    class="w-full flex items-center justify-between pl-3 pr-0.5 text-[13px] font-semibold transition-colors"
+                    :class="row.collapsed ? 'text-slate-400 hover:text-slate-600' : 'text-slate-600 hover:text-slate-900'">
               <span>{{ row.title }}</span>
-              <el-icon :size="11" class="transition-transform duration-200" :class="row.collapsed ? '-rotate-90' : ''"><ArrowDown /></el-icon>
+              <el-icon :size="12" class="transition-transform duration-200" :class="row.collapsed ? '-rotate-90' : ''"><ArrowDown /></el-icon>
             </button>
             <div v-else class="flex justify-center py-0.5"><div class="w-6 h-px bg-slate-200"></div></div>
           </div>
