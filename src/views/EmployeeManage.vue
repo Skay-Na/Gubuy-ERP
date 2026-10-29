@@ -24,7 +24,7 @@
       <el-input v-if="activeTab !== 'payroll'" v-model="employeeQuery" clearable :placeholder="activeTab === 'employees' ? '搜索姓名、工号或电话' : '搜索姓名或电话'" class="people-search" />
       <span v-if="activeTab !== 'payroll'" class="people-count">{{ filteredEmployees.length }} 人</span>
     </div>
-    <PayrollHistory v-if="activeTab === 'payroll'" :employees="employees" :is-mobile="isMobile" :initial-employee-id="focusPayrollEmployeeId" @view-order="viewPayrollOrder" />
+    <PayrollHistory v-if="activeTab === 'payroll'" :employees="activeTab === 'payroll' ? payrollEmployees : employees" :is-mobile="isMobile" :initial-employee-id="focusPayrollEmployeeId" @view-order="viewPayrollOrder" />
     <EmployeeRoster v-else :rows="filteredEmployees" :type="activeTab" :loading="loading" @edit="openDialog" @attendance="viewAttendance" @remove="handleDelete" @offboard="openOffboarding" />
     <EmployeeOffboardingDialog v-model="offboardingVisible" :employee="selectedOffboardingEmployee" :employees="employees" @updated="fetchEmployees" />
 
@@ -162,7 +162,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   fetchEmployees as fetchEmployeesApi,
@@ -187,6 +187,10 @@ const router = useRouter()
 const route = useRoute()
 
 const employees = ref([])
+// 工资条的员工选择范围：含离职（含已删号）员工——删号日不等于离职日，
+// 只有连已删号档案一起取，才能在工资条里翻看离职员工真实在职期间的月份。
+const payrollEmployees = ref([])
+const payrollEmployeesLoaded = ref(false)
 const offboardingVisible = ref(false)
 const selectedOffboardingEmployee = ref(null)
 const loading = ref(false)
@@ -363,6 +367,23 @@ const fetchEmployees = async () => {
     loading.value = false
   }
 }
+
+const fetchPayrollEmployees = async () => {
+  try {
+    const res = await fetchEmployeesApi({ include_departed: true, include_deleted: true })
+    if (res.data.code === 200) {
+      payrollEmployees.value = res.data.data
+      payrollEmployeesLoaded.value = true
+    }
+  } catch (error) {
+    // 降级：至少保证在册员工可用，工资条不至于打不开
+    payrollEmployees.value = employees.value
+  }
+}
+
+watch([activeTab, payrollEmployeesLoaded], ([tab, loaded]) => {
+  if (tab === 'payroll' && !loaded) fetchPayrollEmployees()
+})
 
 const openOffboarding = row => {
   selectedOffboardingEmployee.value = row

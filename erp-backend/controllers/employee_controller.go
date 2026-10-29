@@ -24,14 +24,23 @@ import (
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
 // @ID get_api_employees
+// @Param include_departed query bool false "包含离职员工"
+// @Param include_deleted query bool false "包含已删号员工，需同时 include_departed=true（工资条等历史视图用）"
 // @Router /api/employees [get]
 func GetEmployees(c *gin.Context) {
 	var employees []models.Employee
 	query := config.DB.Model(&models.Employee{})
 	includeDeparted := c.Query("include_departed") == "true"
+	// include_deleted=true 时连软删除（已删号）的员工一并返回：
+	// 删号日不等于离职日，工资条等历史视图需要已删号员工才能查到真实在职期间的工资。
+	// 仅在同时 include_departed=true 时生效，避免在册名单冒出已删号的人。
+	includeDeleted := c.Query("include_deleted") == "true" && includeDeparted
 	if includeDeparted && strings.HasPrefix(c.GetString("username"), "emp_") {
 		c.JSON(http.StatusForbidden, gin.H{"code": 403, "msg": "员工端不能查看离职员工档案"})
 		return
+	}
+	if includeDeleted {
+		query = query.Unscoped()
 	}
 	if !includeDeparted {
 		today := time.Now().In(time.Local).Format("2006-01-02")
