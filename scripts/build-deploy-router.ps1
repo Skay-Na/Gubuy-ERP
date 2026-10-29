@@ -673,7 +673,16 @@ try {
   }
 
   Write-Info "校验 Docker Compose 配置"
-  & docker compose config --quiet
+  # compose 入口随环境而变：部分 Docker Desktop 版本把 compose 放在 resources\cli-plugins，
+  # 且该目录不进 docker CLI 的插件搜索路径，此时 `docker compose` 会报 unknown command。
+  # 独立 docker-compose 始终可用，优先用它；两者都没有才视为环境缺失。
+  if (Get-Command docker-compose -ErrorAction SilentlyContinue) {
+    & docker-compose config -q
+  } elseif (Get-Command docker -ErrorAction SilentlyContinue) {
+    & docker compose config --quiet
+  } else {
+    Write-Fail "未找到 docker-compose 或 docker，无法校验 Compose 配置。"
+  }
   if ($LASTEXITCODE -ne 0) {
     Write-Fail "Docker Compose 配置校验失败。请先修复上方错误；首次部署需在项目根目录 .env 中设置 JWT_SECRET（私有随机值，至少 32 字节）。更换密钥会使现有登录会话失效。"
   }
