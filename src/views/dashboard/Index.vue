@@ -272,7 +272,8 @@ onMounted(refresh)
 .kpi.eng::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#0d9488}
 .kpi.eng:hover{border-color:#cfd7df}
 .kpi.eng strong{color:#0f766e}
-.kpi.eng .kpi-note{color:#5f7d79;white-space:normal;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kpi.eng .kpi-note,.kpi.profit .kpi-note{color:#5f7d79;white-space:normal;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.kpi.profit .kpi-note{color:#7a7f96}
 </style>
 
 <style scoped>
