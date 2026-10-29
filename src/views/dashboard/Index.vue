@@ -43,7 +43,9 @@ function buildDelta(current, previous) {
   if (previous === null || previous === undefined) return null
   const diff = Number(current || 0) - Number(previous || 0)
   if (Math.abs(diff) < 0.005) return { cls: 'flat', text: `${deltaBaseLabel.value}持平` }
-  const pct = Number(previous) > 0 ? `（${diff > 0 ? '+' : '-'}${Math.abs(diff / Number(previous) * 100).toFixed(1)}%）` : ''
+  // 基期很小时百分比会失真（如 +71496.6%），超过 999% 只显示绝对额、不显示百分比
+  const ratio = Number(previous) > 0 ? Math.abs(diff / Number(previous) * 100) : null
+  const pct = ratio !== null && ratio <= 999 ? `（${diff > 0 ? '+' : '-'}${ratio.toFixed(1)}%）` : ''
   return {
     cls: diff > 0 ? 'up' : 'down',
     text: `${deltaBaseLabel.value} ${diff > 0 ? '+' : '-'}${compactMoney(diff)} ${pct}`.trim()
