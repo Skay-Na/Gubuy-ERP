@@ -6,6 +6,7 @@ const props = defineProps({
   summary: { type: Object, default: () => ({}) },
   netAmount: { type: Number, default: 0 },
   totalBalance: { type: Number, default: 0 },
+  fundAccountCount: { type: Number, default: 0 },
   periodLabel: { type: String, default: '本月' },
   loading: Boolean
 })
@@ -39,7 +40,7 @@ const cards = computed(() => [
     key: 'balance',
     label: '账户总余额',
     value: props.totalBalance,
-    helper: `${props.summary.accounts?.length || 0} 个资金账户`,
+    helper: `${props.fundAccountCount || 0} 个资金账户（不含经营开销台账）`,
     icon: Wallet,
     tone: 'balance'
   }

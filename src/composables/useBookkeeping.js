@@ -14,15 +14,20 @@ export function useBookkeeping() {
   const loading = ref(false)
   const ledgerLoading = ref(false)
 
-  const accounts = computed(() => summary.value.accounts || [])
-  const netAmount = computed(() =>
-    Number(summary.value.total_income || 0) - Number(summary.value.total_expense || 0)
-  )
-  const totalBalance = computed(() =>
-    accounts.value
-      .filter((account) => account.name !== '经营开销')
-      .reduce((sum, account) => sum + Number(account.balance || 0), 0)
-  )
+const accounts = computed(() => summary.value.accounts || [])
+// 台账账户（经营开销 / 历史调整台账）只用于记账口径，余额是负的累计支出，不代表真实资金。
+// 账户总余额必须排除它们；对外展示「N 个资金账户」时也要用同一个口径，
+// 否则会出现"写 5 个账户、实际只加 4 个余额"的不一致。
+const LEDGER_ACCOUNT_NAMES = ['经营开销', '历史调整台账']
+const fundAccounts = computed(() =>
+  accounts.value.filter((account) => !LEDGER_ACCOUNT_NAMES.includes(account.name))
+)
+const netAmount = computed(() =>
+  Number(summary.value.total_income || 0) - Number(summary.value.total_expense || 0)
+)
+const totalBalance = computed(() =>
+  fundAccounts.value.reduce((sum, account) => sum + Number(account.balance || 0), 0)
+)
 
   async function loadSummary(period = 'month', customRange = []) {
     loading.value = true
@@ -72,6 +77,7 @@ export function useBookkeeping() {
     loading: readonly(loading),
     ledgerLoading: readonly(ledgerLoading),
     accounts,
+    fundAccounts,
     netAmount,
     totalBalance,
     loadSummary,

@@ -59,7 +59,7 @@ const cards = computed(() => {
       title: '待回款',
       value: summaryEmpty ? '—' : formatCardMoney(d.pending_amount),
       sub: summaryEmpty ? '—' : `覆盖 ${Number(d.pending_project_count) || 0} 个项目`,
-      tip: 'Σ(合同额 − 已实收)，统计状态 已签约 / 供货中 / 已验收',
+      tip: 'Σ(合同额 − 已实收)，统计状态 跟进中 / 已签约 / 供货中 / 已验收（跟进中通常未填合同额，一般不参与）',
       clickable: true,
       onClick: () => emit('pick-pending')
     },

@@ -22,6 +22,7 @@ const {
   loading,
   ledgerLoading,
   accounts,
+  fundAccounts,
   netAmount,
   totalBalance,
   loadSummary,
@@ -171,7 +172,7 @@ onMounted(changePeriod)
       <span>工程开销请到「<router-link to="/admin/engineering/expenses">工程 → 工程开销</router-link>」记录，避免两边重复记账。</span>
     </div>
 
-    <BookkeepingSummary :summary="summary" :net-amount="netAmount" :total-balance="totalBalance" :period-label="periodLabel" :loading="loading" />
+    <BookkeepingSummary :summary="summary" :net-amount="netAmount" :total-balance="totalBalance" :fund-account-count="fundAccounts.length" :period-label="periodLabel" :loading="loading" />
 
     <section class="desktop-entry-card">
       <div class="entry-card-copy"><div class="entry-card-icon"><el-icon><EditPen /></el-icon></div><div><span>快速录入</span><h2>记一笔新账</h2><p>金额和分类优先，其他信息按需补充。</p></div></div>
