@@ -27,7 +27,7 @@ type PayrollConfirmItem struct {
 }
 
 type PayrollConfirmRequest struct {
-	Month string              `json:"month" binding:"required"`
+	Month string               `json:"month" binding:"required"`
 	Items []PayrollConfirmItem `json:"items" binding:"required,min=1,dive"`
 }
 
@@ -185,8 +185,8 @@ func ConfirmPayroll(c *gin.Context) {
 // @Router /api/payroll/confirmations [get]
 func GetPayrollConfirmations(c *gin.Context) {
 	query := config.DB.Table("payroll_confirmations").
-		Select("payroll_confirmations.id, payroll_confirmations.employee_id, payroll_confirmations.month, "+
-			"payroll_confirmations.amount, payroll_confirmations.created_by, payroll_confirmations.created_at, "+
+		Select("payroll_confirmations.id, payroll_confirmations.employee_id, payroll_confirmations.month, " +
+			"payroll_confirmations.amount, payroll_confirmations.created_by, payroll_confirmations.created_at, " +
 			"employees.name AS employee_name, employees.emp_no, employees.role AS employee_role").
 		Joins("LEFT JOIN employees ON employees.id = payroll_confirmations.employee_id")
 

@@ -40,13 +40,13 @@ func seedAllocateFixture(t *testing.T, pending float64, pool float64) (uint, uin
 	t.Helper()
 	orderNo := time.Now().Format("20060102150405") + fmt.Sprintf("%06d", time.Now().UnixNano()%1000000)
 	order := models.Order{
-		OrderNo:             orderNo,
-		OrderStatus:         1,
-		TotalAmount:         10000,
-		SubsidyAmount:       pending,
+		OrderNo:              orderNo,
+		OrderStatus:          1,
+		TotalAmount:          10000,
+		SubsidyAmount:        pending,
 		SubsidyPendingAmount: pending,
-		SubsidyStatus:       2, // 已提交资料，等待回款
-		PaymentStatus:       2,
+		SubsidyStatus:        2, // 已提交资料，等待回款
+		PaymentStatus:        2,
 	}
 	if err := config.DB.Create(&order).Error; err != nil {
 		t.Fatalf("创建测试订单失败: %v", err)

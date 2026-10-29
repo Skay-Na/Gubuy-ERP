@@ -57,11 +57,11 @@ func createSubsidyOrder(t *testing.T, customer string) string {
 // 允许 0→1、0→2、1→2 单向前进；禁止回退、禁止重复设置、禁止写入 3（已回款）。
 func TestSubsidyTransitionRules(t *testing.T) {
 	cases := []struct {
-		name       string
-		current    int
-		target     int
-		wantErr    bool
-		errSubstr  string
+		name      string
+		current   int
+		target    int
+		wantErr   bool
+		errSubstr string
 	}{
 		{name: "无国补到待提交", current: 0, target: 1, wantErr: false},
 		{name: "无国补直接已提交", current: 0, target: 2, wantErr: false},

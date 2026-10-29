@@ -167,18 +167,18 @@ func AgentToolUnpaidOrders(c *gin.Context) {
 }
 
 type agentUnpaidOrderRow struct {
-	OrderNo       string  `json:"order_no"`
-	CustomerName  string  `json:"customer_name"`
-	Outstanding   float64 `json:"outstanding"`
-	CreatedAt     string  `json:"created_at"`
+	OrderNo      string  `json:"order_no"`
+	CustomerName string  `json:"customer_name"`
+	Outstanding  float64 `json:"outstanding"`
+	CreatedAt    string  `json:"created_at"`
 }
 
 func agentUnpaidOrderRows(customer string, limit int) []agentUnpaidOrderRow {
 	type orderRow struct {
-		OrderNo         string  `json:"order_no"`
-		CustomerName    string  `json:"customer_name"`
-		ActualPayAmount float64 `json:"actual_pay_amount"`
-		DepositAmount   float64 `json:"deposit_amount"`
+		OrderNo         string    `json:"order_no"`
+		CustomerName    string    `json:"customer_name"`
+		ActualPayAmount float64   `json:"actual_pay_amount"`
+		DepositAmount   float64   `json:"deposit_amount"`
 		CreatedAt       time.Time `json:"created_at"`
 	}
 	query := config.DB.Table("orders").

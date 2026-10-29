@@ -43,27 +43,27 @@ type DailySaleTrend struct {
 
 // FinanceSummaryResponse 财务总览响应数据结构
 type FinanceSummaryResponse struct {
-	TodayRevenue             float64            `json:"today_revenue"`
-	TotalIncome              float64            `json:"total_income"`
-	TotalExpense             float64            `json:"total_expense"`
-	PendingSubsidy           float64            `json:"pending_subsidy"`
-	OrderCount               int64              `json:"order_count"`
-	PendingBalance           float64            `json:"pending_balance"`       // 待收尾款总额
-	PendingBalanceCount      int64              `json:"pending_balance_count"` // 欠款订单数
-	Accounts                 []models.Account   `json:"accounts"`              // 各账户余额
-	TopProducts              []ProductSaleStat  `json:"top_products"`          // 热销排行
-	GrossProfit              float64            `json:"gross_profit"`          // 销售毛利
-	CostIncomplete           bool               `json:"cost_incomplete"`
-	UncostedOrderItems       int64              `json:"uncosted_order_item_count"`
-	PendingZeroCostSaleCount int64              `json:"pending_zero_cost_sale_count"`
+	TodayRevenue             float64           `json:"today_revenue"`
+	TotalIncome              float64           `json:"total_income"`
+	TotalExpense             float64           `json:"total_expense"`
+	PendingSubsidy           float64           `json:"pending_subsidy"`
+	OrderCount               int64             `json:"order_count"`
+	PendingBalance           float64           `json:"pending_balance"`       // 待收尾款总额
+	PendingBalanceCount      int64             `json:"pending_balance_count"` // 欠款订单数
+	Accounts                 []models.Account  `json:"accounts"`              // 各账户余额
+	TopProducts              []ProductSaleStat `json:"top_products"`          // 热销排行
+	GrossProfit              float64           `json:"gross_profit"`          // 销售毛利
+	CostIncomplete           bool              `json:"cost_incomplete"`
+	UncostedOrderItems       int64             `json:"uncosted_order_item_count"`
+	PendingZeroCostSaleCount int64             `json:"pending_zero_cost_sale_count"`
 	// 定稿工资变动待办：确认发放后订单有变动导致实时回算 ≠ 定稿应发
 	PendingPayrollMismatchCount int64                 `json:"pending_payroll_mismatch_count"`
 	PendingPayrollMismatches    []PayrollMismatchItem `json:"pending_payroll_mismatches"`
 	OperatingExpense            float64               `json:"operating_expense"` // 日常经营费用，不含货款与以旧换新
 	NetProfit                   float64               `json:"net_profit"`        // 经营净利润
-	EmployeeRankings         []EmployeeRankStat `json:"employee_rankings"`
-	CategorySales            []CategorySaleStat `json:"category_sales"`
-	SalesTrend               []DailySaleTrend   `json:"sales_trend"`
+	EmployeeRankings            []EmployeeRankStat    `json:"employee_rankings"`
+	CategorySales               []CategorySaleStat    `json:"category_sales"`
+	SalesTrend                  []DailySaleTrend      `json:"sales_trend"`
 }
 
 // CalculatePendingSubsidy 计算累计应回款扣除累计回款后的余额。

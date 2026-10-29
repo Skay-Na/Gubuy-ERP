@@ -12,7 +12,7 @@ import (
 )
 
 // chamberCommissionStart 商会订单分成起算点：2026-10 起的商会订单才计入提成
-//（用户 2026-10-26 定稿：之前的商会订单不再计算）。
+// （用户 2026-10-26 定稿：之前的商会订单不再计算）。
 var chamberCommissionStart = time.Date(2026, 10, 1, 0, 0, 0, 0, time.Local)
 
 // monthlyEmployeePayrollReport is the shared calculation behind the admin report

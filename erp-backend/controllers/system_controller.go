@@ -463,10 +463,10 @@ func findDockerMySQLClient(names ...string) (mysqlClientCommand, error) {
 				execPath: dockerPath,
 				// -i 保持 stdin 打开：恢复导入需要从宿主机管道读入 SQL 流，
 				// 备份导出时也无副作用
-				prefix:   []string{"exec", "-i", container},
-				binary:   name,
-				host:     getEnvString("DB_DOCKER_HOST", "127.0.0.1"),
-				port:     getEnvString("DB_DOCKER_PORT", "3306"),
+				prefix: []string{"exec", "-i", container},
+				binary: name,
+				host:   getEnvString("DB_DOCKER_HOST", "127.0.0.1"),
+				port:   getEnvString("DB_DOCKER_PORT", "3306"),
 			}, nil
 		} else {
 			lastErr = err

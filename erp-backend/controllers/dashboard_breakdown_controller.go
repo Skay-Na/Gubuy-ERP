@@ -15,18 +15,18 @@ import (
 // ProfitBreakdownResponse 利润计算过程汇总响应。
 // 各字段口径与 GetFinanceSummary 完全一致，供看板利润过程区展示公式链路。
 type ProfitBreakdownResponse struct {
-	SalesRevenue           float64 `json:"sales_revenue"`            // 销售额：正常订单 SUM(total_amount - discount_amount)
-	ProductCost            float64 `json:"product_cost"`             // 货品成本：order_items.unit_cost × quantity
-	DeliveryFee            float64 `json:"delivery_fee"`             // 配送费
-	InstallationFee        float64 `json:"installation_fee"`         // 安装费
-	ReferralFee            float64 `json:"referral_fee"`             // 介绍人提成
-	CommissionAmount       float64 `json:"commission_amount"`        // 商会提成
-	TradeInAmount          float64 `json:"trade_in_amount"`          // 以旧换新折抵
-	GrossProfit            float64 `json:"gross_profit"`             // 毛利 = 销售额 - 货品成本 - 五项费用
-	OperatingExpense       float64 `json:"operating_expense"`        // 经营开销：Expense 中排除 采购货款/以旧换新
-	NetProfit              float64 `json:"net_profit"`               // 经营净利润 = 毛利 - 经营开销
-	OrderCount             int64   `json:"order_count"`              // 期间正常订单数
-	CostIncomplete         bool    `json:"cost_incomplete"`          // 是否存在待核算成本明细
+	SalesRevenue           float64 `json:"sales_revenue"`             // 销售额：正常订单 SUM(total_amount - discount_amount)
+	ProductCost            float64 `json:"product_cost"`              // 货品成本：order_items.unit_cost × quantity
+	DeliveryFee            float64 `json:"delivery_fee"`              // 配送费
+	InstallationFee        float64 `json:"installation_fee"`          // 安装费
+	ReferralFee            float64 `json:"referral_fee"`              // 介绍人提成
+	CommissionAmount       float64 `json:"commission_amount"`         // 商会提成
+	TradeInAmount          float64 `json:"trade_in_amount"`           // 以旧换新折抵
+	GrossProfit            float64 `json:"gross_profit"`              // 毛利 = 销售额 - 货品成本 - 五项费用
+	OperatingExpense       float64 `json:"operating_expense"`         // 经营开销：Expense 中排除 采购货款/以旧换新
+	NetProfit              float64 `json:"net_profit"`                // 经营净利润 = 毛利 - 经营开销
+	OrderCount             int64   `json:"order_count"`               // 期间正常订单数
+	CostIncomplete         bool    `json:"cost_incomplete"`           // 是否存在待核算成本明细
 	UncostedOrderItemCount int64   `json:"uncosted_order_item_count"` // 待核算成本明细条数（unit_cost <= 0）
 }
 
@@ -51,7 +51,7 @@ type BreakdownCostRow struct {
 	OrderNo       string  `json:"order_no"`
 	CustomerName  string  `json:"customer_name"`
 	CreatedAt     string  `json:"created_at"`
-	Amount        float64 `json:"amount"`        // 单成本小计：SUM(unit_cost × quantity)
+	Amount        float64 `json:"amount"`         // 单成本小计：SUM(unit_cost × quantity)
 	UncostedCount int64   `json:"uncosted_count"` // 该单内待核算明细件数
 }
 
@@ -90,19 +90,19 @@ type BreakdownDetailResponse struct {
 
 // breakdownTypeTitles 明细类型 → 标题。列配置由前端 drillColumns.js 维护。
 var breakdownTypeTitles = map[string]string{
-	"revenue":          "销售额明细",
-	"cost":             "货品成本明细",
-	"delivery":         "配送费明细",
-	"installation":     "安装费明细",
-	"referral":         "介绍人提成明细",
-	"commission":       "商会提成明细",
-	"trade_in":         "以旧换新折抵明细",
+	"revenue":           "销售额明细",
+	"cost":              "货品成本明细",
+	"delivery":          "配送费明细",
+	"installation":      "安装费明细",
+	"referral":          "介绍人提成明细",
+	"commission":        "商会提成明细",
+	"trade_in":          "以旧换新折抵明细",
 	"operating_expense": "经营开销明细",
-	"pending_balance":  "待收尾款明细",
-	"pending_subsidy":  "国补待回款明细",
-	"employee_orders":  "员工订单明细",
-	"account_logs":     "账户流水明细",
-	"trend_orders":     "趋势区间订单明细",
+	"pending_balance":   "待收尾款明细",
+	"pending_subsidy":   "国补待回款明细",
+	"employee_orders":   "员工订单明细",
+	"account_logs":      "账户流水明细",
+	"trend_orders":      "趋势区间订单明细",
 }
 
 // feeColumnByType 五项费用类型 → 订单表列名（白名单，避免拼接注入）。
@@ -473,7 +473,7 @@ func feeBreakdown(column string, startTime, endTime time.Time, page, pageSize in
 
 	var rows []BreakdownOrderRow
 	if err := scope().
-		Select("id, order_no, customer_name, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, "+column+" as amount").
+		Select("id, order_no, customer_name, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, " + column + " as amount").
 		Order("created_at desc, id desc").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Scan(&rows).Error; err != nil {
@@ -566,7 +566,7 @@ func pendingSubsidyBreakdown(page, pageSize int) ([]BreakdownOrderRow, int64, fl
 
 	var rows []BreakdownOrderRow
 	if err := scope().
-		Select("id, order_no, customer_name, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, "+pendingSubsidyExpr+" as amount, subsidy_pending_amount, subsidy_received_amt").
+		Select("id, order_no, customer_name, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, " + pendingSubsidyExpr + " as amount, subsidy_pending_amount, subsidy_received_amt").
 		Order("created_at desc, id desc").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Scan(&rows).Error; err != nil {
@@ -579,7 +579,7 @@ func pendingSubsidyBreakdown(page, pageSize int) ([]BreakdownOrderRow, int64, fl
 	}
 
 	var totalAmount float64
-	if err := scope().Select("COALESCE(SUM("+pendingSubsidyExpr+"), 0)").Scan(&totalAmount).Error; err != nil {
+	if err := scope().Select("COALESCE(SUM(" + pendingSubsidyExpr + "), 0)").Scan(&totalAmount).Error; err != nil {
 		return nil, 0, 0, err
 	}
 	return rows, total, totalAmount, nil
@@ -603,7 +603,7 @@ func employeeOrdersBreakdown(employeeID string, startTime, endTime time.Time, pa
 		db := config.DB.Table("orders").
 			Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
 			Where("orders.order_status = 1").
-			Where("(orders.order_type = 2 OR " + bossOrderExpr + " OR employees.is_outsourced = ?)", false)
+			Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR employees.is_outsourced = ?)", false)
 		if !startTime.IsZero() {
 			db = db.Where("orders.created_at >= ?", startTime)
 		}
