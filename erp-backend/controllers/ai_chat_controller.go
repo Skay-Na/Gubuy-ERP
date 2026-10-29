@@ -262,9 +262,10 @@ func answerProfit(period string) (string, error) {
 		Select("COALESCE(SUM(delivery_fee), 0) AS delivery_fee, COALESCE(SUM(installation_fee), 0) AS installation_fee, COALESCE(SUM(referral_fee), 0) AS referral_fee, COALESCE(SUM(commission_amount), 0) AS commission_amount, COALESCE(SUM(trade_in_amount), 0) AS trade_in_amount").Scan(&fees).Error; err != nil {
 		return "", err
 	}
-	if err := config.DB.Model(&models.Expense{}).Where("expense_type NOT IN ? AND created_at >= ? AND created_at < ?", []string{"采购货款", "以旧换新"}, start, end).
-		Select("COALESCE(SUM(amount), 0)").Scan(&operating).Error; err != nil {
-		return "", err
+	if expenseTotal, expenseErr := sumOperatingExpense(start, end); expenseErr == nil {
+		operating = expenseTotal
+	} else {
+		return "", expenseErr
 	}
 	gross := CalculateGrossProfit(revenue, cost, fees.DeliveryFee, fees.InstallationFee, fees.ReferralFee, fees.CommissionAmount, fees.TradeInAmount)
 	if uncostedOrderItems > 0 {

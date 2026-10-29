@@ -36,6 +36,8 @@ const engNetProfit = computed(() => Number(summary.value.eng_net_profit || 0))
 const engProjectCount = computed(() => Number(summary.value.eng_project_count || 0))
 const engContractTotal = computed(() => Number(summary.value.eng_contract_total || 0))
 const engGrossProfit = computed(() => Number(summary.value.eng_gross_profit || 0))
+// 经营净利润已扣的房租/工资/水电等开销（经营开销账户支出流水）
+const operatingExpense = computed(() => Number(summary.value.operating_expense || 0))
 
 // 环比：与上一周期（昨日/上月/去年/等长前移）对比，上一周期数据缺失时不展示
 const deltaBaseLabel = computed(() => ({ today: '较昨日', month: '较上月', last_month: '较上上月', year: '较去年', custom: '较上一周期' }[period.value] || '较上一周期'))
@@ -66,7 +68,7 @@ const engNote = computed(() => {
 
 const kpis = computed(() => [
   { label: '销售额', value: formatCurrency(revenue.value), delta: revenueDelta.value, note: `${orderCount.value} 单 · 客单 ${formatCurrency(orderCount.value ? revenue.value / orderCount.value : 0)}`, drill: { type: 'revenue' }, fallbackRoute: '/admin/orders', tone: 'primary' },
-  { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), delta: profitDelta.value, note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : '零售 + 国补口径，不含工程', drill: { type: 'net_profit' }, fallbackRoute: '/admin/finance', tone: 'profit' },
+  { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), delta: profitDelta.value, note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : (operatingExpense.value > 0 ? `已扣房租工资等开销 ${compactMoney(operatingExpense.value)} · 不含工程` : '已扣全部开销 · 不含工程'), drill: { type: 'net_profit' }, fallbackRoute: '/admin/finance', tone: 'profit' },
   { label: '工程纯利', value: formatCurrency(engNetProfit.value), delta: engDelta.value, note: engNote.value, fallbackRoute: '/admin/engineering', tone: 'eng' },
   { label: '待收尾款', value: formatCurrency(summary.value.pending_balance), note: `${summary.value.pending_balance_count || 0} 单未结清 · 点击查看欠款明细`, drill: { type: 'pending_balance' }, fallbackRoute: '/admin/orders?tab=pending_balance', tone: 'balance' },
   { label: '国补待回款', value: formatCurrency(summary.value.pending_subsidy), note: '点击查看核销与回款明细', drill: { type: 'pending_subsidy' }, fallbackRoute: '/admin/subsidy', tone: 'subsidy' }

@@ -240,19 +240,12 @@ func buildProfitBreakdown(startTime, endTime time.Time) (*ProfitBreakdownRespons
 	}
 	result.CostIncomplete = result.UncostedOrderItemCount > 0
 
-	// 经营开销（排除 采购货款/以旧换新）
-	operatingExpenseDB := config.DB.Model(&models.Expense{}).
-		Where("expense_type NOT IN ?", []string{"采购货款", "以旧换新"})
-	if !startTime.IsZero() {
-		operatingExpenseDB = operatingExpenseDB.Where("created_at >= ?", startTime)
-	}
-	if !endTime.IsZero() {
-		operatingExpenseDB = operatingExpenseDB.Where("created_at <= ?", endTime)
-	}
-	if err := operatingExpenseDB.Select("COALESCE(SUM(amount), 0)").
-		Scan(&result.OperatingExpense).Error; err != nil {
+	// 经营开销（经营开销台账账户支出流水，与 finance/summary 同口径）
+	operatingExpense, err := sumOperatingExpense(startTime, endTime)
+	if err != nil {
 		return nil, err
 	}
+	result.OperatingExpense = operatingExpense
 
 	result.GrossProfit = CalculateGrossProfit(
 		result.SalesRevenue,
@@ -492,23 +485,31 @@ func feeBreakdown(column string, startTime, endTime time.Time, page, pageSize in
 	return rows, total, totalAmount, nil
 }
 
-// operatingExpenseBreakdown 经营开销逐笔明细（Expense 中排除 采购货款/以旧换新）。
+// operatingExpenseEffDate 经营开销的归属日期表达式（与 sumOperatingExpense 同口径）：
+// 工资按 related_no（PAY-<YYYY-MM>-<员工ID>）解析出的所属月首日，其余按流水发生日 created_at。
+// 解析失败时回退 created_at，保证任何历史脏数据都不会丢行。
+const operatingExpenseEffDate = "CASE WHEN category = '工资' AND related_no LIKE 'PAY-%' " +
+	"THEN COALESCE(STR_TO_DATE(CONCAT(SUBSTRING(related_no, 5, 7), '-01'), '%Y-%m-%d'), created_at) " +
+	"ELSE created_at END"
+
+// operatingExpenseBreakdown 经营开销逐笔明细：经营开销台账账户（accounts.id=7）的支出流水。
+// 日期列展示归属日期（工资显示所属月，便于与月度净利对齐）。
 func operatingExpenseBreakdown(startTime, endTime time.Time, page, pageSize int) ([]BreakdownExpenseRow, int64, float64, error) {
 	scope := func() *gorm.DB {
-		db := config.DB.Model(&models.Expense{}).
-			Where("expense_type NOT IN ?", []string{"采购货款", "以旧换新"})
+		db := config.DB.Model(&models.FinancialLog{}).
+			Where("account_id = ? AND flow_type = ?", operatingExpenseAccountID, 2)
 		if !startTime.IsZero() {
-			db = db.Where("created_at >= ?", startTime)
+			db = db.Where(operatingExpenseEffDate+" >= ?", startTime)
 		}
 		if !endTime.IsZero() {
-			db = db.Where("created_at <= ?", endTime)
+			db = db.Where(operatingExpenseEffDate+" <= ?", endTime)
 		}
 		return db
 	}
 
 	var rows []BreakdownExpenseRow
 	if err := scope().
-		Select("id, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, expense_type, amount, remark").
+		Select("id, DATE_FORMAT(" + operatingExpenseEffDate + ", '%Y-%m-%d') as created_at, category as expense_type, amount, remark").
 		Order("created_at desc, id desc").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Scan(&rows).Error; err != nil {

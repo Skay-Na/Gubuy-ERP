@@ -103,6 +103,49 @@ func CalculateNetProfit(grossProfit, operatingExpense float64) float64 {
 	return grossProfit - operatingExpense
 }
 
+// sumOperatingExpense 统计期间内经营开销总额，口径与 /api/finance/real-profit 完全一致：
+// 取经营开销台账账户（accounts.id=7）的支出流水，非工资按流水发生日 created_at 归期，
+// 工资按 related_no（PAY-<YYYY-MM>-<员工ID>）解析出的工资所属月归期，
+// 以覆盖"月初发上月工资计入上月"的跨月情况。startTime/endTime 均为零值表示全量口径。
+//
+// 历史原因：此前该口径读取 models.Expense 表，但该表只在系统记账路径（POST /api/expenses）
+// 有数据，全库仅 3 行以旧换新；历史开销账导入的房租、工资等 79 笔只写入了 financial_logs，
+// 导致 operating_expense 长期为 0、net_profit 实际等于毛利。改造后统一走流水账户口径。
+func sumOperatingExpense(startTime, endTime time.Time) (float64, error) {
+	var nonPayroll float64
+	nonPayrollDB := config.DB.Model(&models.FinancialLog{}).
+		Where("account_id = ? AND flow_type = ?", operatingExpenseAccountID, 2)
+	if !startTime.IsZero() {
+		nonPayrollDB = nonPayrollDB.Where("created_at >= ?", startTime)
+	}
+	if !endTime.IsZero() {
+		nonPayrollDB = nonPayrollDB.Where("created_at <= ?", endTime)
+	}
+	if err := nonPayrollDB.
+		Select("COALESCE(SUM(CASE WHEN category = '工资' THEN 0 ELSE amount END), 0)").
+		Scan(&nonPayroll).Error; err != nil {
+		return 0, err
+	}
+
+	// 工资按所属月归期：全量口径直接合计，期间口径复用 real-profit 的归属月解析。
+	var payroll float64
+	if startTime.IsZero() && endTime.IsZero() {
+		if err := config.DB.Model(&models.FinancialLog{}).
+			Where("account_id = ? AND flow_type = ? AND category = ?", operatingExpenseAccountID, 2, "工资").
+			Select("COALESCE(SUM(amount), 0)").
+			Scan(&payroll).Error; err != nil {
+			return 0, err
+		}
+	} else {
+		payrollTotal, err := monthlyPayrollTotal(startTime, endTime)
+		if err != nil {
+			return 0, err
+		}
+		payroll = payrollTotal
+	}
+	return nonPayroll + payroll, nil
+}
+
 // resolvePeriodRange 解析 period/start_date/end_date 查询参数为统计起止时间。
 // period 支持 today/month/last_month/year/custom/all；其余值按 today 处理（与历史行为一致）。
 // 返回零值时间表示全量（period=all）；custom 日期无效时返回错误。
@@ -333,15 +376,12 @@ func GetFinanceSummary(c *gin.Context) {
 		totalFees.TradeInAmount,
 	)
 
-	operatingExpenseDB := config.DB.Model(&models.Expense{}).
-		Where("expense_type NOT IN ?", []string{"采购货款", "以旧换新"})
-	if !startTime.IsZero() {
-		operatingExpenseDB = operatingExpenseDB.Where("created_at >= ?", startTime)
+	operatingExpense, opErr := sumOperatingExpense(startTime, endTime)
+	if opErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取经营开销失败"})
+		return
 	}
-	if !endTime.IsZero() {
-		operatingExpenseDB = operatingExpenseDB.Where("created_at <= ?", endTime)
-	}
-	operatingExpenseDB.Select("COALESCE(SUM(amount), 0)").Scan(&summary.OperatingExpense)
+	summary.OperatingExpense = operatingExpense
 	summary.NetProfit = CalculateNetProfit(summary.GrossProfit, summary.OperatingExpense)
 
 	// 8.5 工程业务线（独立核算）：工程单不写资金账户，故不参与上面的毛利/开销口径，
