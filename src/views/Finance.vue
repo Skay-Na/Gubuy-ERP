@@ -330,7 +330,7 @@ const formatTime = value => formatDateTime(value)
 const todos = computed(() => {
   const raw = ws.value?.todos || {}
   return [
-    { key: 'subsidy_to_allocate', label: '国补到账待核销', count: raw.subsidy_to_allocate?.count || 0, amount: raw.subsidy_to_allocate?.amount || 0, to: '/admin/subsidy' },
+    { key: 'subsidy_to_allocate', label: '国补已提交待回款', count: raw.subsidy_to_allocate?.count || 0, amount: raw.subsidy_to_allocate?.amount || 0, to: '/admin/subsidy' },
     { key: 'subsidy_to_submit', label: '国补资料待提交', count: raw.subsidy_to_submit?.count || 0, amount: raw.subsidy_to_submit?.amount || 0, to: '/admin/subsidy' },
     { key: 'balance_due', label: '尾款待收', count: raw.balance_due?.count || 0, amount: raw.balance_due?.amount || 0, to: '/admin/orders' }
   ]

@@ -36,7 +36,9 @@ type workspaceTodo struct {
 	Items  []workspaceTodoItem `json:"items"`
 }
 
-// workspaceSubsidyTodo 国补待办（status=1 待提交资料 / status=2 到账待核销）。
+// workspaceSubsidyTodo 国补待办。
+// 入参是订单的 subsidy_status：1=待提交资料、2=已提交资料（尚未回款）、3=已回款。
+// 注意 status=2 表示「资料已提交、等政府打款」，钱并未到账，不能叫「到账待核销」。
 func workspaceSubsidyTodo(status int) workspaceTodo {
 	todo := workspaceTodo{Items: []workspaceTodoItem{}}
 	var rows []struct {
