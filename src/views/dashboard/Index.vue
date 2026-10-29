@@ -30,11 +30,12 @@ const orderCount = computed(() => Number(summary.value.order_count || 0))
 const revenue = computed(() => Number(summary.value.today_revenue || 0))
 const netProfit = computed(() => Number(summary.value.net_profit || 0))
 const costIncomplete = computed(() => Boolean(summary.value.cost_incomplete))
-// 工程业务线独立核算：不写资金账户，故单独从看板接口取一组字段，与零售净利相加得「含工程合计」
+// 工程业务线独立核算：不写资金账户，故单独从看板接口取一组字段
+// 这张卡只放工程自己的纯利 = 合同额 − 设备成本 − 项目开销，不与零售相加
 const engNetProfit = computed(() => Number(summary.value.eng_net_profit || 0))
 const engProjectCount = computed(() => Number(summary.value.eng_project_count || 0))
 const engContractTotal = computed(() => Number(summary.value.eng_contract_total || 0))
-const combinedProfit = computed(() => Number(summary.value.combined_net_profit || 0))
+const engGrossProfit = computed(() => Number(summary.value.eng_gross_profit || 0))
 
 // 环比：与上一周期（昨日/上月/去年/等长前移）对比，上一周期数据缺失时不展示
 const deltaBaseLabel = computed(() => ({ today: '较昨日', month: '较上月', last_month: '较上上月', year: '较去年', custom: '较上一周期' }[period.value] || '较上一周期'))
@@ -53,26 +54,26 @@ function buildDelta(current, previous) {
 }
 const revenueDelta = computed(() => prevSummary.value ? buildDelta(revenue.value, prevSummary.value.today_revenue) : null)
 const profitDelta = computed(() => (prevSummary.value && !costIncomplete.value) ? buildDelta(netProfit.value, prevSummary.value.net_profit) : null)
-const combinedDelta = computed(() => (prevSummary.value && !costIncomplete.value) ? buildDelta(combinedProfit.value, prevSummary.value.combined_net_profit) : null)
+const engDelta = computed(() => prevSummary.value ? buildDelta(engNetProfit.value, prevSummary.value.eng_net_profit) : null)
 
-/** 「含工程合计」卡备注：把工程的具体盈利写清楚，无工程结算时明确说明 */
-const combinedNote = computed(() => {
-  if (engProjectCount.value > 0) {
-    return `工程净利 ${formatCurrency(engNetProfit.value)} · ${engProjectCount.value} 单已结算`
-  }
-  return '本期无工程结算，与上一栏相同'
+/** 「工程纯利」卡备注：写清扣掉了什么，避免被当成毛利；无结算时说明归期口径 */
+const engNote = computed(() => {
+  if (engProjectCount.value === 0) return '本期无工程结算 · 工程验收结清后才计入'
+  const cost = Math.max(engContractTotal.value - engGrossProfit.value, 0)
+  const expense = Math.max(engGrossProfit.value - engNetProfit.value, 0)
+  return `${engProjectCount.value} 单已结算 · 已扣成本 ${compactMoney(cost)} 与开销 ${compactMoney(expense)}`
 })
 
 const kpis = computed(() => [
   { label: '销售额', value: formatCurrency(revenue.value), delta: revenueDelta.value, note: `${orderCount.value} 单 · 客单 ${formatCurrency(orderCount.value ? revenue.value / orderCount.value : 0)}`, drill: { type: 'revenue' }, fallbackRoute: '/admin/orders', tone: 'primary' },
   { label: '经营净利润', value: costIncomplete.value ? '待核算' : formatCurrency(netProfit.value), delta: profitDelta.value, note: costIncomplete.value ? `${summary.value.uncosted_order_item_count || 0} 条订单明细成本待核，毛利暂不完整` : '零售 + 国补口径，不含工程', drill: { type: 'net_profit' }, fallbackRoute: '/admin/finance', tone: 'profit' },
-  { label: '含工程合计', value: costIncomplete.value ? '待核算' : formatCurrency(combinedProfit.value), delta: combinedDelta.value, note: combinedNote.value, fallbackRoute: '/admin/engineering', tone: 'combined' },
+  { label: '工程纯利', value: formatCurrency(engNetProfit.value), delta: engDelta.value, note: engNote.value, fallbackRoute: '/admin/engineering', tone: 'eng' },
   { label: '待收尾款', value: formatCurrency(summary.value.pending_balance), note: `${summary.value.pending_balance_count || 0} 单未结清 · 点击查看欠款明细`, drill: { type: 'pending_balance' }, fallbackRoute: '/admin/orders?tab=pending_balance', tone: 'balance' },
   { label: '国补待回款', value: formatCurrency(summary.value.pending_subsidy), note: '点击查看核销与回款明细', drill: { type: 'pending_subsidy' }, fallbackRoute: '/admin/subsidy', tone: 'subsidy' }
 ])
 
 /** KPI 卡图标（按 tone 分配，纯视觉） */
-const KPI_ICONS = { primary: TrendCharts, profit: Coin, combined: Histogram, balance: Wallet, subsidy: Money }
+const KPI_ICONS = { primary: TrendCharts, profit: Coin, eng: Histogram, balance: Wallet, subsidy: Money }
 
 function selectPeriod(value) {
   if (period.value === value) return
@@ -264,12 +265,12 @@ onMounted(refresh)
 .kpi.subsidy{background:#fff;border-color:#e3e8ee}
 .kpi.subsidy:hover{border-color:#cfd7df}
 .kpi.subsidy strong{color:#635bff}
-/* 含工程合计卡：工程为独立核算口径，用青绿区分于零售净利（紫/黑），并在左侧加一道细边提示口径不同 */
-.kpi.combined{position:relative;background:#fff;border-color:#e3e8ee;overflow:hidden}
-.kpi.combined::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#0d9488}
-.kpi.combined:hover{border-color:#cfd7df}
-.kpi.combined strong{color:#0f766e}
-.kpi.combined .kpi-note{color:#5f7d79;white-space:normal;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* 工程纯利卡：工程为独立核算口径，用青绿区分于零售净利（紫/黑），并在左侧加一道细边提示口径不同 */
+.kpi.eng{position:relative;background:#fff;border-color:#e3e8ee;overflow:hidden}
+.kpi.eng::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:#0d9488}
+.kpi.eng:hover{border-color:#cfd7df}
+.kpi.eng strong{color:#0f766e}
+.kpi.eng .kpi-note{color:#5f7d79;white-space:normal;line-height:1.5;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 </style>
 
 <style scoped>
