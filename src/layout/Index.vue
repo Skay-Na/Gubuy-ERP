@@ -10,7 +10,7 @@
         <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-[#635bff] to-[#8b85ff] shadow-md flex items-center justify-center text-white font-bold text-base">
           E
         </div>
-        <span class="font-bold text-lg tracking-tight text-slate-900">美的智慧 Erp</span>
+        <span class="font-bold text-lg tracking-tight text-slate-900">美的智慧 ERP</span>
       </div>
       <!-- Hamburger Menu -->
       <button @click="mobileMenuOpen = !mobileMenuOpen" class="p-2 text-slate-500 hover:text-slate-900 transition-colors rounded-full hover:bg-slate-100 flex-shrink-0">
@@ -41,7 +41,7 @@
             E
           </div>
           <span v-if="!isCollapsed || mobileMenuOpen" class="font-bold text-xl tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-slate-900 to-slate-600 whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-300">
-            美的智慧 Erp
+            美的智慧 ERP
           </span>
         </div>
         <!-- Close Button for Mobile -->
@@ -50,7 +50,7 @@
         </button>
       </div>
 
-      <nav class="flex-1 px-4 space-y-1.5 overflow-y-auto">
+      <nav class="flex-1 px-3 overflow-y-auto pb-2">
         <div v-if="mobileMenuOpen" class="flex items-center gap-3 px-2 py-4 mb-4 border-b border-slate-100">
           <div class="w-12 h-12 rounded-full bg-gradient-to-tr from-cyan-400 to-blue-500 shadow-sm border-2 border-white flex-shrink-0"></div>
           <div class="overflow-hidden">
@@ -59,19 +59,35 @@
           </div>
         </div>
 
-        <router-link v-for="item in menuItems" :key="item.path" :to="item.path" custom v-slot="{ isActive, navigate }">
-          <div @click="() => { navigate(); mobileMenuOpen = false }"
-               class="flex items-center rounded-2xl cursor-pointer transition-all duration-200 group relative"
-               :class="[
-                 isActive ? 'bg-gradient-to-r from-[#635bff] to-[#4b44c8] text-white shadow-md shadow-[#635bff]/25' : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900',
-                 isCollapsed && !mobileMenuOpen ? 'justify-center w-12 h-12 mx-auto px-0' : 'px-4 py-3 gap-3'
-               ]">
-            <div class="flex-shrink-0 w-6 h-6 flex items-center justify-center">
-              <component :is="item.icon" class="w-6 h-6 transition-transform duration-300 group-hover:scale-110" :class="isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'" style="width: 24px; height: 24px" />
-            </div>
-            <span v-if="!isCollapsed || mobileMenuOpen" class="font-medium text-sm whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-300">{{ item.title }}</span>
+        <template v-for="row in navRows" :key="row.type === 'group' ? 'g-' + row.key : row.path">
+          <!-- 分组头：图标栏模式下退化为一条细分割线 -->
+          <div v-if="row.type === 'group'" class="pt-2 pb-0.5">
+            <!-- 移动端抽屉不折叠，组头只作静态标签，避免出现点了没反应的箭头 -->
+            <div v-if="mobileMenuOpen" class="pl-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">{{ row.title }}</div>
+            <button v-else-if="!isIconRail"
+                    @click="toggleGroup(row.key)"
+                    class="w-full flex items-center justify-between pl-3 pr-1 text-[10px] font-bold uppercase tracking-widest transition-colors"
+                    :class="row.collapsed ? 'text-slate-300 hover:text-slate-500' : 'text-slate-400 hover:text-slate-600'">
+              <span>{{ row.title }}</span>
+              <el-icon :size="11" class="transition-transform duration-200" :class="row.collapsed ? '-rotate-90' : ''"><ArrowDown /></el-icon>
+            </button>
+            <div v-else class="flex justify-center py-0.5"><div class="w-6 h-px bg-slate-200"></div></div>
           </div>
-        </router-link>
+
+          <router-link v-else :to="row.path" custom v-slot="{ isActive, navigate }">
+            <div @click="() => { navigate(); mobileMenuOpen = false }"
+                 class="flex items-center rounded-xl cursor-pointer transition-all duration-200 group relative"
+                 :class="[
+                   isActive ? 'bg-gradient-to-r from-[#635bff] to-[#4b44c8] text-white shadow-md shadow-[#635bff]/25' : 'text-slate-500 hover:bg-slate-100/80 hover:text-slate-900',
+                   isIconRail ? 'justify-center w-12 h-10 mx-auto px-0' : 'px-3.5 py-2 gap-3'
+                 ]">
+              <div class="flex-shrink-0 w-6 h-6 flex items-center justify-center">
+                <component :is="row.icon" class="w-6 h-6 transition-transform duration-300 group-hover:scale-110" :class="isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-700'" style="width: 24px; height: 24px" />
+              </div>
+              <span v-if="!isIconRail" class="font-medium text-[13px] whitespace-nowrap animate-in fade-in slide-in-from-left-2 duration-300">{{ row.title }}</span>
+            </div>
+          </router-link>
+        </template>
       </nav>
 
       <!-- Collapse Toggle & Profile (PC Only) -->
@@ -147,7 +163,7 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   DataLine,
   ShoppingCart,
@@ -162,7 +178,9 @@ import {
   EditPen,
   Clock,
   Wallet,
-  Suitcase
+  Suitcase,
+  MagicStick,
+  ArrowDown
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { updateAdminPassword } from '../api/auth'
@@ -340,32 +358,114 @@ onUnmounted(() => {
   }
 })
 
-const menuItems = [
-  { title: 'AI 店长', path: '/admin/ai-manager', icon: DataLine },
-  { title: '看板', path: '/admin/dashboard', icon: DataLine },
-  { title: '收银', path: '/admin/pos', icon: ShoppingCart },
-  { title: '商品', path: '/admin/products', icon: Box },
-  { title: '订单', path: '/admin/orders', icon: Memo },
-  { title: '工程', path: '/admin/engineering', icon: Suitcase },
-  { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
-  { title: '财务', path: '/admin/finance', icon: DataLine },
-  { title: '历史操作', path: '/admin/history', icon: Clock },
-  { title: '国补管理', path: '/admin/subsidy', icon: Money },
-  { title: '员工', path: '/admin/employees', icon: User },
-  { title: '系统设置', path: '/admin/settings', icon: Setting },
+// 菜单按业务域分组：分组做的是「分类」不是「藏东西」，默认只收起最低频的后台管理组
+const MENU_GROUPS = [
+  {
+    key: 'insight',
+    title: '经营分析',
+    items: [
+      { title: 'AI 店长', path: '/admin/ai-manager', icon: MagicStick },
+      { title: '看板', path: '/admin/dashboard', icon: DataLine }
+    ]
+  },
+  {
+    key: 'business',
+    title: '日常经营',
+    items: [
+      { title: '收银', path: '/admin/pos', icon: ShoppingCart },
+      { title: '商品', path: '/admin/products', icon: Box },
+      { title: '订单', path: '/admin/orders', icon: Memo },
+      { title: '国补', path: '/admin/subsidy', icon: Money }
+    ]
+  },
+  {
+    key: 'finance',
+    title: '财务与工程',
+    items: [
+      { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
+      { title: '财务', path: '/admin/finance', icon: Wallet },
+      { title: '工程', path: '/admin/engineering', icon: Suitcase }
+    ]
+  },
+  {
+    key: 'admin',
+    title: '后台管理',
+    defaultCollapsed: true, // 员工/系统设置使用频率最低，默认收起给菜单留白
+    hideOnMobile: true,     // 手机端抽屉空间有限，这类后台功能不在移动端出现
+    items: [
+      { title: '员工', path: '/admin/employees', icon: User },
+      { title: '历史操作', path: '/admin/history', icon: Clock },
+      { title: '系统设置', path: '/admin/settings', icon: Setting }
+    ]
+  }
 ]
 
-const mobileMenuItems = [
-  { title: 'AI 店长', path: '/admin/ai-manager', icon: DataLine },
-  { title: '看板', path: '/admin/dashboard', icon: DataLine },
-  { title: '财务', path: '/admin/finance', icon: Wallet },
-  { title: '收银', path: '/admin/pos', icon: ShoppingCart },
-  { title: '商品', path: '/admin/products', icon: Box },
-  { title: '订单', path: '/admin/orders', icon: Memo },
-  { title: '工程', path: '/admin/engineering', icon: Suitcase },
-  { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
-  { title: '国补', path: '/admin/subsidy', icon: Money },
-]
+const MENU_COLLAPSE_KEY = 'erp_menu_collapsed_groups'
+const DEFAULT_COLLAPSED_GROUPS = MENU_GROUPS.filter(group => group.defaultCollapsed).map(group => group.key)
+
+const loadCollapsedGroups = () => {
+  try {
+    const raw = localStorage.getItem(MENU_COLLAPSE_KEY)
+    if (raw === null) return [...DEFAULT_COLLAPSED_GROUPS]
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return [...DEFAULT_COLLAPSED_GROUPS]
+    // 过滤掉已不存在的分组 key，避免历史数据留下脏状态
+    return parsed.filter(key => MENU_GROUPS.some(group => group.key === key))
+  } catch {
+    return [...DEFAULT_COLLAPSED_GROUPS]
+  }
+}
+
+const collapsedGroups = ref(loadCollapsedGroups())
+
+const saveCollapsedGroups = () => {
+  try {
+    localStorage.setItem(MENU_COLLAPSE_KEY, JSON.stringify(collapsedGroups.value))
+  } catch {
+    /* 隐私模式下 localStorage 可能不可写，折叠状态不持久化即可，不影响功能 */
+  }
+}
+
+// 侧边栏收起成图标条时不再分组，全部平铺（否则只剩组头没有入口）
+const isIconRail = computed(() => isCollapsed.value && !mobileMenuOpen.value)
+
+// 一维渲染序列：组头与菜单项混排，模板只做一次 v-for，避免两套重复模板
+const navRows = computed(() => {
+  const rows = []
+  for (const group of MENU_GROUPS) {
+    if (mobileMenuOpen.value && group.hideOnMobile) continue
+    const collapsed = !isIconRail.value && !mobileMenuOpen.value && collapsedGroups.value.includes(group.key)
+    // 图标栏模式下第一条分割线没有意义，只从第二个分组开始画
+    if (!isIconRail.value || rows.length > 0) {
+      rows.push({ type: 'group', key: group.key, title: group.title, collapsed })
+    }
+    if (collapsed) continue
+    for (const item of group.items) rows.push({ type: 'item', ...item })
+  }
+  return rows
+})
+
+const toggleGroup = (key) => {
+  if (isIconRail.value) return
+  const index = collapsedGroups.value.indexOf(key)
+  if (index >= 0) collapsedGroups.value.splice(index, 1)
+  else collapsedGroups.value.push(key)
+  saveCollapsedGroups()
+}
+
+// 进到某个分组的页面时自动展开该组，避免「人在页面里，菜单里却找不到它」
+watch(
+  () => router.currentRoute.value.path,
+  (path) => {
+    const hit = MENU_GROUPS.find(group =>
+      group.items.some(item => path === item.path || path.startsWith(item.path + '/'))
+    )
+    if (!hit || !collapsedGroups.value.includes(hit.key)) return
+    collapsedGroups.value = collapsedGroups.value.filter(key => key !== hit.key)
+    saveCollapsedGroups()
+  },
+  { immediate: true }
+)
 </script>
 
 <style>
