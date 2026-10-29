@@ -29,6 +29,7 @@
           <el-option label="库存调拨" value="transfer" />
           <el-option label="盘点调整" value="stocktake" />
           <el-option label="取消退库" value="cancel" />
+          <el-option label="工程出库" value="engineering" />
         </el-select>
         <el-select v-model="filters.warehouse_type" placeholder="选择仓库" clearable class="!w-[calc(50%-4px)] md:!w-32" @change="handleFilter">
           <el-option label="主仓" :value="1" />
@@ -509,7 +510,9 @@ const getLogTypeTag = (type) => {
     'sale': { label: '销售', type: 'primary' },
     'transfer': { label: '调拨', type: 'warning' },
     'stocktake': { label: '盘点', type: 'info' },
-    'cancel': { label: '退库', type: 'danger' }
+    'cancel': { label: '退库', type: 'danger' },
+    // 工程出库：中性灰蓝，与销售/采购刻意区分，避免看成零售单
+    'engineering': { label: '工程出库', type: 'info' }
   }
   return map[type] || { label: type, type: 'info' }
 }

@@ -165,6 +165,12 @@ onMounted(changePeriod)
       <el-date-picker v-model="customDateRange" type="daterange" value-format="YYYY-MM-DD" start-placeholder="开始日期" end-placeholder="结束日期" @change="changePeriod" />
     </div>
 
+    <!-- 分账提示：工程开销独立成账，这里不提供入口，避免两边重复记账（SRS R11） -->
+    <div class="engineering-expense-hint">
+      <span class="hint-dot" aria-hidden="true"></span>
+      <span>工程开销请到「<router-link to="/admin/engineering/expenses">工程 → 工程开销</router-link>」记录，避免两边重复记账。</span>
+    </div>
+
     <BookkeepingSummary :summary="summary" :net-amount="netAmount" :total-balance="totalBalance" :period-label="periodLabel" :loading="loading" />
 
     <section class="desktop-entry-card">
@@ -188,6 +194,10 @@ onMounted(changePeriod)
 <style scoped>
 .bookkeeping-page { display: grid; width: 100%; max-width: 1320px; min-width: 0; min-height: 100%; margin: 0 auto; padding: 28px; gap: 18px; overflow-x: clip; box-sizing: border-box; background: #f8fafc; }
 .page-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; }.page-kicker { color: #635bff; font-size: 11px; font-weight: 900; letter-spacing: .15em; }.page-header h1 { margin: 4px 0; color: #0f172a; font-size: 29px; letter-spacing: -.04em; }.page-header p { margin: 0; color: #64748b; font-size: 13px; }.header-actions { display: flex; gap: 8px; }.period-select { width: 112px; }.custom-period { display: flex; align-items: center; justify-content: flex-end; gap: 10px; color: #64748b; font-size: 12px; }
+.engineering-expense-hint { display: flex; align-items: center; gap: 8px; padding: 9px 13px; border: 1px solid #e2e8f0; border-radius: 12px; color: #475569; background: #f8fafc; font-size: 12px; line-height: 1.5; }
+.engineering-expense-hint .hint-dot { flex: 0 0 auto; width: 6px; height: 6px; border-radius: 999px; background: #635bff; }
+.engineering-expense-hint a { color: #635bff; font-weight: 700; text-decoration: none; }
+.engineering-expense-hint a:hover { text-decoration: underline; }
 .desktop-entry-card { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; padding: 22px; border: 1px solid #dcdaff; border-radius: 20px; background: linear-gradient(120deg, #eef0ff, #fff 42%); box-shadow: 0 12px 26px rgba(15, 23, 42, .05); }.entry-card-copy { display: flex; align-items: flex-start; gap: 11px; }.entry-card-icon { display: grid; flex: 0 0 40px; width: 40px; height: 40px; place-items: center; border-radius: 13px; color: #fff; background: #635bff; }.entry-card-copy span { color: #635bff; font-size: 10px; font-weight: 900; letter-spacing: .1em; }.entry-card-copy h2 { margin: 3px 0; color: #0f172a; font-size: 18px; }.entry-card-copy p { margin: 0; color: #64748b; font-size: 11px; line-height: 1.5; }.mobile-add-button { display: none; }.mobile-entry-sheet { padding: 8px 16px max(16px, env(safe-area-inset-bottom)); }.sheet-handle { width: 42px; height: 5px; margin: 0 auto 12px; border-radius: 999px; background: #cbd5e1; }.sheet-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }.sheet-heading span { color: #635bff; font-size: 10px; font-weight: 900; letter-spacing: .1em; }.sheet-heading h2 { margin: 2px 0 0; color: #0f172a; font-size: 19px; }.sheet-heading button { border: 0; background: transparent; color: #64748b; font-size: 13px; }
 @media (max-width: 880px) { .desktop-entry-card { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .bookkeeping-page { padding: 15px 12px 94px; gap: 13px; }.page-header { min-width: 0; align-items: flex-start; flex-direction: column; gap: 11px; }.page-header > div:first-child { min-width: 0; max-width: 100%; }.page-header h1 { font-size: 24px; }.page-header p { max-width: 100%; font-size: 11px; white-space: normal; }.header-actions { width: 100%; min-width: 0; }.header-actions :deep(.el-button) { margin-left: 0; padding-inline: 12px; }.period-select { min-width: 0; flex: 1; }.custom-period { min-width: 0; align-items: flex-start; flex-direction: column; }.custom-period :deep(.el-date-editor) { width: 100%; min-width: 0; }.desktop-entry-card { display: none; }.mobile-add-button { position: fixed; right: 18px; bottom: max(20px, env(safe-area-inset-bottom)); z-index: 40; display: inline-flex; min-height: 52px; align-items: center; gap: 7px; padding: 0 20px; border: 0; border-radius: 999px; color: #fff; background: #635bff; font-size: 14px; font-weight: 900; box-shadow: 0 14px 30px rgba(37, 99, 235, .34); }.mobile-entry-sheet { width: 100%; height: 100%; min-width: 0; padding-inline: 16px; overflow-x: hidden; overflow-y: auto; box-sizing: border-box; } }

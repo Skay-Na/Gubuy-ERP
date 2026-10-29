@@ -195,6 +195,28 @@ func SetupRouter() *gin.Engine {
 			adminAuth.PUT("/employee-offboardings/:id/tasks/:task_id", controllers.UpdateEmployeeHandoverTask)
 			adminAuth.POST("/employee-offboardings/:id/settlement", controllers.ConfirmEmployeeOffboardingSettlement)
 			adminAuth.POST("/employee-offboarding-alerts/:id/resolve", controllers.ResolveEmployeeOffboardingAlert)
+
+			// 工程模块（engineering）：独立业务线，仅管理端可见，与国补/零售订单零耦合。
+			// 该分组已挂 AdminAuthRequired + OperationHistoryMiddleware，员工 token 一律 403。
+			// 接口契约：docs/tech/2026-10-29-engineering-module-api-contract.md（16 个接口）
+			adminAuth.GET("/admin/engineering/summary", controllers.GetEngineeringSummary)
+			adminAuth.GET("/admin/engineering/projects", controllers.ListEngineeringProjects)
+			adminAuth.POST("/admin/engineering/projects", controllers.CreateEngineeringProject)
+			adminAuth.GET("/admin/engineering/projects/:id", controllers.GetEngineeringProject)
+			adminAuth.PUT("/admin/engineering/projects/:id", controllers.UpdateEngineeringProject)
+			adminAuth.DELETE("/admin/engineering/projects/:id", controllers.DeleteEngineeringProject)
+			adminAuth.PUT("/admin/engineering/projects/:id/status", controllers.UpdateEngineeringProjectStatus)
+			adminAuth.PUT("/admin/engineering/projects/:id/items", controllers.SaveEngineeringItems)
+			adminAuth.PUT("/admin/engineering/projects/:id/payment-terms", controllers.SaveEngineeringTerms)
+			adminAuth.POST("/admin/engineering/projects/:id/receipts", controllers.CreateEngineeringReceipt)
+			adminAuth.POST("/admin/engineering/projects/:id/receipts/:rid/reverse", controllers.ReverseEngineeringReceipt)
+			adminAuth.POST("/admin/engineering/projects/:id/shipments", controllers.CreateEngineeringShipment)
+			// 费用接口路径不带 /projects/:id 前缀：公共费用没有项目，避免同一弹窗两套提交逻辑。
+			// 注意与经营开销接口 /api/admin/expenses 是两套账，不可混用。
+			adminAuth.GET("/admin/engineering/expenses", controllers.ListEngineeringExpenses)
+			adminAuth.POST("/admin/engineering/expenses", controllers.CreateEngineeringExpense)
+			adminAuth.PUT("/admin/engineering/expenses/:eid", controllers.UpdateEngineeringExpense)
+			adminAuth.DELETE("/admin/engineering/expenses/:eid", controllers.DeleteEngineeringExpense)
 		}
 	}
 

@@ -76,6 +76,27 @@ const routes = [
         component: () => import('../views/OrderManage.vue'),
         meta: { title: '订单管理' }
       },
+      // 工程模块：仅管理端后台，与零售订单/国补链路完全独立。
+      // 路由顺序注意：'engineering/expenses' 必须排在 'engineering/:id' 之前，
+      // 否则 'expenses' 会被当成 :id 匹配进详情页。
+      {
+        path: 'engineering',
+        name: 'EngineeringList',
+        component: () => import('../views/engineering/Index.vue'),
+        meta: { title: '工程项目' }
+      },
+      {
+        path: 'engineering/expenses',
+        name: 'EngineeringExpenses',
+        component: () => import('../views/engineering/Expenses.vue'),
+        meta: { title: '工程开销' }
+      },
+      {
+        path: 'engineering/:id',
+        name: 'EngineeringDetail',
+        component: () => import('../views/engineering/Detail.vue'),
+        meta: { title: '工程详情' }
+      },
       {
         path: 'finance',
         name: 'Finance',

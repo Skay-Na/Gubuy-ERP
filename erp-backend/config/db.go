@@ -102,6 +102,14 @@ func InitDB() {
 		&models.SubsidyReceipt{},
 		&models.PayrollConfirmation{},
 		&models.OperationHistory{},
+		// 工程模块（engineering）：独立 6 张表，与订单/资金账户零关联。
+		// 迁移只做新增表，不改动任何既有表结构；回滚可直接 drop 这 6 张表。
+		&models.EngineeringProject{},
+		&models.EngineeringProjectItem{},
+		&models.EngineeringPaymentTerm{},
+		&models.EngineeringReceipt{},
+		&models.EngineeringShipment{},
+		&models.EngineeringExpense{},
 	)
 	if err != nil {
 		log.Fatalf("Failed to auto migrate database: %v", err)

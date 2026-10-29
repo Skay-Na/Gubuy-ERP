@@ -161,7 +161,8 @@ import {
   Money,
   EditPen,
   Clock,
-  Wallet
+  Wallet,
+  Suitcase
 } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { updateAdminPassword } from '../api/auth'
@@ -345,6 +346,7 @@ const menuItems = [
   { title: '收银', path: '/admin/pos', icon: ShoppingCart },
   { title: '商品', path: '/admin/products', icon: Box },
   { title: '订单', path: '/admin/orders', icon: Memo },
+  { title: '工程', path: '/admin/engineering', icon: Suitcase },
   { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
   { title: '财务', path: '/admin/finance', icon: DataLine },
   { title: '历史操作', path: '/admin/history', icon: Clock },
@@ -360,6 +362,7 @@ const mobileMenuItems = [
   { title: '收银', path: '/admin/pos', icon: ShoppingCart },
   { title: '商品', path: '/admin/products', icon: Box },
   { title: '订单', path: '/admin/orders', icon: Memo },
+  { title: '工程', path: '/admin/engineering', icon: Suitcase },
   { title: '记账', path: '/admin/bookkeeping', icon: EditPen },
   { title: '国补', path: '/admin/subsidy', icon: Money },
 ]

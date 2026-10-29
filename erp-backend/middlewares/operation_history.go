@@ -114,6 +114,21 @@ var operationRoutes = map[string]operationRoute{
 	"PUT /api/employee-offboardings/:id/tasks/:task_id":      {title: "更新离职交接任务", tables: []string{"employee_handover_tasks"}},
 	"POST /api/employee-offboardings/:id/settlement":         {title: "确认离职薪资结算", tables: []string{"employees", "employee_offboardings"}},
 	"POST /api/employee-offboarding-alerts/:id/resolve":      {title: "处理离职后订单告警", tables: []string{"employee_offboarding_alerts"}},
+
+	// 工程模块（engineering）：12 条，纯追加，不改任何既有条目。
+	// 独立成表、不进 orders / financial_logs / accounts，与 SRS R11 一致。
+	"POST /api/admin/engineering/projects":                           {title: "新建工程项目", tables: []string{"engineering_projects"}},
+	"PUT /api/admin/engineering/projects/:id":                        {title: "修改工程项目", tables: []string{"engineering_projects"}},
+	"DELETE /api/admin/engineering/projects/:id":                     {title: "删除工程项目", tables: []string{"engineering_projects"}},
+	"PUT /api/admin/engineering/projects/:id/status":                 {title: "工程状态流转", tables: []string{"engineering_projects"}},
+	"PUT /api/admin/engineering/projects/:id/items":                  {title: "修改工程设备清单", tables: []string{"engineering_projects", "engineering_project_items"}},
+	"PUT /api/admin/engineering/projects/:id/payment-terms":          {title: "修改工程付款节点", tables: []string{"engineering_projects", "engineering_payment_terms"}},
+	"POST /api/admin/engineering/projects/:id/receipts":              {title: "登记工程回款", tables: []string{"engineering_projects", "engineering_payment_terms", "engineering_receipts"}},
+	"POST /api/admin/engineering/projects/:id/receipts/:rid/reverse": {title: "冲销工程回款", tables: []string{"engineering_projects", "engineering_payment_terms", "engineering_receipts"}},
+	"POST /api/admin/engineering/projects/:id/shipments":             {title: "工程出库", tables: []string{"engineering_projects", "engineering_project_items", "engineering_shipments", "products", "inventory_logs"}},
+	"POST /api/admin/engineering/expenses":                           {title: "新增工程费用", tables: []string{"engineering_expenses", "engineering_projects"}},
+	"PUT /api/admin/engineering/expenses/:eid":                       {title: "修改工程费用", tables: []string{"engineering_expenses", "engineering_projects"}},
+	"DELETE /api/admin/engineering/expenses/:eid":                    {title: "删除工程费用", tables: []string{"engineering_expenses", "engineering_projects"}},
 }
 
 // OperationHistoryMiddleware records reversible changes for core business writes.
@@ -419,6 +434,8 @@ func pathParamTable(path, key string) string {
 			return "pending_inbounds"
 		case strings.HasPrefix(path, "/api/pending-stocktakes/"):
 			return "pending_stocktakes"
+		case strings.HasPrefix(path, "/api/admin/engineering/projects/"):
+			return "engineering_projects"
 		}
 	case "item_id":
 		if strings.HasPrefix(path, "/api/order-items/") {
@@ -433,6 +450,16 @@ func pathParamTable(path, key string) string {
 		}
 	case "log_id":
 		return "inventory_logs"
+	case "rid":
+		// 工程回款冲销：:rid 是被冲销的回款记录
+		if strings.Contains(path, "/engineering/projects/") {
+			return "engineering_receipts"
+		}
+	case "eid":
+		// 工程费用：刻意用 :eid 而非 :id，避免与主档分支混淆
+		if strings.Contains(path, "/engineering/expenses/") {
+			return "engineering_expenses"
+		}
 	}
 	return ""
 }
