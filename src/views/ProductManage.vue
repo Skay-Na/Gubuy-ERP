@@ -141,7 +141,7 @@
           <template #default="{ row }">
             <div class="compact-cell">
               <strong class="compact-primary" :title="row.name">{{ row.name }}</strong>
-              <span class="compact-meta">#{{ row.id }} · {{ categoryLabel(row.category_id) }} · 毛利 {{ (row.margin_rate * 100).toFixed(0) }}%</span>
+              <span class="compact-meta">#{{ row.id }} · {{ categoryLabel(row.category_id) }} · 预设毛利 {{ (row.margin_rate * 100).toFixed(0) }}%</span>
               <span v-if="row.remark || commissionBadge(row)" class="compact-meta" :title="row.remark || ''">{{ row.remark || '' }}<span v-if="commissionBadge(row)" class="text-amber-600">{{ row.remark ? ' · ' : '' }}{{ commissionBadge(row) }}</span></span>
             </div>
           </template>
@@ -223,7 +223,7 @@
               <div class="font-bold text-slate-800 text-[15px] leading-tight mb-1 truncate">{{ row.name }}</div>
               <div class="flex items-center gap-1.5 flex-wrap">
                 <span v-if="row.remark" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 font-mono">{{ row.remark }}</span>
-                <span class="text-[10px] text-slate-400">毛利:{{ (row.margin_rate * 100).toFixed(0) }}%</span>
+                <span class="text-[10px] text-slate-400">预设毛利:{{ (row.margin_rate * 100).toFixed(0) }}%</span>
                 <span v-if="commissionBadge(row)" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 font-bold">{{ commissionBadge(row) }}</span>
               </div>
             </div>

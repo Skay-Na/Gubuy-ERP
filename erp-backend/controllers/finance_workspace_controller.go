@@ -92,12 +92,13 @@ func GetFinanceWorkspace(c *gin.Context) {
 
 	// 尾款待收：沿用看板既有口径 actual_pay_amount - deposit_amount
 	// （actual_pay 已扣除国补待回款、以旧换新与抹零，比"总额-定金-国补"更准确）。
+	// 逐单 clamp：只累计「实收 < 定金」的欠款单，否则个别多付单的负差额会冲掉别的单真实欠款。
 	var balanceDue struct {
 		Count  int64
 		Amount float64
 	}
 	config.DB.Model(&models.Order{}).
-		Where("payment_status = 1 AND order_status = 1").
+		Where("payment_status = 1 AND order_status = 1 AND actual_pay_amount > deposit_amount").
 		Select("COUNT(*) AS count, COALESCE(SUM(actual_pay_amount - deposit_amount), 0) AS amount").
 		Scan(&balanceDue)
 

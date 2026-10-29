@@ -23,7 +23,7 @@ type ProfitBreakdownResponse struct {
 	CommissionAmount       float64 `json:"commission_amount"`         // 商会提成
 	TradeInAmount          float64 `json:"trade_in_amount"`           // 以旧换新折抵
 	GrossProfit            float64 `json:"gross_profit"`              // 毛利 = 销售额 - 货品成本 - 五项费用
-	OperatingExpense       float64 `json:"operating_expense"`         // 经营开销：Expense 中排除 采购货款/以旧换新
+	OperatingExpense       float64 `json:"operating_expense"`         // 经营开销：经营开销账户(id=7)支出流水，工资按所属月归期
 	NetProfit              float64 `json:"net_profit"`                // 经营净利润 = 毛利 - 经营开销
 	OrderCount             int64   `json:"order_count"`               // 期间正常订单数
 	CostIncomplete         bool    `json:"cost_incomplete"`           // 是否存在待核算成本明细

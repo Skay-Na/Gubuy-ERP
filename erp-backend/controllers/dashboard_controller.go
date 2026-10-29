@@ -266,13 +266,15 @@ func GetFinanceSummary(c *gin.Context) {
 	orderCountDB.Count(&summary.OrderCount)
 
 	// 5. 待收尾款总额 (PendingBalance) 和 欠款订单数 (PendingBalanceCount) - 存量数据
+	//    逐单 clamp：只统计「实收 < 定金」的欠款单。若直接对全部 payment_status=1 的单求
+	//    SUM(actual_pay - deposit)，个别多付单的负差额会把别的单真实欠款冲掉，造成少报。
 	config.DB.Model(&models.Order{}).
-		Where("payment_status = ? AND order_status = 1", 1).
+		Where("payment_status = ? AND order_status = 1 AND actual_pay_amount > deposit_amount", 1).
 		Select("COALESCE(SUM(actual_pay_amount - deposit_amount), 0)").
 		Scan(&summary.PendingBalance)
 
 	config.DB.Model(&models.Order{}).
-		Where("payment_status = ? AND order_status = 1", 1).
+		Where("payment_status = ? AND order_status = 1 AND actual_pay_amount > deposit_amount", 1).
 		Count(&summary.PendingBalanceCount)
 
 	// 6. 各账户余额
@@ -425,8 +427,11 @@ func GetFinanceSummary(c *gin.Context) {
 	bossOrderExpr := "orders.referrer_name = '老板客户' OR orders.employee_id IS NULL"
 	bossRankExpr := "IF(orders.order_type = 2, '商会订单', IF(" + bossOrderExpr + ", '老板客户', employees.name))"
 	employeeRankIDExpr := "IF(orders.order_type = 2, 999999, IF(" + bossOrderExpr + ", 0, orders.employee_id))"
+	// revenue / gross_profit 必须与销售额 KPI、销售趋势同一口径：
+	// 营收取净额（total_amount − discount_amount），毛利再扣商品成本与五项费用（含以旧换新）。
+	// 此前营收用 total_amount、毛利漏扣 trade_in_amount，导致员工排行合计与顶部 KPI 对不上。
 	rankDB := config.DB.Table("orders").
-		Select(employeeRankIDExpr+" as employee_id, "+bossRankExpr+" as name, COUNT(orders.id) as order_count, SUM(orders.total_amount) as revenue, SUM(orders.total_amount - COALESCE(cost_tb.total_cost, 0) - orders.delivery_fee - orders.installation_fee - orders.referral_fee - orders.commission_amount) as gross_profit, SUM(COALESCE(cost_tb.uncosted_count, 0)) as uncosted_order_item_count").
+		Select(employeeRankIDExpr+" as employee_id, "+bossRankExpr+" as name, COUNT(orders.id) as order_count, SUM(orders.total_amount - orders.discount_amount) as revenue, SUM(orders.total_amount - orders.discount_amount - COALESCE(cost_tb.total_cost, 0) - orders.delivery_fee - orders.installation_fee - orders.referral_fee - orders.commission_amount - orders.trade_in_amount) as gross_profit, SUM(COALESCE(cost_tb.uncosted_count, 0)) as uncosted_order_item_count").
 		Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
 		Joins("LEFT JOIN (SELECT order_id, SUM(unit_cost * quantity) as total_cost, SUM(CASE WHEN unit_cost <= 0 THEN 1 ELSE 0 END) as uncosted_count FROM order_items GROUP BY order_id) as cost_tb ON cost_tb.order_id = orders.id").
 		Where("orders.order_status = 1").

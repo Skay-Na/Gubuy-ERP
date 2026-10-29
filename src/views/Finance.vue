@@ -134,7 +134,7 @@ const employeeChartOption = computed(() => {
       formatter: p => {
         const row = list.find(e => e.employee_name === p.name)
         if (!row) return p.name
-        return `<b>${row.employee_name}</b><br/>销售额 ¥${formatMoney(row.sales_amount)}<br/>订单 ${row.order_count} 单 · 提成 ¥${formatMoney(row.commission)}<br/>毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">点击条形可筛选</span>`
+        return `<b>${row.employee_name}</b><br/>销售额 ¥${formatMoney(row.sales_amount)}<br/>订单 ${row.order_count} 单 · 提成 ¥${formatMoney(row.commission)}<br/>商品毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">售价−进价，未扣安装与提成 · 点击条形可筛选</span>`
       }
     },
     xAxis: { type: 'value', axisLabel: { color: '#94a3b8', formatter: v => '¥' + shortMoney(v) }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
@@ -168,7 +168,7 @@ const categoryChartOption = computed(() => {
       formatter: p => {
         const row = list.find(c => c.category_name === p.name)
         if (!row) return p.name
-        return `<b>${p.name}</b><br/>¥${formatMoney(row.sales_amount)} · 占比 ${p.percent}%<br/>${row.qty} 件 · 毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">点击色块可筛选</span>`
+        return `<b>${p.name}</b><br/>¥${formatMoney(row.sales_amount)} · 占比 ${p.percent}%<br/>${row.qty} 件 · 商品毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">售价−进价，未扣安装与提成 · 点击色块可筛选</span>`
       }
     },
     legend: { bottom: 0, type: 'scroll', textStyle: { color: '#475569', fontSize: 11 }, itemWidth: 10, itemHeight: 10, pageIconSize: 10 },
@@ -550,7 +550,7 @@ onMounted(refreshAll)
         </div>
         <el-divider direction="vertical" />
         <div class="sales-stat">
-          <span class="sales-stat-label">商品毛利</span>
+          <span class="sales-stat-label" title="销货毛利 = 销售额 − 商品成本 − 安装费 − 提成 − 推荐费 − 以旧换新；与经营看板「毛利」同口径。下表员工/品类/商品行的「商品毛利」是未扣这些费用的售价差价，两者不可直接相加对比。">销货毛利</span>
           <b :class="Number(salesSummary.gross_profit || 0) >= 0 ? 'pos' : 'neg'">{{ money(salesSummary.gross_profit) }}</b>
           <span v-if="salesGrowth.profit" class="sales-growth-inline" :class="salesGrowth.profit.up ? 'pos' : 'neg'">{{ salesGrowth.profit.up ? '↑' : '↓' }}{{ Math.abs(salesGrowth.profit.pct).toFixed(1) }}%</span>
         </div>
@@ -591,7 +591,7 @@ onMounted(refreshAll)
             <span class="sales-boss-note">老板本人客户 · 不计入员工排名</span>
             <span class="sales-boss-num"><b>{{ money(bossRow.sales_amount) }}</b></span>
             <span class="sales-boss-num">{{ bossRow.order_count }} 单</span>
-            <span class="sales-boss-num">毛利 <span :class="bossRow.gross_profit >= 0 ? 'pos' : 'neg'">{{ money(bossRow.gross_profit) }}</span></span>
+            <span class="sales-boss-num">商品毛利 <span :class="bossRow.gross_profit >= 0 ? 'pos' : 'neg'">{{ money(bossRow.gross_profit) }}</span></span>
           </div>
           <div v-if="(sales?.employees || []).length" ref="empChartRef" class="sales-chart sales-chart-bar"></div>
           <div v-else class="sales-empty">本期暂无销售数据</div>
@@ -624,7 +624,10 @@ onMounted(refreshAll)
             <el-table-column prop="sales_amount" label="销售额" align="right" width="104" sortable>
               <template #default="{ row }"><b>{{ money(row.sales_amount) }}</b></template>
             </el-table-column>
-            <el-table-column prop="gross_profit" label="毛利" align="right" width="104" sortable class-name="col-mobile-hide">
+            <el-table-column prop="gross_profit" label="商品毛利" align="right" width="104" sortable class-name="col-mobile-hide" header-align="right">
+              <template #header>
+                <span title="商品毛利 =（售价 − 进价）× 数量，未扣安装费、提成、推荐费、以旧换新">商品毛利</span>
+              </template>
               <template #default="{ row }">
                 <span :class="row.gross_profit >= 0 ? 'pos' : 'neg'">{{ money(row.gross_profit) }}</span>
               </template>

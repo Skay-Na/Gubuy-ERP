@@ -263,7 +263,7 @@
                   </el-descriptions-item>
                   <el-descriptions-item label="其他成本">
                     <span class="font-bold text-orange-600">¥{{ formatMoney(getOrderOtherCost(row)) }}</span>
-                    <span class="text-slate-400 text-[10px] ml-1">渠道+换新</span>
+                    <span class="text-slate-400 text-[10px] ml-1">推荐+换新+提成</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="综合毛利">
                     <template v-if="getOrderGrossProfit(row) !== null">
@@ -1192,17 +1192,21 @@ const getOrderProductCost = (row) => {
 const getOrderFulfillmentCost = (row) => (row?.order_items || []).reduce((sum, item) => {
   return sum + Number(item?.delivery_fee || 0) + Number(item?.installation_fee || 0)
 }, 0)
-const getOrderOtherCost = (row) => Number(row?.referral_fee || 0) + Number(row?.trade_in_amount || 0)
+// 订单毛利口径与经营看板「毛利」保持一致：
+// 收入取净额（total_amount − discount_amount），成本含商品成本 + 配送/安装 + 推荐 + 以旧换新 + 提成。
+// 此前收入用 total_amount、且漏扣 commission_amount，导致同名单笔毛利比看板口径偏高。
+const getOrderOtherCost = (row) => Number(row?.referral_fee || 0) + Number(row?.trade_in_amount || 0) + Number(row?.commission_amount || 0)
+const getOrderNetRevenue = (row) => Number(row?.total_amount || 0) - Number(row?.discount_amount || 0)
 const getOrderTotalCost = (row) => {
   const productCost = getOrderProductCost(row)
   return productCost === null ? null : productCost + getOrderFulfillmentCost(row) + getOrderOtherCost(row)
 }
 const getOrderGrossProfit = (row) => {
   const totalCost = getOrderTotalCost(row)
-  return totalCost === null ? null : Number(row?.total_amount || 0) - totalCost
+  return totalCost === null ? null : getOrderNetRevenue(row) - totalCost
 }
 const getOrderGrossMargin = (row) => {
-  const total = Number(row?.total_amount || 0)
+  const total = getOrderNetRevenue(row)
   const profit = getOrderGrossProfit(row)
   if (profit === null || total <= 0) return null
   return (profit / total) * 100
