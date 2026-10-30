@@ -928,12 +928,13 @@ func GetDailyAttendance(c *gin.Context) {
 // @Router /api/employees/export [get]
 func ExportEmployees(c *gin.Context) {
 	var employees []models.Employee
-	if err := config.DB.Find(&employees).Error; err != nil {
+	// 老板客是老板本人的虚拟销售账号，不是真人，不进人员名单（否则「是」的计数会与 UI 的师傅人数对不上）。
+	if err := config.DB.Where("COALESCE(outsourced_type,'') <> ?", "boss").Find(&employees).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "查询员工失败"})
 		return
 	}
 
-	headers := []string{"员工ID", "工号", "姓名", "电话", "基本底薪", "提成比例", "是否外包", "入职日期", "任职状态", "最后工作日"}
+	headers := []string{"员工ID", "工号", "姓名", "电话", "基本底薪", "提成比例", "是否安装/送货师傅", "入职日期", "任职状态", "最后工作日"}
 	var data [][]interface{}
 	for _, e := range employees {
 		isOut := "否"

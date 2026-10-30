@@ -37,10 +37,22 @@ func agentFindEmployee(name string) (models.Employee, string, error) {
 	}
 }
 
+// 外协话术：boss 是老板本人的虚拟销售账号，其余是安装/送货师傅，两类不能混用同一句话术。
+func agentOutsourcedIntro(employee models.Employee) string {
+	if employee.OutsourcedType == "boss" {
+		return fmt.Sprintf("%s是老板本人的虚拟销售账号，订单业绩归入「老板客户」，不参与员工个人提成。", employee.Name)
+	}
+	return fmt.Sprintf("%s是安装/送货师傅（外协），不参与销售提成报表。", employee.Name)
+}
+
 func agentEmployeeProfile(name string) (string, error) {
 	employee, message, err := agentFindEmployee(name)
 	if err != nil || message != "" {
 		return message, err
+	}
+	// 外协按真人「系统员工」介绍会误导（boss 尤其不是人），先按外协口径回答。
+	if employee.IsOutsourced {
+		return agentOutsourcedIntro(employee), nil
 	}
 	return fmt.Sprintf("%s是系统员工，工号 %s，岗位 %s，当前提成比例 %.2f%%。员工管理中的月度提成报表可查看个人及商会订单提成，也可以直接问我指定月份的提成。", employee.Name, employee.EmpNo, employee.Role, employee.CommissionRate*100), nil
 }
@@ -193,7 +205,7 @@ func agentEmployeeCommission(name, month, period string) (string, error) {
 	}
 	end := start.AddDate(0, 1, 0)
 	if employee.IsOutsourced {
-		return fmt.Sprintf("%s是外包人员，当前月度员工提成报表不包含外包人员。", employee.Name), nil
+		return agentOutsourcedIntro(employee), nil
 	}
 	if !employeeWorkedDuringMonth(employee, start, end) {
 		return fmt.Sprintf("%s在%s不属于在职月份，月度提成报表没有该员工记录。", employee.Name, start.Format("2006-01")), nil

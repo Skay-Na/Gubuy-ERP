@@ -156,7 +156,7 @@ func CreateEmployeeOffboarding(c *gin.Context) {
 	}
 	if employee.IsOutsourced {
 		tx.Rollback()
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "外包人员请走合作结算流程"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "安装/送货师傅请走合作结算流程"})
 		return
 	}
 	if employee.EmploymentStatus != "" && employee.EmploymentStatus != models.EmployeeStatusActive {

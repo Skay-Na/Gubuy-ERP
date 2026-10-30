@@ -804,8 +804,8 @@ func describeEmployeeChange(before, after map[string]interface{}) string {
 		{key: "role", label: "岗位"},
 		{key: "base_salary", label: "底薪"},
 		{key: "commission_rate", label: "提成比例"},
-		{key: "is_outsourced", label: "是否外包"},
-		{key: "outsourced_type", label: "外包类型"},
+		{key: "is_outsourced", label: "是否安装/送货师傅"},
+		{key: "outsourced_type", label: "外协类型"},
 	} {
 		if oldValue, newValue, changed := operationChangedValue(before, after, field.key); changed {
 			parts = append(parts, field.label+" "+operationFieldValue(field.key, oldValue)+"→"+operationFieldValue(field.key, newValue))
@@ -1050,6 +1050,15 @@ func operationFieldValue(key string, value interface{}) string {
 			return "是"
 		}
 		return "否"
+	case "outsourced_type":
+		// 存的是英文枚举，直接展示会给用户看 "install"，这里翻成业务口径。
+		switch strings.TrimSpace(fmt.Sprint(value)) {
+		case "install":
+			return "安装/送货师傅"
+		case "boss":
+			return "老板虚拟账号"
+		}
+		return "-"
 	case "commission_rate":
 		return fmt.Sprintf("%.2f%%", operationNumber(value)*100)
 	case "category_id":

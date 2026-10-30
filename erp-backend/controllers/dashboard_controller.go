@@ -432,12 +432,13 @@ func GetFinanceSummary(c *gin.Context) {
 	// 营收取净额（total_amount − discount_amount），毛利再扣商品成本与五项费用（含以旧换新）。
 	// 此前营收用 total_amount、毛利漏扣 trade_in_amount，导致员工排行合计与顶部 KPI 对不上。
 	rankDB := config.DB.Table("orders").
-		Select(employeeRankIDExpr+" as employee_id, "+bossRankExpr+" as name, COUNT(orders.id) as order_count, SUM(orders.total_amount - orders.discount_amount) as revenue, SUM(orders.total_amount - orders.discount_amount - COALESCE(cost_tb.total_cost, 0) - orders.delivery_fee - orders.installation_fee - orders.referral_fee - orders.commission_amount - orders.trade_in_amount) as gross_profit, SUM(COALESCE(cost_tb.uncosted_count, 0)) as uncosted_order_item_count").
+		Select(employeeRankIDExpr + " as employee_id, " + bossRankExpr + " as name, COUNT(orders.id) as order_count, SUM(orders.total_amount - orders.discount_amount) as revenue, SUM(orders.total_amount - orders.discount_amount - COALESCE(cost_tb.total_cost, 0) - orders.delivery_fee - orders.installation_fee - orders.referral_fee - orders.commission_amount - orders.trade_in_amount) as gross_profit, SUM(COALESCE(cost_tb.uncosted_count, 0)) as uncosted_order_item_count").
 		Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
 		Joins("LEFT JOIN (SELECT order_id, SUM(unit_cost * quantity) as total_cost, SUM(CASE WHEN unit_cost <= 0 THEN 1 ELSE 0 END) as uncosted_count FROM order_items GROUP BY order_id) as cost_tb ON cost_tb.order_id = orders.id").
 		Where("orders.order_status = 1").
-		// 只把真正的安装/送货师傅名下订单排除出销售排行；外协是干活的人，不接单，与销售归属无关。
-		Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR COALESCE(employees.outsourced_type, '') <> ?)", "install")
+		// 排除所有非 boss 的外协（install/delivery/未来新类型），否则新增师傅类型时其订单会被静默算成销售；
+		// employee_id 为空的订单由 bossOrderExpr 的 orders.employee_id IS NULL 兜住，不能依赖 NULL = 0。
+		Where("(orders.order_type = 2 OR " + bossOrderExpr + " OR employees.is_outsourced = 0)")
 	if !startTime.IsZero() {
 		rankDB = rankDB.Where("orders.created_at >= ?", startTime)
 	}

@@ -125,7 +125,7 @@ func GetPayrollHistory(c *gin.Context) {
 		return
 	}
 	if employee.IsOutsourced {
-		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "外包人员按次结算，不生成工资条"})
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "安装/送货师傅按次结算，不生成工资条"})
 		return
 	}
 

@@ -605,8 +605,9 @@ func employeeOrdersBreakdown(employeeID string, startTime, endTime time.Time, pa
 		db := config.DB.Table("orders").
 			Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
 			Where("orders.order_status = 1").
-			// 只把真正的安装/送货师傅名下订单排除出销售排行；外协是干活的人，不接单，与销售归属无关。
-			Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR COALESCE(employees.outsourced_type, '') <> ?)", "install")
+			// 排除所有非 boss 的外协（install/delivery/未来新类型），否则新增师傅类型时其订单会被静默算成销售；
+			// employee_id 为空的订单由 bossOrderExpr 的 orders.employee_id IS NULL 兜住，不能依赖 NULL = 0。
+			Where("(orders.order_type = 2 OR " + bossOrderExpr + " OR employees.is_outsourced = 0)")
 		if !startTime.IsZero() {
 			db = db.Where("orders.created_at >= ?", startTime)
 		}
