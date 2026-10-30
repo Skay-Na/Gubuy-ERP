@@ -24,12 +24,72 @@ type operationHistoryItem struct {
 	ID        uint       `json:"id"`
 	Username  string     `json:"username"`
 	Title     string     `json:"title"`
+	Category  string     `json:"category"`
 	Detail    string     `json:"detail"`
 	Method    string     `json:"method"`
 	CreatedAt time.Time  `json:"created_at"`
 	UndoneAt  *time.Time `json:"undone_at,omitempty"`
 	UndoneBy  string     `json:"undone_by,omitempty"`
 	CanUndo   bool       `json:"can_undo"`
+}
+
+// 历史操作分类：先按精确标题归类，未命中再按关键词兜底，保证新路由漏配时也能落到合理分类。
+var operationCategoryByTitle = map[string]string{
+	"创建销售订单": "order", "创建 AI 销售订单": "order", "修改订单国补状态": "order",
+	"收取订单尾款": "order", "取消销售订单": "order", "冲销取消销售订单": "order",
+	"更新订单安装状态": "order", "更新订单配送状态": "order", "修改订单提成": "order",
+	"修改订单推荐人/渠道": "order", "更新商品配送状态": "order", "更新商品安装状态": "order",
+	"修改商品配送费用": "order", "修改商品安装费用": "order", "登记国补回款": "order", "核销国补回款": "order",
+
+	"新增商品分类": "product", "修改商品分类": "product", "删除商品分类": "product",
+	"新增商品": "product", "修改商品": "product", "重新核算商品成本": "product", "修复历史成本": "product",
+
+	"采购入库": "inbound", "撤销采购入库": "inbound", "修改入库成本": "inbound",
+	"审核通过入库申请": "inbound", "驳回入库申请": "inbound",
+
+	"商品库存盘点": "stocktake", "创建盘点任务": "stocktake", "更新盘点数量": "stocktake",
+	"提交盘点结果": "stocktake", "刷新盘点商品库存": "stocktake", "标记盘点单已打印": "stocktake",
+	"终止盘点任务": "stocktake", "删除盘点任务": "stocktake", "审核通过盘点申请": "stocktake", "驳回盘点申请": "stocktake",
+
+	"新增支出记录": "finance", "修改支出记录": "finance", "新增记账记录": "finance",
+	"确认 Agent 记账草稿": "finance", "新增资金账户": "finance", "账户资金划拨": "finance",
+	"校准账户余额": "finance", "设置默认支出账户": "finance",
+
+	"新增员工": "employee", "修改员工资料": "employee", "删除员工": "employee",
+	"更新员工考勤": "employee", "员工签到": "employee", "员工签退": "employee",
+	"发起员工离职交接": "employee", "更新离职交接任务": "employee", "确认离职薪资结算": "employee",
+	"处理离职后订单告警": "employee", "确认工资发放": "employee",
+
+	"新建工程项目": "engineering", "修改工程项目": "engineering", "删除工程项目": "engineering",
+	"工程状态流转": "engineering", "修改工程设备清单": "engineering", "修改工程付款节点": "engineering",
+	"登记工程回款": "engineering", "冲销工程回款": "engineering", "工程出库": "engineering",
+	"新增工程费用": "engineering", "修改工程费用": "engineering", "删除工程费用": "engineering",
+
+	"恢复数据库备份": "system",
+}
+
+func operationCategory(title string) string {
+	if category, ok := operationCategoryByTitle[title]; ok {
+		return category
+	}
+	switch {
+	case strings.Contains(title, "订单") || strings.Contains(title, "国补"):
+		return "order"
+	case strings.Contains(title, "盘点"):
+		return "stocktake"
+	case strings.Contains(title, "入库"):
+		return "inbound"
+	case strings.Contains(title, "工程"):
+		return "engineering"
+	case strings.Contains(title, "员工") || strings.Contains(title, "工资") || strings.Contains(title, "离职"):
+		return "employee"
+	case strings.Contains(title, "账户") || strings.Contains(title, "记账") || strings.Contains(title, "支出") || strings.Contains(title, "划拨"):
+		return "finance"
+	case strings.Contains(title, "商品") || strings.Contains(title, "分类") || strings.Contains(title, "库存") || strings.Contains(title, "成本"):
+		return "product"
+	default:
+		return "other"
+	}
 }
 
 // GetOperationHistory 获取操作历史
@@ -63,6 +123,7 @@ func GetOperationHistory(c *gin.Context) {
 			ID:        record.ID,
 			Username:  record.Username,
 			Title:     record.Title,
+			Category:  operationCategory(record.Title),
 			Detail:    describeOperationHistory(record, employeesByID, employeesByNumber),
 			Method:    record.Method,
 			CreatedAt: record.CreatedAt,

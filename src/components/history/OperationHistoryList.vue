@@ -1,4 +1,6 @@
 <script setup>
+import { operationCategoryLabel } from '../../constants/operationCategories'
+
 defineProps({
   operations: { type: Array, default: () => [] },
   loading: { type: Boolean, default: false },
@@ -35,6 +37,7 @@ function formatTime(value) {
 
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span class="history-category">{{ operationCategoryLabel(operation.category) }}</span>
             <h3 class="history-title">{{ operation.title }}</h3>
             <el-tag v-if="operation.undone_at" size="small" type="info" effect="plain">已撤销</el-tag>
           </div>
@@ -90,6 +93,24 @@ function formatTime(value) {
 }
 
 .history-icon-undone {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+.history-category {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eef0ff;
+  color: #635bff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.history-icon-undone + .min-w-0 .history-category {
   background: #f1f5f9;
   color: #94a3b8;
 }
