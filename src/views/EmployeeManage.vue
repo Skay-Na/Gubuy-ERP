@@ -9,18 +9,18 @@
       <div class="people-header-actions">
         <el-button @click="handleExport"><el-icon class="mr-1"><Download /></el-icon>导出人员</el-button>
         <el-button v-if="activeTab === 'employees'" type="primary" plain @click="openReportDrawer">薪资结算</el-button>
-        <el-button v-if="activeTab !== 'payroll'" type="primary" @click="openDialog()">{{ activeTab === 'employees' ? '新增员工' : '新增外包人员' }}</el-button>
+        <el-button v-if="activeTab !== 'payroll'" type="primary" @click="openDialog()">{{ activeTab === 'employees' ? '新增员工' : '新增安装/送货师傅' }}</el-button>
       </div>
     </header>
 
     <div class="people-metrics">
       <div><span>在职正式员工</span><strong>{{ formalCount }}</strong><small>不含已离职档案</small></div>
-      <div><span>外包合作人员</span><strong>{{ outsourcedCount }}</strong><small>独立管理</small></div>
+      <div><span>安装/送货师傅</span><strong>{{ outsourcedCount }}</strong><small>独立管理</small></div>
       <div><span>员工底薪合计</span><strong>¥{{ formatMoney(baseSalaryTotal) }}</strong><small>不含提成与扣款</small></div>
     </div>
 
     <div class="people-controls">
-      <el-segmented v-model="activeTab" :options="[{ label: '正式员工', value: 'employees' }, { label: '外包人员', value: 'outsourced' }, { label: '工资条', value: 'payroll' }]" />
+      <el-segmented v-model="activeTab" :options="[{ label: '正式员工', value: 'employees' }, { label: '安装/送货师傅', value: 'outsourced' }, { label: '工资条', value: 'payroll' }]" />
       <el-input v-if="activeTab !== 'payroll'" v-model="employeeQuery" clearable :placeholder="activeTab === 'employees' ? '搜索姓名、工号或电话' : '搜索姓名或电话'" class="people-search" />
       <span v-if="activeTab !== 'payroll'" class="people-count">{{ filteredEmployees.length }} 人</span>
     </div>
@@ -31,13 +31,13 @@
     <!-- Dialog -->
     <el-dialog
       v-model="dialogVisible"
-      :title="isEdit ? (form.is_outsourced ? '编辑外包人员' : '编辑员工') : (form.is_outsourced ? '新增外包人员' : '新增员工')"
+      :title="isEdit ? (form.is_outsourced ? '编辑安装/送货师傅' : '编辑员工') : (form.is_outsourced ? '新增安装/送货师傅' : '新增员工')"
       :width="isMobile ? '90%' : '400px'"
       destroy-on-close
       class="!rounded-2xl"
     >
       <el-form :model="form" label-width="100px" class="mt-4">
-        <!-- 仅普通员工显示工号，外包人员直接自动分配隐藏 -->
+        <!-- 仅正式员工显示工号，安装/送货师傅自动分配工号并隐藏 -->
         <el-form-item v-if="!form.is_outsourced" label="工号" required>
           <el-input v-model="form.emp_no" placeholder="请输入工号" />
         </el-form-item>
@@ -210,11 +210,13 @@ const activeTab = ref('employees')
 const focusPayrollEmployeeId = ref(null)
 const employeeQuery = ref('')
 const formalCount = computed(() => employees.value.filter(row => !row.is_outsourced && row.employment_status !== 'departed').length)
-const outsourcedCount = computed(() => employees.value.filter(row => row.is_outsourced).length)
+const outsourcedCount = computed(() => employees.value.filter(row => row.is_outsourced && row.outsourced_type !== 'boss').length)
 const baseSalaryTotal = computed(() => employees.value.filter(row => !row.is_outsourced && row.employment_status !== 'departed').reduce((total, row) => total + Number(row.base_salary || 0), 0))
 const filteredEmployees = computed(() => {
   const keyword = employeeQuery.value.trim().toLowerCase()
   return employees.value.filter(row => {
+    // 老板客是虚拟销售账号，不是可维护的师傅，任何 tab 下都不进名单
+    if (row.outsourced_type === 'boss') return false
     if (row.is_outsourced !== (activeTab.value === 'outsourced')) return false
     return !keyword || `${row.name} ${row.emp_no} ${row.phone || ''}`.toLowerCase().includes(keyword)
   })

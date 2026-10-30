@@ -14,15 +14,15 @@ const date = value => value ? dayjs(value).format('YYYY-MM-DD') : '未填写'
 <template>
   <div class="roster" v-loading="loading">
     <div v-if="rows.length" class="roster-head">
-      <span>人员</span><span>{{ type === 'employees' ? '薪资设置' : '合作信息' }}</span><span>联系方式</span><span>操作</span>
+      <span>人员</span><span>{{ type === 'employees' ? '薪资设置' : '服务信息' }}</span><span>联系方式</span><span>操作</span>
     </div>
     <article v-for="row in rows" :key="row.id" class="person-row">
       <div class="identity">
         <span class="avatar" :class="{ green: type !== 'employees' }">{{ row.name?.slice(0, 1) }}</span>
-        <div><strong>{{ row.name }}</strong><small>{{ type === 'employees' ? `#${row.emp_no} · 入职 ${date(row.entry_date)}` : `外包合作 · 登记 ${date(row.created_at)}` }}</small></div>
+        <div><strong>{{ row.name }}</strong><small>{{ type === 'employees' ? `#${row.emp_no} · 入职 ${date(row.entry_date)}` : `安装/送货师傅 · 登记 ${date(row.created_at)}` }}</small></div>
       </div>
       <div class="pay-setting" v-if="type === 'employees'"><strong>{{ money(row.base_salary) }}</strong><small>底薪 · 提成 {{ (Number(row.commission_rate || 0) * 100).toFixed(2) }}%</small></div>
-      <div class="pay-setting" v-else><strong>外包服务</strong><small>按订单记录结算</small></div>
+      <div class="pay-setting" v-else><strong>安装/送货</strong><small>按订单记录结算</small></div>
       <div class="contact"><strong>{{ row.phone || '未填写电话' }}</strong><small v-if="type === 'employees'">收银 PIN：{{ row.pin_code || '未设置' }}</small></div>
       <div class="actions">
         <el-tag v-if="type === 'employees' && row.employment_status === 'offboarding'" size="small" type="warning">交接中</el-tag>

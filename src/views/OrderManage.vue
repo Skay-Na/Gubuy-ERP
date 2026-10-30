@@ -181,7 +181,7 @@
                   <template #default="scope">
                     <div v-if="scope.row.is_delivered" class="flex flex-col text-[11px] leading-tight">
                       <span class="text-blue-600 font-bold">🚚 已送货</span>
-                      <span class="text-slate-500">送货: {{ scope.row.delivery_person?.name || '-' }} <el-tag v-if="scope.row.delivery_person?.is_outsourced" size="small" type="warning" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
+                      <span class="text-slate-500">送货: {{ scope.row.delivery_person?.name || '-' }} <el-tag v-if="scope.row.delivery_person?.is_outsourced" size="small" type="warning" class="!px-1 !py-0 !h-auto scale-90 origin-left">外协</el-tag></span>
                       <span class="text-slate-400">运费: ¥{{ formatMoney(scope.row.delivery_fee) }}</span>
                     </div>
                     <div v-else class="text-slate-400">⏳ 待送货</div>
@@ -197,7 +197,7 @@
                   <template #default="scope">
                     <div v-if="scope.row.is_installed" class="flex flex-col text-[11px] leading-tight">
                       <span class="text-green-600 font-bold">✅ 已完成安装</span>
-                      <span class="text-slate-500">师傅: {{ scope.row.installer?.name || '-' }} <el-tag v-if="scope.row.installer?.is_outsourced" size="small" type="success" class="!px-1 !py-0 !h-auto scale-90 origin-left">外包</el-tag></span>
+                      <span class="text-slate-500">师傅: {{ scope.row.installer?.name || '-' }} <el-tag v-if="scope.row.installer?.is_outsourced" size="small" type="success" class="!px-1 !py-0 !h-auto scale-90 origin-left">外协</el-tag></span>
                       <span class="text-slate-400">费用: ¥{{ formatMoney(scope.row.installation_fee) }}</span>
                     </div>
                     <div v-else class="text-slate-400">⏳ 待安装</div>
@@ -286,14 +286,14 @@
                   </el-descriptions-item>
                   <el-descriptions-item label="送货人员" v-if="row.is_delivered">
                     <span>{{ row.delivery_person?.name || '-' }}</span>
-                    <el-tag v-if="row.delivery_person?.is_outsourced" size="small" type="warning" effect="plain" class="ml-2 !rounded-md">外包</el-tag>
+                    <el-tag v-if="row.delivery_person?.is_outsourced" size="small" type="warning" effect="plain" class="ml-2 !rounded-md">外协</el-tag>
                   </el-descriptions-item>
                   <el-descriptions-item label="送货费用" v-if="row.is_delivered">
                     <span class="font-bold text-orange-600">¥{{ formatMoney(row.delivery_fee) }}</span>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装人员" v-if="row.is_installed">
                     <span>{{ row.installer?.name || '-' }}</span>
-                    <el-tag v-if="row.installer?.is_outsourced" size="small" type="success" effect="plain" class="ml-2 !rounded-md">外包</el-tag>
+                    <el-tag v-if="row.installer?.is_outsourced" size="small" type="success" effect="plain" class="ml-2 !rounded-md">外协</el-tag>
                   </el-descriptions-item>
                   <el-descriptions-item label="安装费用" v-if="row.is_installed">
                     <span class="font-bold text-orange-600">¥{{ formatMoney(row.installation_fee) }}</span>
@@ -1344,20 +1344,21 @@ const editingInstallationFee = ref(0)
 const installationFeeSaving = ref(false)
 const employees = ref([])
 
+// boss 是老板虚拟销售账号，不属于师傅候选
 const deliveryPersonOptions = computed(() => {
-  const outsourced = employees.value.filter(emp => emp.is_outsourced)
+  const outsourced = employees.value.filter(emp => emp.is_outsourced && emp.outsourced_type !== 'boss')
   const staff = employees.value.filter(emp => !emp.is_outsourced)
   return [
-    { label: '外包合作人员', options: outsourced },
+    { label: '安装/送货师傅', options: outsourced },
     { label: '店内正式员工', options: staff }
   ]
 })
 
 const installerOptions = computed(() => {
-  const outsourced = employees.value.filter(emp => emp.is_outsourced)
+  const outsourced = employees.value.filter(emp => emp.is_outsourced && emp.outsourced_type !== 'boss')
   const staff = employees.value.filter(emp => !emp.is_outsourced)
   return [
-    { label: '外包合作人员', options: outsourced },
+    { label: '安装/送货师傅', options: outsourced },
     { label: '店内正式员工', options: staff }
   ]
 })

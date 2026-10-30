@@ -424,7 +424,8 @@ func GetFinanceSummary(c *gin.Context) {
 
 	// 9. 员工排行 (EmployeeRankings)
 	// 管理员端开单没有 employee_id，按老板客户归属；显式标记“老板客户”的订单也归入老板客户。
-	bossOrderExpr := "orders.referrer_name = '老板客户' OR orders.employee_id IS NULL"
+	// “老板客”是虚拟销售账号（outsourced_type='boss'），其订单归入老板客户统计，不算外协。
+	bossOrderExpr := "orders.referrer_name = '老板客户' OR orders.employee_id IS NULL OR employees.outsourced_type = 'boss'"
 	bossRankExpr := "IF(orders.order_type = 2, '商会订单', IF(" + bossOrderExpr + ", '老板客户', employees.name))"
 	employeeRankIDExpr := "IF(orders.order_type = 2, 999999, IF(" + bossOrderExpr + ", 0, orders.employee_id))"
 	// revenue / gross_profit 必须与销售额 KPI、销售趋势同一口径：
@@ -435,7 +436,8 @@ func GetFinanceSummary(c *gin.Context) {
 		Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
 		Joins("LEFT JOIN (SELECT order_id, SUM(unit_cost * quantity) as total_cost, SUM(CASE WHEN unit_cost <= 0 THEN 1 ELSE 0 END) as uncosted_count FROM order_items GROUP BY order_id) as cost_tb ON cost_tb.order_id = orders.id").
 		Where("orders.order_status = 1").
-		Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR employees.is_outsourced = ?)", false)
+		// 只把真正的安装/送货师傅名下订单排除出销售排行；外协是干活的人，不接单，与销售归属无关。
+		Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR COALESCE(employees.outsourced_type, '') <> ?)", "install")
 	if !startTime.IsZero() {
 		rankDB = rankDB.Where("orders.created_at >= ?", startTime)
 	}
@@ -445,7 +447,7 @@ func GetFinanceSummary(c *gin.Context) {
 	if employeeIDStr == "999999" {
 		rankDB = rankDB.Where("orders.order_type = 2")
 	} else if employeeIDStr == "boss" {
-		rankDB = rankDB.Where("orders.order_type != 2 AND (orders.referrer_name = ? OR orders.employee_id IS NULL)", "老板客户")
+		rankDB = rankDB.Where("orders.order_type != 2 AND (orders.referrer_name = ? OR orders.employee_id IS NULL OR employees.outsourced_type = ?)", "老板客户", "boss")
 	} else if employeeIDStr != "" {
 		rankDB = rankDB.Where("orders.order_type != 2 AND orders.employee_id = ?", employeeIDStr)
 	}

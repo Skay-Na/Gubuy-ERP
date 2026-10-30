@@ -599,12 +599,14 @@ func employeeOrdersBreakdown(employeeID string, startTime, endTime time.Time, pa
 	}
 
 	// 与排行一致：管理端开单无 employee_id 按"老板客户"归属，显式标记也归入。
-	bossOrderExpr := "orders.referrer_name = '老板客户' OR orders.employee_id IS NULL"
+	// “老板客”是虚拟销售账号（outsourced_type='boss'），其订单归入老板客户统计，不算外协。
+	bossOrderExpr := "orders.referrer_name = '老板客户' OR orders.employee_id IS NULL OR employees.outsourced_type = 'boss'"
 	scope := func() *gorm.DB {
 		db := config.DB.Table("orders").
 			Joins("LEFT JOIN employees ON orders.employee_id = employees.id").
 			Where("orders.order_status = 1").
-			Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR employees.is_outsourced = ?)", false)
+			// 只把真正的安装/送货师傅名下订单排除出销售排行；外协是干活的人，不接单，与销售归属无关。
+			Where("(orders.order_type = 2 OR "+bossOrderExpr+" OR COALESCE(employees.outsourced_type, '') <> ?)", "install")
 		if !startTime.IsZero() {
 			db = db.Where("orders.created_at >= ?", startTime)
 		}
@@ -615,7 +617,7 @@ func employeeOrdersBreakdown(employeeID string, startTime, endTime time.Time, pa
 		case "999999":
 			db = db.Where("orders.order_type = 2")
 		case "boss":
-			db = db.Where("orders.order_type != 2 AND (orders.referrer_name = ? OR orders.employee_id IS NULL)", "老板客户")
+			db = db.Where("orders.order_type != 2 AND (orders.referrer_name = ? OR orders.employee_id IS NULL OR employees.outsourced_type = ?)", "老板客户", "boss")
 		default:
 			db = db.Where("orders.order_type != 2 AND orders.employee_id = ?", employeeID)
 		}

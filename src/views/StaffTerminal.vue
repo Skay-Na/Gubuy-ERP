@@ -1119,8 +1119,8 @@
               {{ currentDetailOrder.is_installed ? '✅ 已确认安装' : (currentDetailOrder.is_delivered ? '🚚 已送货/待安装' : '⏳ 待送货') }}
             </div>
             <div v-if="currentDetailOrder.is_delivered || currentDetailOrder.is_installed" class="text-[10px] text-slate-400 mt-1 space-y-1">
-              <div v-if="currentDetailOrder.is_delivered">送货: {{ currentDetailOrder.delivery_person?.name || '-' }} <span v-if="currentDetailOrder.delivery_person?.is_outsourced" class="text-[8px] bg-amber-50 text-amber-600 px-1 rounded">外包</span></div>
-              <div v-if="currentDetailOrder.is_installed">安装: {{ currentDetailOrder.installer?.name || '-' }} <span v-if="currentDetailOrder.installer?.is_outsourced" class="text-[8px] bg-green-50 text-green-600 px-1 rounded">外包</span></div>
+              <div v-if="currentDetailOrder.is_delivered">送货: {{ currentDetailOrder.delivery_person?.name || '-' }} <span v-if="currentDetailOrder.delivery_person?.is_outsourced" class="text-[8px] bg-amber-50 text-amber-600 px-1 rounded">外协</span></div>
+              <div v-if="currentDetailOrder.is_installed">安装: {{ currentDetailOrder.installer?.name || '-' }} <span v-if="currentDetailOrder.installer?.is_outsourced" class="text-[8px] bg-green-50 text-green-600 px-1 rounded">外协</span></div>
               <div v-if="currentDetailOrder.is_installed">时间: {{ formatDate(currentDetailOrder.install_time) }}</div>
             </div>
           </div>
@@ -1473,19 +1473,19 @@ const mobileInstallDate = computed({
 })
 
 const deliveryPersonOptions = computed(() => {
-  const outsourced = employees.value.filter(emp => emp.is_outsourced)
+  const outsourced = employees.value.filter(emp => emp.is_outsourced && emp.outsourced_type !== 'boss')
   const staff = employees.value.filter(emp => !emp.is_outsourced)
   return [
-    { label: '外包合作人员', options: outsourced },
+    { label: '安装/送货师傅', options: outsourced },
     { label: '店内正式员工', options: staff }
   ]
 })
 
 const installerOptions = computed(() => {
-  const outsourced = employees.value.filter(emp => emp.is_outsourced)
+  const outsourced = employees.value.filter(emp => emp.is_outsourced && emp.outsourced_type !== 'boss')
   const staff = employees.value.filter(emp => !emp.is_outsourced)
   return [
-    { label: '外包合作人员', options: outsourced },
+    { label: '安装/送货师傅', options: outsourced },
     { label: '店内正式员工', options: staff }
   ]
 })
