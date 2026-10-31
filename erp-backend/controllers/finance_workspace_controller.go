@@ -228,6 +228,7 @@ func GetFinanceWorkspace(c *gin.Context) {
 		recentFlows = append(recentFlows, gin.H{
 			"id":            flow.ID,
 			"created_at":    flow.CreatedAt,
+			"account_id":    flow.AccountID,
 			"account_name":  accountName,
 			"category":      flow.Category,
 			"flow_type":     flow.FlowType,

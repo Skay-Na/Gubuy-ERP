@@ -41,7 +41,7 @@ const periodText = computed(() => formatPeriodText(current.value?.params || {}))
 
 const title = computed(() => {
   if (!current.value) return '明细'
-  const base = isNetProfit.value ? '经营净利润计算过程' : (meta.value?.title || '明细')
+  const base = isNetProfit.value ? '净利润计算过程' : (meta.value?.title || '明细')
   const label = current.value.label ? ` · ${current.value.label}` : ''
   return `${base}${label}（${periodText.value}）`
 })
@@ -65,8 +65,10 @@ const netProfitRows = computed(() => {
     { key: 'commission', label: '− 业务提成', amount: num('commission_amount'), drill: num('commission_amount') ? { type: 'commission' } : null, hint: '员工销售提成（普通单按员工/商品比例）；商会单按 1% 入池平分' },
     { key: 'trade_in', label: '− 以旧换新', amount: num('trade_in_amount'), drill: num('trade_in_amount') ? { type: 'trade_in' } : null },
     { key: 'gross_profit', label: '= 毛利', amount: num('gross_profit'), formula: true },
-    { key: 'operating_expense', label: '− 经营开销', amount: num('operating_expense'), drill: { type: 'operating_expense' }, hint: '日常费用，不含采购货款/以旧换新' },
-    { key: 'net_profit', label: '= 经营净利润', amount: num('net_profit'), formula: true, final: true }
+    { key: 'operating_expense', label: '− 经营开销', amount: num('operating_expense'), drill: { type: 'operating_expense', extra: { exclude_payroll: 'true' } }, hint: '日常费用，不含采购货款/以旧换新/工资' },
+    { key: 'net_before_payroll', label: '= 净利润（毛利扣费用）', amount: Math.round((num('net_profit') + num('payroll')) * 100) / 100, formula: true },
+    { key: 'payroll', label: '− 工资开销', amount: num('payroll'), drill: num('payroll') ? { type: 'payroll' } : null, hint: '按工资所属月归属（月初发上月计入上月）' },
+    { key: 'net_profit', label: '= 真实净利润（扣完工资）', amount: num('net_profit'), formula: true, final: true }
   ]
 })
 
@@ -189,7 +191,7 @@ function handleMediaChange(event) {
             :key="row.key"
             class="formula-row"
             :class="{ formula: row.formula, final: row.final, clickable: row.drill }"
-            @click="row.drill && drillTo(row.drill.type, {}, row.label.replace(/^[−=]\s*/, ''))"
+            @click="row.drill && drillTo(row.drill.type, row.drill.extra || {}, row.label.replace(/^[−=]\s*/, ''))"
           >
             <span class="formula-label">{{ row.label }}<small v-if="row.hint">{{ row.hint }}</small></span>
             <span class="formula-right">

@@ -17,6 +17,7 @@ import {
   calibrateAccount as calibrateAccountApi
 } from '../api/finance'
 import { formatMoney, formatDateTime } from '../utils/format'
+import DashboardDrillDownDrawer from '../components/dashboard/DashboardDrillDownDrawer.vue'
 
 // ---------- 资金工作台聚合数据 ----------
 const currentMonth = () => {
@@ -341,6 +342,34 @@ const funds = computed(() => ws.value?.funds || { accounts: [], frozen: { count:
 
 // ---------- 经营概况 ----------
 const monthData = computed(() => ws.value?.month || {})
+// 概况卡的统计期间：本月 → period=month；累计 → period=all（与工作台聚合口径一一对应）
+const monthPeriod = computed(() => (monthMode.value === 'cumulative' ? 'all' : 'month'))
+
+const profitClass = value => (Number(value || 0) >= 0 ? 'pos' : 'neg')
+
+// 八格指标：全部可点（差异格除外），点击弹对应的构成明细
+const kpis = computed(() => [
+  { key: 'gross_profit', label: '毛利', hint: '销售额扣货品成本五项费', value: monthData.value.gross_profit, klass: profitClass(monthData.value.gross_profit), drill: { type: 'net_profit', label: '毛利' } },
+  { key: 'net_profit', label: '净利润', hint: '毛利扣费用', value: monthData.value.net_profit, klass: profitClass(monthData.value.net_profit), drill: { type: 'net_profit', label: '净利润' } },
+  { key: 'real_profit', label: '真实净利润', hint: '扣完费用工资', value: monthData.value.real_profit, klass: profitClass(monthData.value.real_profit), drill: { type: 'net_profit', label: '真实净利润' } },
+  { key: 'operating_expense', label: '经营开销', hint: '不含工资', value: monthData.value.expense_total, klass: '', drill: { type: 'operating_expense', label: '经营开销', extra: { exclude_payroll: 'true' } } },
+  { key: 'payroll', label: '工资开销', hint: '按所属月归属', value: monthData.value.payroll_total, klass: '', drill: { type: 'payroll', label: '工资开销' } },
+  { key: 'net_cash_flow', label: '净现金流', hint: '资金账户收支', value: monthData.value.net_cash_flow, klass: '', drill: { type: 'account_logs', label: '资金流水', extra: { exclude_ledger: 'true' } } },
+  { key: 'subsidy_unreceived', label: '国补未回款', hint: '冻结在公户', value: monthData.value.bridge?.subsidy_unreceived, klass: 'kpi-warn', drill: { type: 'pending_subsidy', label: '国补未回款' } },
+  { key: 'profit_cash_gap', label: '利润-现金流差异', hint: '未收现收入等', value: monthData.value.bridge?.profit_cash_gap, klass: '', drill: null }
+])
+
+// 最近流水（资金账户最新 10 笔）
+const recentFlows = computed(() => ws.value?.recent_flows || [])
+
+// ---------- 明细下钻抽屉（复用经营看板的钻取体系） ----------
+const drill = reactive({ visible: false, type: '', label: '', params: {} })
+const openDrill = (type, label, extraParams = {}) => {
+  drill.type = type
+  drill.label = label
+  drill.params = { period: monthPeriod.value, ...extraParams }
+  drill.visible = true
+}
 
 // ---------- 流水明细抽屉（点击账户时复用财务流水接口） ----------
 const flowsDrawer = reactive({ visible: false, title: '', loading: false, rows: [], total: 0 })
@@ -472,38 +501,64 @@ onMounted(refreshAll)
       </el-card>
     </div>
 
-    <!-- 本月经营概况 -->
+    <!-- 本月经营概况：全部指标可点击下钻明细 -->
     <el-card shadow="never" class="ws-card" v-loading="wsLoading">
       <div class="month-head">
-        <div class="ws-card-title">经营概况</div>
+        <div class="ws-card-title">经营概况<small class="sales-title-note">点任意指标可看构成明细</small></div>
         <el-radio-group v-model="monthMode" size="small" @change="fetchWorkspace">
           <el-radio-button value="current">本月</el-radio-button>
           <el-radio-button value="cumulative">累计</el-radio-button>
         </el-radio-group>
       </div>
       <div class="kpi-grid">
-        <div class="kpi-tile">
-          <span class="kpi-label">净利润<small>毛利扣费用</small></span>
-          <b :class="Number(monthData.net_profit || 0) >= 0 ? 'pos' : 'neg'">{{ money(monthData.net_profit) }}</b>
-        </div>
-        <div class="kpi-tile">
-          <span class="kpi-label">真实净利润<small>扣完费用工资</small></span>
-          <b :class="Number(monthData.real_profit || 0) >= 0 ? 'pos' : 'neg'">{{ money(monthData.real_profit) }}</b>
-        </div>
-        <div class="kpi-tile">
-          <span class="kpi-label">净现金流</span>
-          <b>{{ money(monthData.net_cash_flow) }}</b>
-        </div>
-        <div class="kpi-tile">
-          <span class="kpi-label">国补未回款</span>
-          <b class="kpi-warn">{{ money(monthData.bridge?.subsidy_unreceived) }}</b>
+        <div
+          v-for="kpi in kpis"
+          :key="kpi.key"
+          class="kpi-tile"
+          :class="{ clickable: kpi.drill }"
+          @click="kpi.drill && openDrill(kpi.drill.type, kpi.drill.label, kpi.drill.extra || {})"
+        >
+          <span class="kpi-label">{{ kpi.label }}<small v-if="kpi.hint">{{ kpi.hint }}</small></span>
+          <b v-if="kpi.klass" :class="kpi.klass">{{ money(kpi.value) }}</b>
+          <b v-else>{{ money(kpi.value) }}</b>
+          <span v-if="kpi.drill" class="kpi-go"><el-icon><ArrowRight /></el-icon></span>
         </div>
       </div>
       <div class="bridge-rows">
-        <div class="bridge-row"><span>经营开销<small>（其中工资 {{ money(monthData.payroll_total) }}）</small></span><b>{{ money(monthData.bridge?.operating_expense) }}</b></div>
-        <div class="bridge-row muted"><span>净利润 - 净现金流 差异</span><b>{{ money(monthData.bridge?.profit_cash_gap) }}</b></div>
+        <div class="bridge-row clickable" @click="openDrill('account_logs', '现金流入', { exclude_ledger: 'true' })">
+          <span>现金流入<small>（资金账户 · 本期）</small></span><b class="cash-in">{{ money(monthData.bridge?.cash_in) }}</b>
+        </div>
+        <div class="bridge-row clickable" @click="openDrill('account_logs', '现金流出', { exclude_ledger: 'true' })">
+          <span>现金流出<small>（资金账户 · 本期）</small></span><b class="cash-out">{{ money(monthData.bridge?.cash_out) }}</b>
+        </div>
+        <div class="bridge-row muted">
+          <span>净利润 − 净现金流 差异<small>（多为已计毛利未收现的国补、台账费用）</small></span><b>{{ money(monthData.bridge?.profit_cash_gap) }}</b>
+        </div>
       </div>
       <div v-if="monthData.uncosted_order_item_count > 0" class="ws-warn">* 本期有 {{ monthData.uncosted_order_item_count }} 个商品未录成本，毛利可能偏高</div>
+    </el-card>
+
+    <!-- 最近流水 -->
+    <el-card shadow="never" class="ws-card" v-loading="wsLoading">
+      <div class="month-head">
+        <div class="ws-card-title">最近流水<small class="sales-title-note">资金账户最新 10 笔 · 点单笔看该账户全部流水</small></div>
+        <el-button link type="primary" @click="$router.push('/admin/bookkeeping')">记一笔 / 全部流水</el-button>
+      </div>
+      <div class="flow-rows">
+        <div
+          v-for="flow in recentFlows"
+          :key="flow.id"
+          class="flow-row"
+          :title="flow.remark || flow.related_no || ''"
+          @click="openFlows(`${flow.account_name} · 最近流水`, { account_id: flow.account_id })"
+        >
+          <span class="flow-time">{{ formatTime(flow.created_at) }}</span>
+          <span class="flow-account">{{ flow.account_name }}</span>
+          <span class="flow-cat">{{ flow.category }}</span>
+          <b class="flow-amount" :class="flow.flow_type === 1 ? 'pos' : 'neg'">{{ flow.flow_type === 1 ? '+' : '-' }}{{ money(flow.amount) }}</b>
+        </div>
+        <div v-if="!recentFlows.length" class="sales-empty">暂无流水</div>
+      </div>
     </el-card>
 
     <!-- 销售分析：员工/品类/商品/支付方式 -->
@@ -657,6 +712,15 @@ onMounted(refreshAll)
       </el-table>
     </el-drawer>
 
+    <!-- 明细下钻抽屉（复用经营看板钻取体系，手机端自动全屏） -->
+    <DashboardDrillDownDrawer
+      :visible="drill.visible"
+      :type="drill.type"
+      :label="drill.label"
+      :params="drill.params"
+      @close="drill.visible = false"
+    />
+
     <el-dialog v-model="accountDialogVisible" title="新增资金账户" width="440px" destroy-on-close><el-form ref="accountFormRef" :model="accountForm" label-width="92px"><el-form-item label="账户名称" prop="name" :rules="[{ required: true, message: '请输入账户名称' }]"><el-input v-model="accountForm.name" placeholder="例如：支付宝、对公账户、备用金" /></el-form-item><el-form-item label="初始余额"><el-input-number v-model="accountForm.balance" :min="0" :precision="2" class="full-width" /></el-form-item></el-form><template #footer><el-button @click="accountDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="createAccount">创建账户</el-button></template></el-dialog>
     <el-dialog v-model="transferDialogVisible" title="账户资金划拨" width="500px" destroy-on-close><el-alert title="划拨只移动账户间资金，不计入收入或支出。" type="info" :closable="false" show-icon class="dialog-alert" /><el-form ref="transferFormRef" :model="transferForm" label-width="92px"><el-form-item label="转出账户" prop="from_account_id" :rules="[{ required: true, message: '请选择转出账户' }]"><el-select v-model="transferForm.from_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="`${account.name}（${formatMoney(account.balance || 0)}）`" :value="account.id" /></el-select></el-form-item><el-form-item label="转入账户" prop="to_account_id" :rules="[{ required: true, message: '请选择转入账户' }]"><el-select v-model="transferForm.to_account_id" class="full-width"><el-option v-for="account in accounts" :key="account.id" :label="account.name" :value="account.id" /></el-select></el-form-item><el-form-item label="划拨金额" prop="amount" :rules="[{ required: true, message: '请输入划拨金额' }]"><el-input-number v-model="transferForm.amount" :min="0.01" :precision="2" class="full-width" /></el-form-item><el-form-item label="备注"><el-input v-model="transferForm.remark" placeholder="例如：补充备用金" /></el-form-item></el-form><template #footer><el-button @click="transferDialogVisible = false">取消</el-button><el-button type="primary" :loading="submitting" @click="transferFunds">确认划拨</el-button></template></el-dialog>
     <el-dialog v-model="calibrateDialogVisible" :title="`核对余额：${calibrateForm.accountName}`" width="460px" destroy-on-close><el-alert title="校准会将账面余额对齐为实际余额，并自动保留一条校准审计记录。" type="warning" :closable="false" show-icon class="dialog-alert" /><el-form :model="calibrateForm" label-position="top"><el-form-item label="当前账面余额"><strong class="current-balance">¥{{ formatMoney(calibrateForm.currentBalance) }}</strong></el-form-item><el-form-item label="实际余额"><el-input-number v-model="calibrateForm.realBalance" :min="0" :precision="2" class="full-width" /><small v-if="calibrateDiff" :class="calibrateDiff > 0 ? 'diff-positive' : 'diff-negative'">差异 {{ calibrateDiff > 0 ? '+' : '' }}¥{{ formatMoney(calibrateDiff) }}</small></el-form-item><el-form-item label="备注"><el-input v-model="calibrateForm.remark" placeholder="例如：月末对账" /></el-form-item></el-form><template #footer><el-button @click="calibrateDialogVisible = false">取消</el-button><el-button type="warning" :loading="submitting" :disabled="!calibrateDiff" @click="calibrateAccount">确认校准</el-button></template></el-dialog>
@@ -716,7 +780,10 @@ onMounted(refreshAll)
 .month-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; }
 .month-head .ws-card-title { margin-bottom: 0; }
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0 12px; }
-.kpi-tile { padding: 15px 16px; border: 1px solid #eef1f7; border-radius: 14px; background: linear-gradient(180deg, #fafbff, #f4f6fc); }
+.kpi-tile { position: relative; padding: 15px 16px; border: 1px solid #eef1f7; border-radius: 14px; background: linear-gradient(180deg, #fafbff, #f4f6fc); }
+.kpi-tile.clickable { cursor: pointer; transition: all .15s; }
+.kpi-tile.clickable:hover { border-color: #dcdaff; background: linear-gradient(180deg, #f6f7ff, #eef0ff); transform: translateY(-1px); }
+.kpi-go { position: absolute; right: 12px; bottom: 14px; color: #c3c9e8; font-size: 13px; }
 .kpi-label { display: block; color: #64748b; font-size: 12.5px; font-weight: 600; margin-bottom: 7px; }
 .kpi-label small { margin-left: 6px; color: #94a3b8; font-weight: 400; }
 .kpi-tile b { font-size: 23px; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
@@ -726,6 +793,20 @@ onMounted(refreshAll)
 .bridge-row:nth-child(odd) { background: #f8fafc; }
 .bridge-row small { color: #94a3b8; }
 .bridge-row.muted { color: #94a3b8; }
+.bridge-row.clickable { cursor: pointer; transition: background .15s; }
+.bridge-row.clickable:hover { background: #eef0ff !important; }
+.bridge-row .cash-in { color: #059669; }
+.bridge-row .cash-out { color: #e11d48; }
+
+/* 最近流水 */
+.flow-rows { display: grid; gap: 4px; }
+.flow-row { display: grid; grid-template-columns: 96px 92px minmax(90px, 1fr) auto; align-items: center; gap: 12px; padding: 9px 14px; border-radius: 8px; cursor: pointer; transition: background .15s; }
+.flow-row:nth-child(odd) { background: #f8fafc; }
+.flow-row:hover { background: #eef0ff; }
+.flow-time { color: #94a3b8; font-size: 12px; }
+.flow-account { color: #475569; font-size: 12.5px; font-weight: 650; }
+.flow-cat { color: #334155; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flow-amount { text-align: right; font-variant-numeric: tabular-nums; }
 .ws-warn { margin-top: 10px; color: #d97706; font-size: 11.5px; }
 
 /* ---------- 销售分析 ---------- */
@@ -797,6 +878,12 @@ onMounted(refreshAll)
   .kpi-tile { padding: 12px 13px; }
   .kpi-tile b { font-size: 19px; }
   .bridge-row { font-size: 12.5px; }
+  /* 最近流水：两行式（时间+金额 / 账户+分类） */
+  .flow-row { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "time amount" "meta amount"; row-gap: 2px; padding: 9px 12px; }
+  .flow-time { grid-area: time; }
+  .flow-account { grid-area: meta; }
+  .flow-cat { grid-area: meta; justify-self: end; padding-right: 10px; max-width: 45%; }
+  .flow-amount { grid-area: amount; align-self: center; }
   /* 双栏图表单列堆叠 */
   .sales-grid { grid-template-columns: 1fr; gap: 14px; margin-bottom: 12px; }
   .sales-title-note { display: none; }

@@ -4,8 +4,11 @@ import (
 	"erp-backend/config"
 	"erp-backend/models"
 	"errors"
+	"math"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,8 +26,9 @@ type ProfitBreakdownResponse struct {
 	CommissionAmount       float64 `json:"commission_amount"`         // 商会提成
 	TradeInAmount          float64 `json:"trade_in_amount"`           // 以旧换新折抵
 	GrossProfit            float64 `json:"gross_profit"`              // 毛利 = 销售额 - 货品成本 - 五项费用
-	OperatingExpense       float64 `json:"operating_expense"`         // 经营开销：经营开销账户(id=7)支出流水，工资按所属月归期
-	NetProfit              float64 `json:"net_profit"`                // 经营净利润 = 毛利 - 经营开销
+	OperatingExpense       float64 `json:"operating_expense"`         // 经营开销（不含工资）：经营开销账户(id=7)非工资支出流水
+	Payroll                float64 `json:"payroll"`                   // 工资开销：工资流水按所属月归期（月初发上月计入上月）
+	NetProfit              float64 `json:"net_profit"`                // 真实净利润 = 毛利 - 经营开销（不含工资） - 工资开销
 	OrderCount             int64   `json:"order_count"`               // 期间正常订单数
 	CostIncomplete         bool    `json:"cost_incomplete"`           // 是否存在待核算成本明细
 	UncostedOrderItemCount int64   `json:"uncosted_order_item_count"` // 待核算成本明细条数（unit_cost <= 0）
@@ -103,6 +107,7 @@ var breakdownTypeTitles = map[string]string{
 	"employee_orders":   "员工订单明细",
 	"account_logs":      "账户流水明细",
 	"trend_orders":      "趋势区间订单明细",
+	"payroll":           "工资开销明细",
 }
 
 // feeColumnByType 五项费用类型 → 订单表列名（白名单，避免拼接注入）。
@@ -240,12 +245,13 @@ func buildProfitBreakdown(startTime, endTime time.Time) (*ProfitBreakdownRespons
 	}
 	result.CostIncomplete = result.UncostedOrderItemCount > 0
 
-	// 经营开销（经营开销台账账户支出流水，与 finance/summary 同口径）
-	operatingExpense, err := sumOperatingExpense(startTime, endTime)
+	// 经营开销（经营开销台账账户支出流水，与 finance/summary 同口径），工资单列供公式视图拆行
+	nonPayrollExpense, payrollExpense, err := sumOperatingExpenseSplit(startTime, endTime)
 	if err != nil {
 		return nil, err
 	}
-	result.OperatingExpense = operatingExpense
+	result.OperatingExpense = nonPayrollExpense
+	result.Payroll = payrollExpense
 
 	result.GrossProfit = CalculateGrossProfit(
 		result.SalesRevenue,
@@ -263,7 +269,9 @@ func buildProfitBreakdown(startTime, endTime time.Time) (*ProfitBreakdownRespons
 
 // GetBreakdownDetail 明细钻取
 // @Summary 按类型返回看板明细列表（分页，附后端全量合计）
-// @Description type: revenue/cost/delivery/installation/referral/commission/trade_in/operating_expense/pending_balance/pending_subsidy/employee_orders/account_logs/trend_orders
+// @Description type: revenue/cost/delivery/installation/referral/commission/trade_in/operating_expense/pending_balance/pending_subsidy/employee_orders/account_logs/trend_orders/payroll
+// @Param exclude_payroll query bool false "operating_expense 类型专用：排除工资流水（经营概况卡的「经营开销」行不含工资）"
+// @Param exclude_ledger query bool false "account_logs 类型专用：排除台账账户（经营开销/历史调整台账），对齐净现金流的资金账户口径"
 // @Tags Finance
 // @Accept json
 // @Param type path string true "明细类型"
@@ -328,7 +336,13 @@ func GetBreakdownDetail(c *gin.Context) {
 	case "delivery", "installation", "referral", "commission", "trade_in":
 		list, total, totalAmount, err = feeBreakdown(feeColumnByType[breakdownType], startTime, endTime, page, pageSize)
 	case "operating_expense":
-		list, total, totalAmount, err = operatingExpenseBreakdown(startTime, endTime, page, pageSize)
+		if c.Query("exclude_payroll") == "true" || c.Query("exclude_payroll") == "1" {
+			list, total, totalAmount, err = operatingExpenseBreakdownExcludePayroll(startTime, endTime, page, pageSize)
+		} else {
+			list, total, totalAmount, err = operatingExpenseBreakdown(startTime, endTime, page, pageSize)
+		}
+	case "payroll":
+		list, total, totalAmount, err = payrollBreakdown(startTime, endTime, page, pageSize)
 	case "pending_balance":
 		list, total, totalAmount, err = pendingBalanceBreakdown(page, pageSize)
 	case "pending_subsidy":
@@ -336,7 +350,11 @@ func GetBreakdownDetail(c *gin.Context) {
 	case "employee_orders":
 		list, total, totalAmount, err = employeeOrdersBreakdown(c.Query("employee_id"), startTime, endTime, page, pageSize)
 	case "account_logs":
-		list, total, totalAmount, err = accountLogsBreakdown(c, startTime, endTime, page, pageSize)
+		if c.Query("exclude_ledger") == "true" || c.Query("exclude_ledger") == "1" {
+			list, total, totalAmount, err = accountLogsBreakdownExcludeLedger(c, startTime, endTime, page, pageSize)
+		} else {
+			list, total, totalAmount, err = accountLogsBreakdown(c, startTime, endTime, page, pageSize)
+		}
 	}
 
 	if err != nil {
@@ -528,7 +546,199 @@ func operatingExpenseBreakdown(startTime, endTime time.Time, page, pageSize int)
 	return rows, total, totalAmount, nil
 }
 
-// pendingBalanceBreakdown 待收尾款全量存量明细（忽略期间）：
+// operatingExpenseBreakdownExcludePayroll 经营开销明细（不含工资）：
+// 经营概况卡的「经营开销」行口径 = 非工资支出（工资单列工资开销行）。
+func operatingExpenseBreakdownExcludePayroll(startTime, endTime time.Time, page, pageSize int) ([]BreakdownExpenseRow, int64, float64, error) {
+	scope := func() *gorm.DB {
+		db := config.DB.Model(&models.FinancialLog{}).
+			Where("account_id = ? AND flow_type = ? AND category != ?", operatingExpenseAccountID, 2, "工资")
+		if !startTime.IsZero() {
+			db = db.Where("created_at >= ?", startTime)
+		}
+		if !endTime.IsZero() {
+			db = db.Where("created_at <= ?", endTime)
+		}
+		return db
+	}
+
+	var rows []BreakdownExpenseRow
+	if err := scope().
+		Select("id, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, category as expense_type, amount, remark").
+		Order("created_at desc, id desc").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var total int64
+	if err := scope().Count(&total).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var totalAmount float64
+	if err := scope().Select("COALESCE(SUM(amount), 0)").Scan(&totalAmount).Error; err != nil {
+		return nil, 0, 0, err
+	}
+	return rows, total, totalAmount, nil
+}
+
+// BreakdownPayrollRow 工资开销明细行：按工资所属月归属（月初发上月工资计入上月）。
+// employee_name 从备注解析（确认发放备注格式「2026-09 工资 李梅梅」），解析失败回退备注全文。
+type BreakdownPayrollRow struct {
+	ID           uint    `json:"id"`
+	EmployeeName string  `json:"employee_name"`
+	SalaryMonth  string  `json:"salary_month"`
+	CreatedAt    string  `json:"created_at"`
+	RelatedNo    string  `json:"related_no"`
+	Amount       float64 `json:"amount"`
+	Remark       string  `json:"remark"`
+}
+
+// payrollEmployeeNameNoise 备注中与员工姓名无关的噪声词（月份标记/工资字样/手工补发说明）。
+var payrollEmployeeNameNoise = regexp.MustCompile(`20\d{2}-\d{2}|\d{1,2}月|工资|薪资|补发|差额|发放|历史|手工|离职结算`)
+
+// payrollEmployeeName 从工资流水备注提取员工姓名；去噪后为空则回退备注全文（可能无法识别）。
+func payrollEmployeeName(remark string) string {
+	name := strings.TrimSpace(payrollEmployeeNameNoise.ReplaceAllString(remark, " "))
+	if name == "" {
+		return strings.TrimSpace(remark)
+	}
+	// 去噪后可能残留前导分隔空格或"员工"等字样，取首个非空片段
+	fields := strings.Fields(name)
+	if len(fields) == 0 {
+		return "—"
+	}
+	return fields[0]
+}
+
+// payrollBreakdown 工资开销明细：经营开销台账（id=7）category=工资 的支出流水，
+// 按工资所属月归属过滤（与 monthlyPayrollTotal / 薪资结算口径一致）。
+// 候选流水取 created_at ±3 个月（覆盖跨月发放），归属判断复用 payrollBelongsToWindow；
+// 归属月展示复用 payrollSalaryMonth（PAY- 前缀 → 备注标记 → 实付月上一个月）。
+func payrollBreakdown(startTime, endTime time.Time, page, pageSize int) ([]BreakdownPayrollRow, int64, float64, error) {
+	query := config.DB.Model(&models.FinancialLog{}).
+		Where("account_id = ? AND flow_type = ? AND category = ?", operatingExpenseAccountID, 2, "工资")
+	if !startTime.IsZero() {
+		query = query.Where("created_at >= ? AND created_at <= ?", startTime.AddDate(0, -3, 0), endTime.AddDate(0, 3, 0))
+	}
+	var logs []models.FinancialLog
+	if err := query.Order("created_at desc, id desc").Find(&logs).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	type matchedLog struct {
+		log         models.FinancialLog
+		salaryMonth string
+	}
+	matched := make([]matchedLog, 0, len(logs))
+	totalAmount := 0.0
+	// 全量口径（startTime/endTime 均为零值）时不过滤归属月，全部工资流水都算
+	unbounded := startTime.IsZero() && endTime.IsZero()
+	employeeIDPattern := regexp.MustCompile(`^PAY-\d{4}-\d{2}-(\d+)$`)
+	employeeIDs := make([]uint, 0, 8)
+	for _, row := range logs {
+		if !unbounded && !payrollBelongsToWindow(row.RelatedNo, row.CreatedAt, startTime, endTime) {
+			continue
+		}
+		if groups := employeeIDPattern.FindStringSubmatch(row.RelatedNo); groups != nil {
+			if parsed, convErr := strconv.ParseUint(groups[1], 10, 64); convErr == nil && parsed > 0 {
+				employeeIDs = append(employeeIDs, uint(parsed))
+			}
+		}
+		matched = append(matched, matchedLog{log: row, salaryMonth: payrollSalaryMonth(row)})
+		totalAmount += row.Amount
+	}
+
+	// 员工姓名：确认发放/归属修正后的 related_no 尾段就是员工ID，按 ID 反查最可靠；
+	// 历史手工流水 ID 缺失时回退备注去噪。
+	nameByID := make(map[uint]string, len(employeeIDs))
+	if len(employeeIDs) > 0 {
+		var employees []models.Employee
+		if err := config.DB.Unscoped().Select("id, name").Where("id IN ?", employeeIDs).Find(&employees).Error; err == nil {
+			for _, employee := range employees {
+				nameByID[employee.ID] = employee.Name
+			}
+		}
+	}
+
+	total := int64(len(matched))
+	totalAmount = math.Round(totalAmount*100) / 100
+	startIdx := (page - 1) * pageSize
+	if startIdx > len(matched) {
+		startIdx = len(matched)
+	}
+	endIdx := startIdx + pageSize
+	if endIdx > len(matched) {
+		endIdx = len(matched)
+	}
+
+	rows := make([]BreakdownPayrollRow, 0, endIdx-startIdx)
+	for _, item := range matched[startIdx:endIdx] {
+		employeeName := ""
+		if groups := employeeIDPattern.FindStringSubmatch(item.log.RelatedNo); groups != nil {
+			if parsed, convErr := strconv.ParseUint(groups[1], 10, 64); convErr == nil {
+				employeeName = nameByID[uint(parsed)]
+			}
+		}
+		if employeeName == "" {
+			employeeName = payrollEmployeeName(item.log.Remark)
+		}
+		rows = append(rows, BreakdownPayrollRow{
+			ID:           item.log.ID,
+			EmployeeName: employeeName,
+			SalaryMonth:  item.salaryMonth,
+			CreatedAt:    item.log.CreatedAt.Format("2006-01-02"),
+			RelatedNo:    item.log.RelatedNo,
+			Amount:       item.log.Amount,
+			Remark:       item.log.Remark,
+		})
+	}
+	return rows, total, totalAmount, nil
+}
+
+// accountLogsBreakdownExcludeLedger 资金账户流水明细（排除台账账户）：
+// 经营概况卡「净现金流/现金流入/流出」行的口径 = 资金账户（非经营开销/历史调整台账）收支流水。
+func accountLogsBreakdownExcludeLedger(c *gin.Context, startTime, endTime time.Time, page, pageSize int) ([]BreakdownLogRow, int64, float64, error) {
+	accountIDStr := c.Query("account_id")
+	if accountIDStr != "" {
+		// 指定了具体账户时不做台账排除（前端该入口不传 exclude_ledger），走原逻辑语义
+		return accountLogsBreakdown(c, startTime, endTime, page, pageSize)
+	}
+
+	scope := func() *gorm.DB {
+		db := config.DB.Model(&models.FinancialLog{}).
+			Where("flow_type IN ? AND reversal_pair_id IS NULL", []int{1, 2}).
+			Where("account_id NOT IN (?)", config.DB.Model(&models.Account{}).
+				Select("id").Where("name IN ?", ledgerAccountNames))
+		if !startTime.IsZero() {
+			db = db.Where("created_at >= ?", startTime)
+		}
+		if !endTime.IsZero() {
+			db = db.Where("created_at <= ?", endTime)
+		}
+		return db
+	}
+
+	var rows []BreakdownLogRow
+	if err := scope().
+		Select("id, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, flow_type, category, amount, balance_after, counterparty, related_no, remark").
+		Order("created_at desc, id desc").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var total int64
+	if err := scope().Count(&total).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var totalAmount float64
+	if err := scope().Select("COALESCE(SUM(amount), 0)").Scan(&totalAmount).Error; err != nil {
+		return nil, 0, 0, err
+	}
+	return rows, total, totalAmount, nil
+}
 // 口径与 GetFinanceSummary 一致：payment_status=1 AND order_status=1，金额 = actual_pay_amount - deposit_amount。
 func pendingBalanceBreakdown(page, pageSize int) ([]BreakdownOrderRow, int64, float64, error) {
 	scope := func() *gorm.DB {

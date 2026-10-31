@@ -131,7 +131,18 @@ export const BREAKDOWN_TYPES = {
       { prop: 'amount', label: '金额', formatter: formatMoney, align: 'right', mobileVisible: true }
     ]
   },
-  trend_orders: { title: '趋势区间订单明细', amountLabel: '销售额合计', columns: ORDER_COLUMNS }
+  trend_orders: { title: '趋势区间订单明细', amountLabel: '销售额合计', columns: ORDER_COLUMNS },
+  payroll: {
+    title: '工资开销明细',
+    amountLabel: '工资合计',
+    columns: [
+      { prop: 'employee_name', label: '员工姓名', mobileVisible: true },
+      { prop: 'salary_month', label: '工资所属月', mobileVisible: true },
+      { prop: 'created_at', label: '实付日期', formatter: formatDate, mobileVisible: false },
+      { prop: 'related_no', label: '关联单号', mobileVisible: false },
+      { prop: 'amount', label: '金额', formatter: formatMoney, align: 'right', mobileVisible: true }
+    ]
+  }
 }
 
 /** 净利润公式视图类型常量（抽屉内部视图，非后端明细类型） */

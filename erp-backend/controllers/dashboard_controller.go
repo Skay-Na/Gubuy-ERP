@@ -112,6 +112,16 @@ func CalculateNetProfit(grossProfit, operatingExpense float64) float64 {
 // 有数据，全库仅 3 行以旧换新；历史开销账导入的房租、工资等 79 笔只写入了 financial_logs，
 // 导致 operating_expense 长期为 0、net_profit 实际等于毛利。改造后统一走流水账户口径。
 func sumOperatingExpense(startTime, endTime time.Time) (float64, error) {
+	nonPayroll, payroll, err := sumOperatingExpenseSplit(startTime, endTime)
+	if err != nil {
+		return 0, err
+	}
+	return nonPayroll + payroll, nil
+}
+
+// sumOperatingExpenseSplit 在 sumOperatingExpense 口径基础上把「经营开销（不含工资）」与
+// 「工资开销（按所属月归期）」分开返回，供利润计算过程视图与经营概况卡分别下钻展示。
+func sumOperatingExpenseSplit(startTime, endTime time.Time) (float64, float64, error) {
 	var nonPayroll float64
 	nonPayrollDB := config.DB.Model(&models.FinancialLog{}).
 		Where("account_id = ? AND flow_type = ?", operatingExpenseAccountID, 2)
@@ -124,7 +134,7 @@ func sumOperatingExpense(startTime, endTime time.Time) (float64, error) {
 	if err := nonPayrollDB.
 		Select("COALESCE(SUM(CASE WHEN category = '工资' THEN 0 ELSE amount END), 0)").
 		Scan(&nonPayroll).Error; err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	// 工资按所属月归期：全量口径直接合计，期间口径复用 real-profit 的归属月解析。
@@ -134,16 +144,16 @@ func sumOperatingExpense(startTime, endTime time.Time) (float64, error) {
 			Where("account_id = ? AND flow_type = ? AND category = ?", operatingExpenseAccountID, 2, "工资").
 			Select("COALESCE(SUM(amount), 0)").
 			Scan(&payroll).Error; err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	} else {
 		payrollTotal, err := monthlyPayrollTotal(startTime, endTime)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 		payroll = payrollTotal
 	}
-	return nonPayroll + payroll, nil
+	return nonPayroll, payroll, nil
 }
 
 // resolvePeriodRange 解析 period/start_date/end_date 查询参数为统计起止时间。
