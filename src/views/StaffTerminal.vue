@@ -326,7 +326,6 @@
           </div>
         </div>
         <div class="flex items-center gap-2">
-          <button class="rounded-full border border-blue-200 bg-blue-50 px-3 py-2.5 text-xs font-bold text-blue-700" @click="photoOrderVisible = true">📷 拍照录单</button>
           <el-button type="primary" size="large" round class="!px-4 md:!px-10 !h-11 md:!h-12 font-black shadow-lg shadow-blue-200 active:scale-95 transition-all" @click="openDrawer" :disabled="cart.length === 0">
             立即结算
           </el-button>
@@ -1255,7 +1254,6 @@
         </el-button>
       </template>
     </el-dialog>
-    <StaffPhotoOrder v-if="currentEmployee" v-model:visible="photoOrderVisible" :employee="currentEmployee" @apply="applyPhotoOrder" />
   </div>
 </template>
 
@@ -1286,7 +1284,6 @@ import {
 import { fetchAccounts as fetchAccountsApi } from '../api/finance'
 import { buildCategoryTree, categoryCascaderProps } from '../utils/categories'
 import dayjs from 'dayjs'
-import StaffPhotoOrder from '../components/employee/StaffPhotoOrder.vue'
 
 const router = useRouter()
 
@@ -1333,8 +1330,6 @@ const resetTerminalSession = () => {
   selectedEmployee.value = null
   pin.value = ''
   cart.value = []
-  photoOrderDraftId.value = null
-  photoOrderVisible.value = false
   blindStocktakeMode.value = false
   todayAttendance.value = null
   attendanceLoadFailed.value = false
@@ -1694,8 +1689,6 @@ const categoryDialogVisible = ref(false)
 const categorySearchQuery = ref('')
 const blindStocktakeMode = ref(false)
 const cart = ref([])
-const photoOrderDraftId = ref(null)
-const photoOrderVisible = ref(false)
 const drawerVisible = ref(false)
 const loading = ref(false)
 
@@ -1934,7 +1927,6 @@ const addToCart = (product) => {
 
 const removeFromCart = (index) => {
   cart.value.splice(index, 1)
-  if (!cart.value.length) photoOrderDraftId.value = null
 }
 const openDrawer = () => drawerVisible.value = true
 
@@ -1945,47 +1937,6 @@ const checkoutSections = computed(() => [
   { key: 'payment', label: '支付结算', icon: markRaw(Money), badge: false },
   { key: 'promo', label: '优惠活动', icon: markRaw(Promotion), badge: isSubsidized.value || isTradeIn.value || isDepositMode.value }
 ])
-
-const applyPhotoOrder = async (draft) => {
-  if (cart.value.length) {
-    try {
-      await ElMessageBox.confirm('放入识别订单会替换当前购物车，继续吗？', '替换购物车')
-    } catch { return }
-  }
-  isSubsidized.value = Boolean(draft.is_subsidy)
-  isTradeIn.value = false
-  tradeInAmount.value = 0
-  tradeInAccountId.value = null
-  tradeInType.value = ''
-  tradeInRemark.value = ''
-  isDepositMode.value = false
-  depositAmount.value = 0
-  wipeZeroAmount.value = 0
-  isBossCustomer.value = false
-  orderType.value = 1
-  paymentMethod.value = draft.is_subsidy ? 3 : 1
-  mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
-  deliveryMethod.value = 4
-  referrerName.value = ''
-  cart.value = draft.items.map(item => ({
-    id: item.product.id,
-    name: item.product.name,
-    category_name: item.product.category?.name || '',
-    minPrice: calculateMinPrice(item.product),
-    price: item.unit_price,
-    quantity: item.quantity,
-    store_stock: item.product.store_stock,
-    cloud_stock: item.product.cloud_stock,
-    isGift: false
-  }))
-  customerName.value = draft.customer.name
-  customerPhone.value = draft.customer.phone
-  customerAddress.value = draft.customer.address
-  photoOrderDraftId.value = draft.id
-  photoOrderVisible.value = false
-  drawerVisible.value = true
-  if (cart.value.some(item => item.price < item.minPrice)) ElMessage.warning('部分识别单价低于系统最低售价，请在结算前核对')
-}
 
 // 结算状态
 const isSubsidized = ref(false)
@@ -2157,7 +2108,6 @@ const handleCheckout = async () => {
 
     loading.value = true
     const payload = {
-      ai_import_id: photoOrderDraftId.value || undefined,
       items: cart.value.map(i => ({
         product_id: i.id,
         quantity: i.quantity,
@@ -2189,7 +2139,6 @@ const handleCheckout = async () => {
       cart.value = []
       // 购物车已清空，下一单使用新的幂等键
       clientRequestId = newClientRequestId()
-      photoOrderDraftId.value = null
       customerName.value = ''
       customerPhone.value = ''
       customerAddress.value = ''
