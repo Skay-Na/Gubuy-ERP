@@ -136,7 +136,7 @@ const employeeChartOption = computed(() => {
       formatter: p => {
         const row = list.find(e => e.employee_name === p.name)
         if (!row) return p.name
-        return `<b>${row.employee_name}</b><br/>销售额 ¥${formatMoney(row.sales_amount)}<br/>订单 ${row.order_count} 单 · 提成 ¥${formatMoney(row.commission)}<br/>商品毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">售价−进价，未扣安装与提成 · 点击条形可筛选</span>`
+        return `<b>${row.employee_name}</b><br/>销售额 ¥${formatMoney(row.sales_amount)}<br/>订单 ${row.order_count} 单 · 提成 ¥${formatMoney(row.commission)}<br/>商品毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">售价−进价，未扣安装与提成 · 点击条形查看订单</span>`
       }
     },
     xAxis: { type: 'value', axisLabel: { color: '#94a3b8', formatter: v => '¥' + shortMoney(v) }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
@@ -170,7 +170,7 @@ const categoryChartOption = computed(() => {
       formatter: p => {
         const row = list.find(c => c.category_name === p.name)
         if (!row) return p.name
-        return `<b>${p.name}</b><br/>¥${formatMoney(row.sales_amount)} · 占比 ${p.percent}%<br/>${row.qty} 件 · 商品毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">售价−进价，未扣安装与提成 · 点击色块可筛选</span>`
+        return `<b>${p.name}</b><br/>¥${formatMoney(row.sales_amount)} · 占比 ${p.percent}%<br/>${row.qty} 件 · 商品毛利 ¥${formatMoney(row.gross_profit)}<br/><span style="color:#94a3b8">售价−进价，未扣安装与提成 · 点击色块看各员工销售</span>`
       }
     },
     legend: { bottom: 0, type: 'scroll', textStyle: { color: '#475569', fontSize: 11 }, itemWidth: 10, itemHeight: 10, pageIconSize: 10 },
@@ -273,6 +273,57 @@ const openSalesOrdersDrill = (params, label) => {
   drill.visible = true
 }
 
+// 品类下钻二级视图：点环图扇区 → 该品类各员工销售柱状图 → 点员工柱子再跳订单
+const catDrill = reactive({ visible: false, catKey: null, catName: '' })
+let catDrillChart = null
+const catDrillRef = ref(null)
+const catDrillRows = computed(() => catDrill.catKey === null ? [] :
+  (sales.value?.employee_category || [])
+    .filter(r => (r.category_id ?? 'none') === catDrill.catKey)
+    .map(r => ({ key: r.employee_id ?? 'none', name: empNameByKey(r.employee_id ?? 'none'), amount: Number(r.sales_amount || 0), qty: Number(r.qty || 0) }))
+    .sort((a, b) => b.amount - a.amount))
+const catDrillOption = computed(() => {
+  const rows = catDrillRows.value
+  const useQty = salesMetric.value === 'qty'
+  return {
+    grid: { left: 8, right: 56, top: 10, bottom: 6, containLabel: true },
+    tooltip: {
+      trigger: 'item', confine: true,
+      formatter: p => {
+        const r = rows[p.dataIndex]
+        if (!r) return p.name
+        return `<b>${r.name}</b><br/>销售额 ¥${formatMoney(r.amount)} · ${r.qty} 件<br/><span style="color:#94a3b8">点击柱子查看该员工在此品类的订单</span>`
+      }
+    },
+    xAxis: { type: 'value', axisLabel: { color: '#94a3b8', formatter: v => useQty ? v : '¥' + shortMoney(v) }, splitLine: { lineStyle: { color: '#f1f5f9' } } },
+    yAxis: { type: 'category', inverse: true, data: rows.map(r => r.name), axisLabel: { color: '#334155', fontWeight: 600 }, axisTick: { show: false }, axisLine: { show: false } },
+    series: [{
+      name: useQty ? '销量' : '销售额',
+      type: 'bar',
+      barWidth: 16,
+      cursor: 'pointer',
+      data: rows.map(r => useQty ? r.qty : r.amount),
+      itemStyle: { color: '#7a70ff', borderRadius: [0, 8, 8, 0] },
+      emphasis: { itemStyle: { color: '#4b44c8' } },
+      label: { show: true, position: 'right', color: '#0f172a', fontWeight: 700, formatter: p => useQty ? `${p.value} 件` : '¥' + shortMoney(p.value) }
+    }]
+  }
+})
+const renderCatDrill = () => {
+  if (!catDrillRef.value) return
+  if (!catDrillChart) {
+    catDrillChart = echarts.init(catDrillRef.value)
+    catDrillChart.on('click', p => {
+      const row = catDrillRows.value[p.dataIndex]
+      if (!row) return
+      catDrill.visible = false
+      openSalesOrdersDrill({ employee_id: row.key, category_id: catDrill.catKey }, `员工「${row.name}」× 品类「${catDrill.catName}」的订单`)
+    })
+  }
+  catDrillChart.setOption(catDrillOption.value, true)
+}
+watch(() => catDrill.visible, v => { if (v) nextTick(renderCatDrill) })
+
 const renderCharts = () => {
   if (!sales.value) return
   if (empChartRef.value) {
@@ -289,10 +340,13 @@ const renderCharts = () => {
   if (catChartRef.value) {
     if (!catChart) {
       catChart = echarts.init(catChartRef.value)
-      // 点击扇区 → 带出该品类命中的订单列表
+      // 点击扇区 → 二级下钻：该品类各员工销售柱状图（点员工柱子再跳订单）
       catChart.on('click', p => {
         const cat = (sales.value?.categories || []).find(c => c.category_name === p.name)
-        if (cat) openSalesOrdersDrill({ category_id: catKeyOf(cat) }, `品类「${cat.category_name}」的订单`)
+        if (!cat) return
+        catDrill.catKey = catKeyOf(cat)
+        catDrill.catName = cat.category_name
+        catDrill.visible = true
       })
     }
     catChart.setOption(categoryChartOption.value, true)
@@ -321,7 +375,7 @@ watch([sales, salesMetric, salesFilterEmp, salesFilterCat], () => nextTick(rende
 // 页签切换：隐藏容器里初始化的图表尺寸为 0，切到可见后必须 resize
 const salesTab = ref('heat')
 watch(salesTab, () => nextTick(() => { renderCharts(); handleChartResize() }))
-const handleChartResize = () => { empChart?.resize(); catChart?.resize(); heatChart?.resize() }
+const handleChartResize = () => { empChart?.resize(); catChart?.resize(); heatChart?.resize(); catDrillChart?.resize() }
 onMounted(() => window.addEventListener('resize', handleChartResize))
 onBeforeUnmount(() => {
   window.removeEventListener('resize', handleChartResize)
@@ -744,6 +798,17 @@ onMounted(refreshAll)
         <el-table-column prop="related_no" label="单号" min-width="120" show-overflow-tooltip />
       </el-table>
     </el-drawer>
+
+    <!-- 品类下钻二级视图：该品类各员工销售柱状图，点员工柱子 → 该员工×品类订单 -->
+    <el-dialog
+      v-model="catDrill.visible"
+      :title="`品类「${catDrill.catName}」· 各员工销售`"
+      width="min(560px, 94vw)"
+      append-to-body
+    >
+      <div ref="catDrillRef" style="height: 380px"></div>
+      <div class="mt-1 text-xs text-slate-400">点击员工柱子 → 查看该员工在此品类的订单明细</div>
+    </el-dialog>
 
     <!-- 明细下钻抽屉（复用经营看板钻取体系，手机端自动全屏） -->
     <DashboardDrillDownDrawer
