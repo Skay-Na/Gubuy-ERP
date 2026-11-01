@@ -118,6 +118,8 @@ export const BREAKDOWN_TYPES = {
     ]
   },
   employee_orders: { title: '员工订单明细', amountLabel: '销售额合计', columns: ORDER_COLUMNS },
+  // 销售分析图表下钻：行金额 = 命中明细的销售额小计（单价×数量），合计与图表格子数值一致
+  sales_orders: { title: '销售订单明细', amountLabel: '销售额合计', columns: ORDER_COLUMNS },
   account_logs: {
     title: '账户流水明细',
     amountLabel: '流水合计',

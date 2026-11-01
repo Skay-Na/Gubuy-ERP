@@ -259,14 +259,29 @@ const heatChartOption = computed(() => {
   }
 })
 
+// 销售分析图表点击 → 直接带出命中订单列表（口径与销售分析明细级一致：单价×数量）
+const salesPeriodParams = () => {
+  if (salesMonth.value === 'cumulative') return { period: 'all' }
+  const [y, m] = salesMonth.value.split('-').map(Number)
+  const endDay = new Date(y, m, 0).getDate()
+  return { period: 'custom', start_date: `${salesMonth.value}-01`, end_date: `${salesMonth.value}-${String(endDay).padStart(2, '0')}` }
+}
+const openSalesOrdersDrill = (params, label) => {
+  drill.type = 'sales_orders'
+  drill.label = label
+  drill.params = { ...salesPeriodParams(), ...params }
+  drill.visible = true
+}
+
 const renderCharts = () => {
   if (!sales.value) return
   if (empChartRef.value) {
     if (!empChart) {
       empChart = echarts.init(empChartRef.value)
+      // 点击柱子 → 带出该员工命中的订单列表
       empChart.on('click', p => {
         const emp = (sales.value?.employees || []).find(e => e.employee_name === p.name)
-        if (emp) salesFilterEmp.value = salesFilterEmp.value === empKeyOf(emp) ? null : empKeyOf(emp)
+        if (emp) openSalesOrdersDrill({ employee_id: empKeyOf(emp) }, `员工「${emp.employee_name}」的订单`)
       })
     }
     empChart.setOption(employeeChartOption.value, true)
@@ -274,9 +289,10 @@ const renderCharts = () => {
   if (catChartRef.value) {
     if (!catChart) {
       catChart = echarts.init(catChartRef.value)
+      // 点击扇区 → 带出该品类命中的订单列表
       catChart.on('click', p => {
         const cat = (sales.value?.categories || []).find(c => c.category_name === p.name)
-        if (cat) salesFilterCat.value = salesFilterCat.value === catKeyOf(cat) ? null : catKeyOf(cat)
+        if (cat) openSalesOrdersDrill({ category_id: catKeyOf(cat) }, `品类「${cat.category_name}」的订单`)
       })
     }
     catChart.setOption(categoryChartOption.value, true)
@@ -284,19 +300,17 @@ const renderCharts = () => {
   if (heatChartRef.value) {
     if (!heatChart) {
       heatChart = echarts.init(heatChartRef.value)
-      // 热力图点击联动：单元格 → 同时选中该员工+品类；再点同格清除（与条形图/环图点击行为一致）
+      // 点击格子 → 带出该员工×品类组合命中的订单列表
       heatChart.on('click', p => {
         if (!Array.isArray(p.value)) return
         // 轴会随筛选收缩，索引必须取自「当前渲染的那一版」轴键，不能实时重算
         const empKey = heatAxisKeys.emp[p.value[1]]
         const catKey = heatAxisKeys.cat[p.value[0]]
         if (empKey === undefined || catKey === undefined) return
-        if (salesFilterEmp.value === empKey && salesFilterCat.value === catKey) {
-          clearSalesFilters()
-        } else {
-          salesFilterEmp.value = empKey
-          salesFilterCat.value = catKey
-        }
+        openSalesOrdersDrill(
+          { employee_id: empKey, category_id: catKey },
+          `${empNameByKey(empKey)} × ${catNameByKey(catKey)} 的订单`
+        )
       })
     }
     heatAxisKeys = { emp: filteredEmployees.value.map(empKeyOf), cat: filteredCategories.value.map(catKeyOf) }

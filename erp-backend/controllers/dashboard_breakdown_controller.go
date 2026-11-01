@@ -108,6 +108,7 @@ var breakdownTypeTitles = map[string]string{
 	"pending_balance":   "待收尾款明细",
 	"pending_subsidy":   "国补待回款明细",
 	"employee_orders":   "员工订单明细",
+	"sales_orders":      "销售订单明细",
 	"account_logs":      "账户流水明细",
 	"trend_orders":      "趋势区间订单明细",
 	"payroll":           "工资开销明细",
@@ -365,6 +366,9 @@ func GetBreakdownDetail(c *gin.Context) {
 		list, total, totalAmount, err = pendingSubsidyBreakdown(page, pageSize)
 	case "employee_orders":
 		list, total, totalAmount, err = employeeOrdersBreakdown(c.Query("employee_id"), startTime, endTime, page, pageSize)
+	case "sales_orders":
+		// 财务销售分析图表下钻：员工/品类/交叉格子 → 命中的订单列表
+		list, total, totalAmount, err = salesOrdersBreakdown(c.Query("employee_id"), c.Query("category_id"), startTime, endTime, page, pageSize)
 	case "account_logs":
 		if c.Query("exclude_ledger") == "true" || c.Query("exclude_ledger") == "1" {
 			list, total, totalAmount, err = accountLogsBreakdownExcludeLedger(c, startTime, endTime, page, pageSize)
@@ -911,6 +915,72 @@ func employeeOrdersBreakdown(employeeID string, startTime, endTime time.Time, pa
 type invalidParamError struct{ msg string }
 
 func (e *invalidParamError) Error() string { return e.msg }
+
+// salesOrdersBreakdown 财务销售分析图表下钻明细：与 GetFinanceSalesAnalysis 的明细级口径一致
+// （order_status=1；员工按订单 employee_id 归属，'none'=未分配；品类按商品 category_id，'none'=未分类；
+// 员工+品类可同时传入对应交叉格子）。行金额 = 命中明细的销售额小计（单价×数量），合计与图表格子数值一致。
+func salesOrdersBreakdown(employeeID, categoryID string, startTime, endTime time.Time, page, pageSize int) ([]BreakdownOrderRow, int64, float64, error) {
+	if employeeID == "" && categoryID == "" {
+		return nil, 0, 0, &invalidParamError{msg: "缺少员工或品类参数"}
+	}
+	if employeeID != "" && employeeID != "none" {
+		if _, convErr := strconv.Atoi(employeeID); convErr != nil {
+			return nil, 0, 0, &invalidParamError{msg: "员工归属参数无效"}
+		}
+	}
+	if categoryID != "" && categoryID != "none" {
+		if _, convErr := strconv.Atoi(categoryID); convErr != nil {
+			return nil, 0, 0, &invalidParamError{msg: "品类参数无效"}
+		}
+	}
+
+	scope := func() *gorm.DB {
+		db := config.DB.Table("order_items oi JOIN orders o ON oi.order_id = o.id").
+			Joins("JOIN products p ON p.id = oi.product_id").
+			Where("o.order_status = 1")
+		if !startTime.IsZero() {
+			db = db.Where("o.created_at >= ?", startTime)
+		}
+		if !endTime.IsZero() {
+			db = db.Where("o.created_at <= ?", endTime)
+		}
+		switch {
+		case employeeID == "none":
+			db = db.Where("o.employee_id IS NULL")
+		case employeeID != "":
+			db = db.Where("o.employee_id = ?", employeeID)
+		}
+		switch {
+		case categoryID == "none":
+			db = db.Where("p.category_id IS NULL OR p.category_id = 0")
+		case categoryID != "":
+			db = db.Where("p.category_id = ?", categoryID)
+		}
+		return db
+	}
+
+	var rows []BreakdownOrderRow
+	if err := scope().
+		Select("o.id, o.order_no, o.customer_name, DATE_FORMAT(o.created_at, '%Y-%m-%d') as created_at, COALESCE(SUM(oi.unit_price * oi.quantity), 0) as amount").
+		Group("o.id, o.order_no, o.customer_name").
+		Order("MAX(o.created_at) desc, o.id desc").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var total int64
+	if err := scope().Distinct("o.id").Count(&total).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var totalAmount float64
+	if err := scope().Select("COALESCE(SUM(oi.unit_price * oi.quantity), 0)").Scan(&totalAmount).Error; err != nil {
+		return nil, 0, 0, err
+	}
+	totalAmount = salesAnalysisRound(totalAmount)
+	return rows, total, totalAmount, nil
+}
 
 // accountLogsBreakdown 账户流水明细：FinancialLog（1收2支，排除成对冲销），支持 account_id 过滤。
 func accountLogsBreakdown(c *gin.Context, startTime, endTime time.Time, page, pageSize int) ([]BreakdownLogRow, int64, float64, error) {
