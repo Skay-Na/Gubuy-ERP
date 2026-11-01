@@ -116,6 +116,7 @@ const heatChartRef = ref(null)
 let empChart = null
 let catChart = null
 let heatChart = null
+let heatAxisKeys = { emp: [], cat: [] } // 当前渲染的热力图轴键（点击联动用，随筛选收缩）
 
 const filteredEmployees = computed(() =>
   salesFilterEmp.value !== null ? (sales.value?.employees || []).filter(e => empKeyOf(e) === salesFilterEmp.value) : (sales.value?.employees || [])
@@ -252,7 +253,8 @@ const heatChartOption = computed(() => {
         fontWeight: 700,
         formatter: p => (salesMetric.value === 'amount' ? shortMoney(p.value[2]) : `${p.value[2]}件`)
       },
-      emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(30,58,138,.35)' } }
+      emphasis: { itemStyle: { shadowBlur: 8, shadowColor: 'rgba(30,58,138,.35)' } },
+      cursor: 'pointer'
     }]
   }
 })
@@ -280,7 +282,24 @@ const renderCharts = () => {
     catChart.setOption(categoryChartOption.value, true)
   }
   if (heatChartRef.value) {
-    if (!heatChart) heatChart = echarts.init(heatChartRef.value)
+    if (!heatChart) {
+      heatChart = echarts.init(heatChartRef.value)
+      // 热力图点击联动：单元格 → 同时选中该员工+品类；再点同格清除（与条形图/环图点击行为一致）
+      heatChart.on('click', p => {
+        if (!Array.isArray(p.value)) return
+        // 轴会随筛选收缩，索引必须取自「当前渲染的那一版」轴键，不能实时重算
+        const empKey = heatAxisKeys.emp[p.value[1]]
+        const catKey = heatAxisKeys.cat[p.value[0]]
+        if (empKey === undefined || catKey === undefined) return
+        if (salesFilterEmp.value === empKey && salesFilterCat.value === catKey) {
+          clearSalesFilters()
+        } else {
+          salesFilterEmp.value = empKey
+          salesFilterCat.value = catKey
+        }
+      })
+    }
+    heatAxisKeys = { emp: filteredEmployees.value.map(empKeyOf), cat: filteredCategories.value.map(catKeyOf) }
     heatChart.setOption(heatChartOption.value, true)
   }
 }
