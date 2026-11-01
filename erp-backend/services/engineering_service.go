@@ -143,10 +143,14 @@ func CalcContractTotal(itemsTotal, installFee, freightFee, otherFee, discount fl
 // 4.5 盈利口径（两层：设备毛利 / 项目净利）
 // ---------------------------------------------------------------------------
 
+// EngTaxRate 工程开票税点：所有工程按合同总额 × 4% 计开票税点成本，
+// 从设备毛利与项目净利中扣除（2026-11-02 业主定稿，与国补单开票成本 4% 口径对齐）。
+const EngTaxRate = 0.04
+
 // EngProfit 项目盈利指标
 type EngProfit struct {
-	GrossProfit     float64 // 设备毛利 = 合同额 − 设备成本
-	NetProfit       float64 // 项目净利 = 合同额 − 设备成本 − 本项目费用
+	GrossProfit     float64 // 设备毛利 = 合同额 − 设备成本 − 开票税点（合同额×4%）
+	NetProfit       float64 // 项目净利 = 合同额 − 设备成本 − 本项目费用 − 开票税点
 	GrossMarginRate float64 // 设备毛利率 %
 	NetMarginRate   float64 // 净利率 %
 }
@@ -157,10 +161,11 @@ func CalcProfitability(contractTotal, costTotal, expenseTotal float64) EngProfit
 	contractTotal = RoundMoney(contractTotal)
 	costTotal = RoundMoney(costTotal)
 	expenseTotal = RoundMoney(expenseTotal)
+	taxCost := RoundMoney(contractTotal * EngTaxRate)
 
 	p := EngProfit{
-		GrossProfit: RoundMoney(contractTotal - costTotal),
-		NetProfit:   RoundMoney(contractTotal - costTotal - expenseTotal),
+		GrossProfit: RoundMoney(contractTotal - costTotal - taxCost),
+		NetProfit:   RoundMoney(contractTotal - costTotal - expenseTotal - taxCost),
 	}
 	if cents(contractTotal) != 0 {
 		p.GrossMarginRate = RoundMoney(p.GrossProfit / contractTotal * 100)
@@ -169,14 +174,14 @@ func CalcProfitability(contractTotal, costTotal, expenseTotal float64) EngProfit
 	return p
 }
 
-// CalcGrossProfit 设备毛利（只减进货成本，与零售毛利同算法）
+// CalcGrossProfit 设备毛利（合同额 − 进货成本 − 开票税点）
 func CalcGrossProfit(contractTotal, costTotal float64) float64 {
-	return RoundMoney(RoundMoney(contractTotal) - RoundMoney(costTotal))
+	return CalcProfitability(contractTotal, costTotal, 0).GrossProfit
 }
 
 // CalcNetProfit 项目净利（老板看的那个数：再减本项目实际发生的工程费用）
 func CalcNetProfit(contractTotal, costTotal, expenseTotal float64) float64 {
-	return RoundMoney(RoundMoney(contractTotal) - RoundMoney(costTotal) - RoundMoney(expenseTotal))
+	return CalcProfitability(contractTotal, costTotal, expenseTotal).NetProfit
 }
 
 // CalcEquipMarginRate 设备毛利率 %；合同额为 0 时返回 0

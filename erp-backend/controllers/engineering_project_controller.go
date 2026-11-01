@@ -348,8 +348,9 @@ func GetEngineeringSummary(c *gin.Context) {
 		        SUM(CASE WHEN status IN (1,2,3,4) AND contract_total > received_amount THEN contract_total - received_amount ELSE 0 END) AS pending_amount,
 		        SUM(CASE WHEN status IN (1,2,3,4) AND contract_total > received_amount THEN 1 ELSE 0 END) AS pending_project_count,
 		        SUM(CASE WHEN status IN (2,3,4,5) THEN contract_total ELSE 0 END) AS signed_contract_total,
-		        SUM(CASE WHEN status IN (2,3,4,5) THEN contract_total - cost_total ELSE 0 END) AS gross_profit,
-		        SUM(CASE WHEN status IN (2,3,4,5) THEN contract_total - cost_total - expense_total ELSE 0 END) AS total_net_profit`).
+	        SUM(CASE WHEN status IN (2,3,4,5) THEN contract_total - cost_total - contract_total * ? ELSE 0 END) AS gross_profit,
+	        SUM(CASE WHEN status IN (2,3,4,5) THEN contract_total - cost_total - expense_total - contract_total * ? ELSE 0 END) AS total_net_profit`,
+		services.EngTaxRate, services.EngTaxRate).
 		Where("deleted_at IS NULL").
 		Scan(&agg).Error; err != nil {
 		FailInternal(c, "工程汇总查询失败："+err.Error())

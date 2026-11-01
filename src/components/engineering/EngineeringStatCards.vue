@@ -96,7 +96,7 @@ const cards = computed(() => {
       title: '平均净利率',
       value: summaryEmpty ? '—' : formatPercent(d.avg_net_margin_rate),
       sub: '已签约项目，未含公共费用',
-      tip: '净利率 = (合同额 − 设备成本 − 本项目费用) / 合同额，公共费用未分摊到项目',
+      tip: '净利率 = (合同额 − 设备成本 − 本项目费用 − 开票税点[合同额×4%]) / 合同额，公共费用未分摊到项目',
       clickable: false,
       danger: Number(d.avg_net_margin_rate) < 0,
       hasValue: true

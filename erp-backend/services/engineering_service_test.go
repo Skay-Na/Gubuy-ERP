@@ -419,32 +419,32 @@ func TestEngineeringCalcOverdueEmpty(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEngineeringCalcProfitabilityRealCase(t *testing.T) {
-	// 技术方案 DoD 指定的真实案例：合同 860,000 − 成本 690,000 − 费用 46,800 = 净利 123,200
+	// 合同 860,000 − 成本 690,000 − 费用 46,800 − 开票税点 34,400（合同×4%）= 净利 88,800
 	p := CalcProfitability(860000, 690000, 46800)
-	if !MoneyEqual(p.GrossProfit, 170000) {
-		t.Errorf("设备毛利 = %v, want 170000", p.GrossProfit)
+	if !MoneyEqual(p.GrossProfit, 135600) {
+		t.Errorf("设备毛利 = %v, want 135600", p.GrossProfit)
 	}
-	if !MoneyEqual(p.NetProfit, 123200) {
-		t.Errorf("项目净利 = %v, want 123200", p.NetProfit)
+	if !MoneyEqual(p.NetProfit, 88800) {
+		t.Errorf("项目净利 = %v, want 88800", p.NetProfit)
 	}
-	if !MoneyEqual(p.GrossMarginRate, 19.77) {
-		t.Errorf("设备毛利率 = %v, want 19.77", p.GrossMarginRate)
+	if !MoneyEqual(p.GrossMarginRate, 15.77) {
+		t.Errorf("设备毛利率 = %v, want 15.77", p.GrossMarginRate)
 	}
-	if !MoneyEqual(p.NetMarginRate, 14.33) {
-		t.Errorf("净利率 = %v, want 14.33", p.NetMarginRate)
+	if !MoneyEqual(p.NetMarginRate, 10.33) {
+		t.Errorf("净利率 = %v, want 10.33", p.NetMarginRate)
 	}
 }
 
 func TestEngineeringCalcProfitabilityNegative(t *testing.T) {
 	p := CalcProfitability(100000, 90000, 30000)
-	if !MoneyEqual(p.GrossProfit, 10000) {
-		t.Errorf("设备毛利 = %v, want 10000", p.GrossProfit)
+	if !MoneyEqual(p.GrossProfit, 6000) {
+		t.Errorf("设备毛利 = %v, want 6000", p.GrossProfit)
 	}
-	if !MoneyEqual(p.NetProfit, -20000) {
-		t.Errorf("净利应为负 -20000，got %v", p.NetProfit)
+	if !MoneyEqual(p.NetProfit, -24000) {
+		t.Errorf("净利应为负 -24000，got %v", p.NetProfit)
 	}
-	if !MoneyEqual(p.NetMarginRate, -20) {
-		t.Errorf("净利率 = %v, want -20", p.NetMarginRate)
+	if !MoneyEqual(p.NetMarginRate, -24) {
+		t.Errorf("净利率 = %v, want -24", p.NetMarginRate)
 	}
 }
 
@@ -462,18 +462,18 @@ func TestEngineeringCalcProfitabilityZeroContract(t *testing.T) {
 }
 
 func TestEngineeringCalcNetProfitPublicExpenseExcluded(t *testing.T) {
-	// 项目费用 46,800 已扣除；公共费用不在此函数内（口径落点在 recalcExpenseTotal）
-	if got := CalcNetProfit(860000, 690000, 46800); !MoneyEqual(got, 123200) {
-		t.Errorf("CalcNetProfit = %v, want 123200", got)
+	// 项目费用 46,800 与开票税点 34,400（合同×4%）均已扣除；公共费用不在此函数内（口径落点在 recalcExpenseTotal）
+	if got := CalcNetProfit(860000, 690000, 46800); !MoneyEqual(got, 88800) {
+		t.Errorf("CalcNetProfit = %v, want 88800", got)
 	}
-	if got := CalcNetProfit(860000, 690000, 0); !MoneyEqual(got, 170000) {
-		t.Errorf("无费用时净利 = 设备毛利 = %v, want 170000", got)
+	if got := CalcNetProfit(860000, 690000, 0); !MoneyEqual(got, 135600) {
+		t.Errorf("无费用时净利 = 设备毛利 = %v, want 135600", got)
 	}
 }
 
 func TestEngineeringCalcEquipMarginRate(t *testing.T) {
-	if got := CalcEquipMarginRate(860000, 690000); !MoneyEqual(got, 19.77) {
-		t.Errorf("got %v want 19.77", got)
+	if got := CalcEquipMarginRate(860000, 690000); !MoneyEqual(got, 15.77) {
+		t.Errorf("got %v want 15.77", got)
 	}
 	if got := CalcEquipMarginRate(0, 0); got != 0 {
 		t.Errorf("合同额 0 时返回 0，got %v", got)

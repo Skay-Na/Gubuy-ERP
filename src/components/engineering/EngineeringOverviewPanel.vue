@@ -122,6 +122,10 @@
                 </button>
               </span>
             </div>
+            <div class="eng-kv">
+              <span class="eng-kv-label">− 开票税点</span>
+              <span class="eng-kv-value" style="color: #475569">-{{ formatEngMoney(Number(project.contract_total) * 0.04) }}</span>
+            </div>
             <div class="eng-kv eng-kv--total">
               <span class="eng-kv-label">= 项目净利</span>
               <span
@@ -145,7 +149,7 @@
             <el-button link type="warning" @click="emit('goto-tab', 'expense')">去录入</el-button>
           </div>
 
-          <p class="eng-card-foot">设备成本按录入时快照；工程费用为本项目实际支出，不含公共费用（见工程开销台账）</p>
+          <p class="eng-card-foot">设备成本按录入时快照；工程费用为本项目实际支出，不含公共费用（见工程开销台账）；开票税点 = 合同总额 × 4%</p>
         </section>
 
         <!-- 关键日期 -->
