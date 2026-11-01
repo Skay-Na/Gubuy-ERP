@@ -15,3 +15,6 @@ export const allocateSubsidy = data => request.post('/api/subsidy/allocate', dat
 
 // 国补结算
 export const settleSubsidy = data => request.post('/api/subsidy/settle', data)
+
+// 国补批量到账：勾选多笔订单一次性入账并核销
+export const batchReceiveSubsidy = data => request.post('/api/subsidy/batch-receive', data)

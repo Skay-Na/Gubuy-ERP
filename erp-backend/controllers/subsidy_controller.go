@@ -142,6 +142,16 @@ func roundSubsidyAmount(value float64) float64 {
 // subsidyAmountEqual 金额比较容差（分）
 const subsidyAmountEpsilon = 0.005
 
+// subsidyIdempotencyKey 同批核销每行派生唯一幂等键（<base>-<orderID>）。
+// client_request_id 列是单列唯一索引，同一请求的多笔核销不能共用同一个键；
+// 以订单 ID 派生后缀保证批内唯一，base 超长时截断防溢出 varchar(64)。
+func subsidyIdempotencyKey(base string, orderID uint) string {
+	if len(base) > 50 {
+		base = base[:50]
+	}
+	return fmt.Sprintf("%s-%d", base, orderID)
+}
+
 type SubsidyAllocationItem struct {
 	OrderID uint    `json:"order_id" binding:"required"`
 	Amount  float64 `json:"amount" binding:"required,gt=0"`
@@ -192,12 +202,14 @@ func AllocateSubsidyReceipt(c *gin.Context) {
 
 	created := make([]models.SubsidyReceipt, 0, len(orderIDs))
 	err := config.DB.Transaction(func(tx *gorm.DB) error {
-		// 幂等：请求携带 client_request_id 时，事务内先按该键查询，
+		// 幂等：请求携带 client_request_id 时，事务内先按派生键（首单）查询，
 		// 已存在核销记录则直接返回（duplicated:true），不重复核销。
+		// 每行实际写入派生键 <key>-<orderID>（见 subsidyIdempotencyKey），避免单列唯一索引冲突。
 		req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
 		if req.ClientRequestID != "" {
 			var existing models.SubsidyReceipt
-			idempotencyErr := tx.Where("client_request_id = ?", req.ClientRequestID).First(&existing).Error
+			firstKey := subsidyIdempotencyKey(req.ClientRequestID, orderIDs[0])
+			idempotencyErr := tx.Where("client_request_id = ?", firstKey).First(&existing).Error
 			if idempotencyErr == nil {
 				created = append(created, existing)
 				return errSubsidyDuplicated
@@ -264,7 +276,8 @@ func AllocateSubsidyReceipt(c *gin.Context) {
 				CreatedAt:       now,
 			}
 			if req.ClientRequestID != "" {
-				receipt.ClientRequestID = &req.ClientRequestID
+				derived := subsidyIdempotencyKey(req.ClientRequestID, plan.order.ID)
+				receipt.ClientRequestID = &derived
 			}
 			if err := tx.Create(&receipt).Error; err != nil {
 				return fmt.Errorf("写入核销记录失败")
@@ -301,6 +314,169 @@ func AllocateSubsidyReceipt(c *gin.Context) {
 		"code": 200,
 		"msg":  fmt.Sprintf("核销成功，共分配 %d 笔订单，金额 ¥%.2f", len(created), totalAlloc),
 		"data": created,
+	})
+}
+
+// SubsidyBatchReceiveRequest 批量到账请求：勾选若干国补订单一次性标记到账。
+type SubsidyBatchReceiveRequest struct {
+	OrderIDs        []uint `json:"order_ids" binding:"required,min=1,dive"`
+	AccountID       uint   `json:"account_id" binding:"required"`
+	Remark          string `json:"remark"`
+	ClientRequestID string `json:"client_request_id"`
+}
+
+// BatchReceiveSubsidy 国补批量到账
+// @Summary 国补订单批量到账勾选
+// @Description 勾选多笔国补订单一次性完成到账闭环：单事务内按各单待回额合计录入回款池（资金入账+财务流水），再逐单全额核销（收满自动置 subsidy_status=3、待回归零）。幂等键防重复提交。
+// @Tags Subsidy
+// @Accept json
+// @Produce json
+// @Param body body SubsidyBatchReceiveRequest true "批量到账参数"
+// @Success 200 {object} APIResponse "成功响应"
+// @Security ApiKeyAuth
+// @ID post_api_subsidy_batch_receive
+// @Router /api/subsidy/batch-receive [post]
+func BatchReceiveSubsidy(c *gin.Context) {
+	var req SubsidyBatchReceiveRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "参数错误: " + err.Error()})
+		return
+	}
+
+	// 去重 + 排序：保证加锁顺序稳定（防死锁），批内重复勾选只算一次
+	seen := map[uint]struct{}{}
+	orderIDs := make([]uint, 0, len(req.OrderIDs))
+	for _, id := range req.OrderIDs {
+		if id == 0 {
+			continue
+		}
+		if _, exists := seen[id]; !exists {
+			seen[id] = struct{}{}
+			orderIDs = append(orderIDs, id)
+		}
+	}
+	if len(orderIDs) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "请至少勾选一笔订单"})
+		return
+	}
+	sort.Slice(orderIDs, func(i, j int) bool { return orderIDs[i] < orderIDs[j] })
+
+	type batchPlan struct {
+		order     models.Order
+		amount    float64
+		remBefore float64
+	}
+	var (
+		settlement models.SubsidySettlement
+		total      float64
+	)
+	err := config.DB.Transaction(func(tx *gorm.DB) error {
+		// 幂等：client_request_id 已有核销记录则拒绝重复提交（查首单派生键）
+		req.ClientRequestID = strings.TrimSpace(req.ClientRequestID)
+		if req.ClientRequestID != "" {
+			var existing models.SubsidyReceipt
+			firstKey := subsidyIdempotencyKey(req.ClientRequestID, orderIDs[0])
+			idempotencyErr := tx.Where("client_request_id = ?", firstKey).First(&existing).Error
+			if idempotencyErr == nil {
+				return fmt.Errorf("该请求已提交过，请勿重复操作")
+			}
+			if !errors.Is(idempotencyErr, gorm.ErrRecordNotFound) {
+				return fmt.Errorf("幂等键查询失败")
+			}
+		}
+
+		// a. 行锁逐单校验并汇总待回金额
+		plans := make([]batchPlan, 0, len(orderIDs))
+		for _, orderID := range orderIDs {
+			var order models.Order
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&order, orderID).Error; err != nil {
+				return fmt.Errorf("订单 ID %d 不存在", orderID)
+			}
+			if order.OrderStatus != 1 {
+				return fmt.Errorf("订单 %s 已取消，不能标记到账", order.OrderNo)
+			}
+			if order.SubsidyAmount <= 0 {
+				return fmt.Errorf("订单 %s 不是国补订单", order.OrderNo)
+			}
+			remaining := roundSubsidyAmount(order.SubsidyPendingAmount - order.SubsidyReceivedAmt)
+			if remaining <= subsidyAmountEpsilon {
+				return fmt.Errorf("订单 %s 待回款已核销完毕，无需重复到账", order.OrderNo)
+			}
+			plans = append(plans, batchPlan{order: order, amount: remaining, remBefore: remaining})
+			total += remaining
+		}
+		total = roundSubsidyAmount(total)
+		if total <= subsidyAmountEpsilon {
+			return fmt.Errorf("选中订单待回金额合计为 0")
+		}
+
+		// b. 行锁收款账户并增加余额（与录入回款池同口径：政府补贴部分真实入账）
+		var account models.Account
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&account, req.AccountID).Error; err != nil {
+			return fmt.Errorf("收款账户不存在")
+		}
+		if err := tx.Model(&account).UpdateColumn("balance", gorm.Expr("balance + ?", total)).Error; err != nil {
+			return fmt.Errorf("更新账户余额失败")
+		}
+
+		// c. 创建回款池记录（本批到账金额）
+		settlement = models.SubsidySettlement{
+			Amount:    total,
+			AccountID: req.AccountID,
+			Remark:    req.Remark,
+		}
+		if err := tx.Create(&settlement).Error; err != nil {
+			return fmt.Errorf("创建回款记录失败")
+		}
+
+		// d. 写财务流水
+		if err := WriteFinancialLog(tx, req.AccountID, 1, "国补回款", total, account.Balance+total, fmt.Sprintf("SUB-%d", settlement.ID), req.Remark); err != nil {
+			return fmt.Errorf("写入财务流水失败")
+		}
+
+		// e. 逐单全额核销：收满置 subsidy_status=3（只能由核销流程写入）
+		operator := c.GetString("username")
+		now := time.Now()
+		for _, plan := range plans {
+			receipt := models.SubsidyReceipt{
+				SettlementID:    settlement.ID,
+				OrderID:         plan.order.ID,
+				OrderNo:         plan.order.OrderNo,
+				AllocatedAmt:    plan.amount,
+				RemainingBefore: plan.remBefore,
+				CreatedBy:       operator,
+				CreatedAt:       now,
+			}
+			if req.ClientRequestID != "" {
+				derived := subsidyIdempotencyKey(req.ClientRequestID, plan.order.ID)
+				receipt.ClientRequestID = &derived
+			}
+			if err := tx.Create(&receipt).Error; err != nil {
+				return fmt.Errorf("订单 %s 写入核销记录失败", plan.order.OrderNo)
+			}
+			newReceived := roundSubsidyAmount(plan.order.SubsidyReceivedAmt + plan.amount)
+			if err := tx.Model(&models.Order{}).Where("id = ?", plan.order.ID).Updates(map[string]interface{}{
+				"subsidy_received_amt": newReceived,
+				"subsidy_status":       3,
+			}).Error; err != nil {
+				return fmt.Errorf("订单 %s 标记已回款失败", plan.order.OrderNo)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"msg":  fmt.Sprintf("批量到账成功：%d 笔订单共 ¥%.2f 已入账并核销", len(orderIDs), total),
+		"data": gin.H{
+			"settlement_id": settlement.ID,
+			"order_count":   len(orderIDs),
+			"total_amount":  total,
+		},
 	})
 }
 

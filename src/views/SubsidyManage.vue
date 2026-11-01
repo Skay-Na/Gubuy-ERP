@@ -99,6 +99,9 @@
           <span class="text-xs text-slate-500 font-bold whitespace-nowrap">本笔核销总额</span>
           <el-input-number v-model="allocateTotal" :min="0" :precision="2" :controls="false" class="w-full sm:!w-36" placeholder="金额" />
           <el-button class="!rounded-xl" :disabled="selectedOrders.length === 0" @click="autoAllocate">按待回额自动分配</el-button>
+          <el-button class="!rounded-xl" type="success" plain :disabled="selectedOrders.length === 0" @click="openBatchDialog">
+            <el-icon class="mr-1"><Finished /></el-icon>批量到账（{{ selectedOrders.length }}）
+          </el-button>
           <el-button type="primary" class="!rounded-xl" :loading="submittingAllocate" :disabled="!canSubmitAllocate" @click="submitAllocation">提交核销</el-button>
         </div>
       </div>
@@ -153,6 +156,7 @@
       <div class="text-[11px] text-slate-400 mt-3 leading-relaxed">
         <div>提示：客户 85% 货款开单时已入账，此处只录政府打款中的<b class="text-slate-500">补贴部分</b>（各单待回金额合计）；若录入政府打款全额，多余部分会留在回款池无法核销。</div>
         <div class="mt-1">* 勾选订单后输入本笔核销总额可自动按录单顺序逐单匹配（可手调）；收满的订单自动标记为"已回款"。核销只做回款池到订单的分配，不重复记账。</div>
+        <div class="mt-1">* <b class="text-emerald-600">批量到账</b>：勾选多笔订单（须先核对银行流水），一键把本批补贴合计入账并逐单核销，订单自动标记"已回款"。</div>
       </div>
     </el-card>
 
@@ -276,14 +280,54 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- Batch Receive Dialog：批量到账勾选 -->
+    <el-dialog
+      v-model="batchDialogVisible"
+      title="批量标记到账"
+      width="92%"
+      style="max-width: 480px"
+      class="!rounded-2xl"
+    >
+      <div class="bg-emerald-50 border border-emerald-100 rounded-xl p-4 mb-4">
+        <div class="flex justify-between items-center mb-1">
+          <span class="text-sm font-bold text-slate-600">已勾选订单</span>
+          <span class="text-xl font-black text-emerald-700">{{ selectedOrders.length }} 笔</span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-sm font-bold text-slate-600">待回金额合计</span>
+          <span class="text-xl font-black text-emerald-700">¥{{ formatMoney(batchTotal) }}</span>
+        </div>
+      </div>
+      <el-form label-position="top">
+        <el-form-item label="补贴款入账账户" required>
+          <el-select v-model="batchAccountId" placeholder="选择入账账户" class="!w-full">
+            <el-option v-for="acc in accounts" :key="acc.id" :label="acc.name" :value="acc.id" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注说明">
+          <el-input v-model="batchRemark" type="textarea" placeholder="例：2026-10 第一批国补打款（银行流水已核对）" rows="2" />
+        </el-form-item>
+      </el-form>
+      <div class="text-[11px] text-slate-400 leading-relaxed">
+        * 确认后：补贴合计 ¥{{ formatMoney(batchTotal) }} 一次性入账，并按各单待回额全额核销，订单自动标记"已回款"。<br/>
+        * 金额 = 各单待回额合计，请先逐笔核对银行流水；若实际打款额与合计不符，请改用「录入回款记录 + 选单核销」分步处理。
+      </div>
+      <template #footer>
+        <div class="flex gap-2">
+          <el-button class="flex-1 !rounded-xl" @click="batchDialogVisible = false">取消</el-button>
+          <el-button type="success" class="flex-1 !rounded-xl" @click="handleBatchReceive" :loading="submittingBatch">确认到账</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
-import { Plus, PieChart, Checked, Timer, List, DocumentChecked, Coin, CircleCheck, TrendCharts } from '@element-plus/icons-vue'
+import { Plus, PieChart, Checked, Timer, List, DocumentChecked, Coin, CircleCheck, TrendCharts, Finished } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { fetchSubsidySummary, fetchSubsidySettlements, fetchSubsidyReceipts, allocateSubsidy, settleSubsidy } from '../api/subsidy'
+import { fetchSubsidySummary, fetchSubsidySettlements, fetchSubsidyReceipts, allocateSubsidy, settleSubsidy, batchReceiveSubsidy } from '../api/subsidy'
 import { fetchAccounts as fetchAccountsApi } from '../api/finance'
 import { fetchOrders as fetchOrdersApi } from '../api/orders'
 import { formatMoney, formatDate, formatDateTime } from '../utils/format'
@@ -310,6 +354,12 @@ const receipts = ref([])        // 已核销记录
 const pendingPage = ref(1)
 const pendingPageSize = ref(15)
 const pendingTotal = ref(0)
+
+// 批量到账状态
+const batchDialogVisible = ref(false)
+const batchAccountId = ref(null)
+const batchRemark = ref('')
+const submittingBatch = ref(false)
 
 const form = ref({
   amount: 0,
@@ -555,6 +605,67 @@ const progressSegments = computed(() => {
 const openSettleDialog = () => {
   form.value = { amount: 0, account_id: null, remark: '' }
   dialogVisible.value = true
+}
+
+// ---------- 批量到账 ----------
+const batchTotal = computed(() =>
+  selectedOrders.value.reduce((sum, order) => sum + remainingOf(order), 0)
+)
+
+const openBatchDialog = () => {
+  if (selectedOrders.value.length === 0) {
+    return ElMessage.warning('请先勾选要标记到账的订单')
+  }
+  if (batchTotal.value <= 0.005) {
+    return ElMessage.warning('勾选的订单没有待回金额')
+  }
+  // 默认入账账户：公户（政府补贴打款账户），找不到再取列表第一个
+  const publicAcct = accounts.value.find(a => a.id === 3 || (a.name || '').includes('公户'))
+  batchAccountId.value = publicAcct ? publicAcct.id : (accounts.value[0]?.id ?? null)
+  batchRemark.value = ''
+  batchDialogVisible.value = true
+}
+
+const handleBatchReceive = async () => {
+  if (!batchAccountId.value) {
+    return ElMessage.warning('请选择补贴款入账账户')
+  }
+  const ids = selectedOrders.value.map(o => o.id)
+  try {
+    await ElMessageBox.confirm(
+      `确认把 ${ids.length} 笔订单共 ¥${formatMoney(batchTotal.value)} 标记为已到账吗？补贴款将全额入账并逐单核销（订单标记"已回款"）。请确保已核对银行流水。`,
+      '确认批量到账',
+      { confirmButtonText: '已核对流水，确认到账', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+  try {
+    submittingBatch.value = true
+    const res = await batchReceiveSubsidy({
+      order_ids: ids,
+      account_id: batchAccountId.value,
+      remark: batchRemark.value,
+      client_request_id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    })
+    if (res.data.code === 200) {
+      ElMessage.success(res.data.msg || '批量到账成功')
+      batchDialogVisible.value = false
+      selectedOrders.value = []
+      allocAmounts.value = {}
+      fetchSummary()
+      fetchSettlements()
+      fetchPendingOrders()
+      fetchReceipts()
+      fetchOrders()
+    } else {
+      ElMessage.error(res.data.msg || '批量到账失败')
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.msg || '批量到账失败，请稍后重试')
+  } finally {
+    submittingBatch.value = false
+  }
 }
 
 const handleSettle = async () => {
