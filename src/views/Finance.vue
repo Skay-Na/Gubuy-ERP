@@ -261,7 +261,7 @@ const heatChartOption = computed(() => {
 
 // 销售分析图表点击 → 直接带出命中订单列表（口径与销售分析明细级一致：单价×数量）
 const salesPeriodParams = () => {
-  if (salesMonth.value === 'cumulative') return { period: 'all' }
+  if (salesCumulative.value) return { period: 'all' }
   const [y, m] = salesMonth.value.split('-').map(Number)
   const endDay = new Date(y, m, 0).getDate()
   return { period: 'custom', start_date: `${salesMonth.value}-01`, end_date: `${salesMonth.value}-${String(endDay).padStart(2, '0')}` }
