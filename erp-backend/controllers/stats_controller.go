@@ -22,9 +22,10 @@ type MonthlyStatsResponse struct {
 }
 
 // monthlyGrossProfitStats 计算指定月份区间的销货毛利（GetMonthlyStats 口径）：
-// 毛利 = 净销售额(订单总额−手动折扣) - 订单商品成本快照 - 订单费用（配送/安装/渠道/提成） - 以旧换新折抵。
+// 毛利 = 净销售额(订单总额−手动折扣) - 订单商品成本快照 - 订单费用（配送/安装/渠道/提成） - 以旧换新折抵 - 国补单开票成本。
 // 与财务总览 CalculateGrossProfit（dashboard_controller.go）完全同口径：
-// 收入取 SUM(total_amount - discount_amount)，以旧换新作为毛利抵减项单独扣除。
+// 收入取 SUM(total_amount - discount_amount)，以旧换新作为毛利抵减项单独扣除；
+// 开票成本 = 国补订单（subsidy_amount>0）客户实付 × 4%（2026-11-01 业主定稿）。
 // GetMonthlyStats 与真实净利润工具共用，保证三处口径永远一致。
 func monthlyGrossProfitStats(startTime, endTime time.Time) (revenue, grossProfit float64, uncostedCount int64, err error) {
 	if err = config.DB.Model(&models.Order{}).
@@ -57,7 +58,17 @@ func monthlyGrossProfitStats(startTime, endTime time.Time) (revenue, grossProfit
 		return
 	}
 
-	grossProfit = revenue - totalItemCost - totalFees
+	// 国补单开票成本（客户实付 × 4%，2026-11-01 业主定稿），毛利中扣除
+	var subsidyPaid float64
+	if err = config.DB.Model(&models.Order{}).
+		Where("order_status = 1 AND subsidy_amount > 0 AND created_at >= ? AND created_at <= ?", startTime, endTime).
+		Select("COALESCE(SUM(actual_pay_amount), 0)").
+		Scan(&subsidyPaid).Error; err != nil {
+		return
+	}
+	invoiceCost := math.Round(subsidyPaid*invoiceCostRate*100) / 100
+
+	grossProfit = revenue - totalItemCost - totalFees - invoiceCost
 	return
 }
 

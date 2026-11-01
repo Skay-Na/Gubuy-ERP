@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -258,6 +259,13 @@ func answerProfit(period string) (string, error) {
 		Count(&uncostedOrderItems).Error; err != nil {
 		return "", err
 	}
+	// 国补单开票成本（客户实付 × 4%），与财务总览毛利口径一致
+	var subsidyPaid float64
+	if err := config.DB.Model(&models.Order{}).Where(where+" AND subsidy_amount > 0", start, end).
+		Select("COALESCE(SUM(actual_pay_amount), 0)").Scan(&subsidyPaid).Error; err != nil {
+		return "", err
+	}
+	invoiceCost := math.Round(subsidyPaid*invoiceCostRate*100) / 100
 	if err := config.DB.Model(&models.Order{}).Where(where, start, end).
 		Select("COALESCE(SUM(delivery_fee), 0) AS delivery_fee, COALESCE(SUM(installation_fee), 0) AS installation_fee, COALESCE(SUM(referral_fee), 0) AS referral_fee, COALESCE(SUM(commission_amount), 0) AS commission_amount, COALESCE(SUM(trade_in_amount), 0) AS trade_in_amount").Scan(&fees).Error; err != nil {
 		return "", err
@@ -267,7 +275,7 @@ func answerProfit(period string) (string, error) {
 	} else {
 		return "", expenseErr
 	}
-	gross := CalculateGrossProfit(revenue, cost, fees.DeliveryFee, fees.InstallationFee, fees.ReferralFee, fees.CommissionAmount, fees.TradeInAmount)
+	gross := CalculateGrossProfit(revenue, cost, fees.DeliveryFee, fees.InstallationFee, fees.ReferralFee, fees.CommissionAmount, fees.TradeInAmount, invoiceCost)
 	if uncostedOrderItems > 0 {
 		return fmt.Sprintf("%s（%s 至 %s）：\n营业额 ¥%.2f，订单 %d 笔。\n有 %d 条订单明细成本待核，销售毛利和经营净利润暂不提供；请先核对历史成本。", label, start.Format("2006-01-02"), end.Format("2006-01-02"), revenue, count, uncostedOrderItems), nil
 	}

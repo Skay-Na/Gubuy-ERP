@@ -5,6 +5,7 @@ import (
 	"erp-backend/models"
 	"erp-backend/services"
 	"errors"
+	"math"
 	"net/http"
 	"time"
 
@@ -86,6 +87,12 @@ func CalculatePendingSubsidy(totalGenerated, totalReceived float64) float64 {
 // CalculateGrossProfit calculates the profit directly attributable to completed sales.
 // Supplier payments are intentionally excluded because the sold-goods cost is already
 // recognized through the order-item cost snapshot.
+// invoiceCostRate 国补单开票成本比例（2026-11-01 业主定稿）：国补订单按客户实付部分 × 4% 计开票钱，
+// 在毛利中扣除。只影响利润展示口径，不影响员工提成。
+const invoiceCostRate = 0.04
+
+// CalculateGrossProfit computes gross profit with all direct sales costs deducted.
+// invoiceCost 为国补订单开票成本（sumSubsidyInvoiceCost），无则传 0。
 func CalculateGrossProfit(
 	revenue float64,
 	productCost float64,
@@ -94,8 +101,27 @@ func CalculateGrossProfit(
 	referralFee float64,
 	commissionAmount float64,
 	tradeInAmount float64,
+	invoiceCost float64,
 ) float64 {
-	return revenue - productCost - deliveryFee - installationFee - referralFee - commissionAmount - tradeInAmount
+	return revenue - productCost - deliveryFee - installationFee - referralFee - commissionAmount - tradeInAmount - invoiceCost
+}
+
+// sumSubsidyInvoiceCost 统计期间内国补订单（subsidy_amount > 0）的客户实付合计 × 4% 开票成本。
+// 与收入端同口径：仅正常订单（order_status=1）+ 同一时间窗；startTime/endTime 零值表示全量。
+func sumSubsidyInvoiceCost(startTime, endTime time.Time) (float64, error) {
+	db := config.DB.Model(&models.Order{}).
+		Where("order_status = 1 AND subsidy_amount > 0")
+	if !startTime.IsZero() {
+		db = db.Where("created_at >= ?", startTime)
+	}
+	if !endTime.IsZero() {
+		db = db.Where("created_at <= ?", endTime)
+	}
+	var subsidyPaid float64
+	if err := db.Select("COALESCE(SUM(actual_pay_amount), 0)").Scan(&subsidyPaid).Error; err != nil {
+		return 0, err
+	}
+	return math.Round(subsidyPaid*invoiceCostRate*100) / 100, nil
 }
 
 // CalculateNetProfit subtracts period operating expenses after direct sales costs.
@@ -378,6 +404,13 @@ func GetFinanceSummary(c *gin.Context) {
 		summary.PendingPayrollMismatches = mismatches
 	}
 
+	// 国补单开票成本（客户实付 × 4%），毛利中扣除（2026-11-01 业主定稿口径）
+	invoiceCost, invoiceCostErr := sumSubsidyInvoiceCost(startTime, endTime)
+	if invoiceCostErr != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取国补开票成本失败"})
+		return
+	}
+
 	summary.GrossProfit = CalculateGrossProfit(
 		summary.TodayRevenue,
 		totalCost,
@@ -386,6 +419,7 @@ func GetFinanceSummary(c *gin.Context) {
 		totalFees.ReferralFee,
 		totalFees.CommissionAmount,
 		totalFees.TradeInAmount,
+		invoiceCost,
 	)
 
 	operatingExpense, opErr := sumOperatingExpense(startTime, endTime)

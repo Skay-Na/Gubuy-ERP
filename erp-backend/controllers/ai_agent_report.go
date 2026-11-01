@@ -162,6 +162,17 @@ func agentBuildReport(ctx context.Context, task agentTask) (agentBusinessReport,
 				Units float64
 				Cost  float64
 			}
+			// 国补单开票成本（客户实付 × 4%），与财务总览毛利口径一致
+			var invoiceBase struct {
+				SubsidyPaid float64
+			}
+			err = config.DB.WithContext(ctx).Model(&models.Order{}).
+				Where("order_status=1 AND subsidy_amount>0 AND created_at>=? AND created_at<?", start, end.AddDate(0, 0, 1)).
+				Select("COALESCE(SUM(actual_pay_amount),0) AS subsidy_paid").Scan(&invoiceBase).Error
+			if err != nil {
+				return report, err
+			}
+			invoiceCost := agentRound(invoiceBase.SubsidyPaid * invoiceCostRate)
 			err = config.DB.WithContext(ctx).Table("order_items oi").Joins("JOIN orders o ON o.id=oi.order_id").
 				Where("o.order_status=1 AND o.deleted_at IS NULL AND o.created_at>=? AND o.created_at<?", start, end.AddDate(0, 0, 1)).
 				Select("COALESCE(SUM(oi.quantity),0) AS units, COALESCE(SUM(oi.unit_cost*oi.quantity),0) AS cost").Scan(&items).Error
@@ -184,7 +195,7 @@ func agentBuildReport(ctx context.Context, task agentTask) (agentBusinessReport,
 				row.Values["average_order"] = agentRound(total.Revenue / float64(total.Count))
 			}
 			if !row.CostIncomplete {
-				row.Values["gross_profit"] = agentRound(CalculateGrossProfit(total.Revenue, items.Cost, total.Delivery, total.Installation, total.Referral, total.Commission, total.TradeIn))
+				row.Values["gross_profit"] = agentRound(CalculateGrossProfit(total.Revenue, items.Cost, total.Delivery, total.Installation, total.Referral, total.Commission, total.TradeIn, invoiceCost))
 			}
 		case "cashflow":
 			report.Basis = "按财务流水发生日期统计已登记收支，排除成对冲销；现金流不等于利润。"

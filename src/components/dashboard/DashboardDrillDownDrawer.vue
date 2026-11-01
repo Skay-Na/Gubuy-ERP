@@ -64,6 +64,7 @@ const netProfitRows = computed(() => {
     { key: 'referral', label: '− 介绍人提成', amount: num('referral_fee'), drill: num('referral_fee') ? { type: 'referral' } : null },
     { key: 'commission', label: '− 业务提成', amount: num('commission_amount'), drill: num('commission_amount') ? { type: 'commission' } : null, hint: '员工销售提成（普通单按员工/商品比例）；商会单按 1% 入池平分' },
     { key: 'trade_in', label: '− 以旧换新', amount: num('trade_in_amount'), drill: num('trade_in_amount') ? { type: 'trade_in' } : null },
+    { key: 'invoice_cost', label: '− 开票成本', amount: num('invoice_cost'), drill: num('invoice_cost') ? { type: 'invoice_cost' } : null, hint: `国补单开票钱：客户实付 × 4%（本期国补单实付合计 ${formatMoney(num('invoice_cost_base'))}）` },
     { key: 'gross_profit', label: '= 毛利', amount: num('gross_profit'), formula: true },
     { key: 'operating_expense', label: '− 经营开销', amount: num('operating_expense'), drill: { type: 'operating_expense', extra: { exclude_payroll: 'true' } }, hint: '日常费用，不含采购货款/以旧换新/工资' },
     { key: 'net_before_payroll', label: '= 净利润（毛利扣费用）', amount: Math.round((num('net_profit') + num('payroll')) * 100) / 100, formula: true },

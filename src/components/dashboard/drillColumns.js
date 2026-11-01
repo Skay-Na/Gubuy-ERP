@@ -142,6 +142,18 @@ export const BREAKDOWN_TYPES = {
       { prop: 'related_no', label: '关联单号', mobileVisible: false },
       { prop: 'amount', label: '金额', formatter: formatMoney, align: 'right', mobileVisible: true }
     ]
+  },
+  invoice_cost: {
+    title: '国补单开票成本明细',
+    amountLabel: '开票成本合计',
+    columns: [
+      { prop: 'customer_name', label: '客户姓名', mobileVisible: true },
+      { prop: 'created_at', label: '录单日期', formatter: formatDate, mobileVisible: true },
+      { prop: 'order_no', label: '订单号', mobileVisible: false },
+      { prop: 'actual_pay_amount', label: '客户实付', formatter: formatMoney, align: 'right', mobileVisible: false },
+      { prop: 'subsidy_amount', label: '国补金额', formatter: formatMoney, align: 'right', mobileVisible: false },
+      { prop: 'amount', label: '开票钱(4%)', formatter: formatMoney, align: 'right', mobileVisible: true }
+    ]
   }
 }
 

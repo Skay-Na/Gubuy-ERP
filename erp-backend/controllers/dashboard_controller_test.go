@@ -12,6 +12,7 @@ func TestCalculateGrossProfit(t *testing.T) {
 		referralFee      float64
 		commissionAmount float64
 		tradeInAmount    float64
+		invoiceCost      float64
 		want             float64
 	}{
 		{
@@ -23,6 +24,7 @@ func TestCalculateGrossProfit(t *testing.T) {
 			referralFee:      100,
 			commissionAmount: 200,
 			tradeInAmount:    500,
+			invoiceCost:      0,
 			want:             2500,
 		},
 		{
@@ -30,6 +32,13 @@ func TestCalculateGrossProfit(t *testing.T) {
 			revenue:     1000,
 			productCost: 1200,
 			want:        -200,
+		},
+		{
+			name:        "deducts subsidy invoice cost",
+			revenue:     5000,
+			productCost: 3000,
+			invoiceCost: 68,
+			want:        1932,
 		},
 	}
 
@@ -43,6 +52,7 @@ func TestCalculateGrossProfit(t *testing.T) {
 				testCase.referralFee,
 				testCase.commissionAmount,
 				testCase.tradeInAmount,
+				testCase.invoiceCost,
 			)
 			if got != testCase.want {
 				t.Fatalf("CalculateGrossProfit() = %.2f, want %.2f", got, testCase.want)

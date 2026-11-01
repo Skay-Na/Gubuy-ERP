@@ -25,7 +25,9 @@ type ProfitBreakdownResponse struct {
 	ReferralFee            float64 `json:"referral_fee"`              // 介绍人提成
 	CommissionAmount       float64 `json:"commission_amount"`         // 商会提成
 	TradeInAmount          float64 `json:"trade_in_amount"`           // 以旧换新折抵
-	GrossProfit            float64 `json:"gross_profit"`              // 毛利 = 销售额 - 货品成本 - 五项费用
+	InvoiceCostBase        float64 `json:"invoice_cost_base"`         // 国补单客户实付合计（开票成本计算基数）
+	InvoiceCost            float64 `json:"invoice_cost"`              // 国补单开票成本：国补订单（subsidy_amount>0）客户实付 × 4%
+	GrossProfit            float64 `json:"gross_profit"`              // 毛利 = 销售额 - 货品成本 - 五项费用 - 国补单开票成本
 	OperatingExpense       float64 `json:"operating_expense"`         // 经营开销（不含工资）：经营开销账户(id=7)非工资支出流水
 	Payroll                float64 `json:"payroll"`                   // 工资开销：工资流水按所属月归期（月初发上月计入上月）
 	NetProfit              float64 `json:"net_profit"`                // 真实净利润 = 毛利 - 经营开销（不含工资） - 工资开销
@@ -47,6 +49,7 @@ type BreakdownOrderRow struct {
 	DepositAmount   float64 `json:"deposit_amount,omitempty"`    // 待收尾款：已付定金
 	SubsidyPending  float64 `json:"subsidy_pending,omitempty"`   // 国补：待回款金额
 	SubsidyReceived float64 `json:"subsidy_received,omitempty"`  // 国补：已核销回款
+	SubsidyAmount   float64 `json:"subsidy_amount,omitempty"`    // 国补单开票成本：订单国补金额
 }
 
 // BreakdownCostRow 按单分组的货品成本明细行。
@@ -108,6 +111,7 @@ var breakdownTypeTitles = map[string]string{
 	"account_logs":      "账户流水明细",
 	"trend_orders":      "趋势区间订单明细",
 	"payroll":           "工资开销明细",
+	"invoice_cost":      "国补单开票成本明细",
 }
 
 // feeColumnByType 五项费用类型 → 订单表列名（白名单，避免拼接注入）。
@@ -245,6 +249,15 @@ func buildProfitBreakdown(startTime, endTime time.Time) (*ProfitBreakdownRespons
 	}
 	result.CostIncomplete = result.UncostedOrderItemCount > 0
 
+	// 国补单开票成本（客户实付 × 4%，2026-11-01 业主定稿），毛利中扣除
+	if err := orderPeriodScope(startTime, endTime).
+		Where("subsidy_amount > 0").
+		Select("COALESCE(SUM(actual_pay_amount), 0)").
+		Scan(&result.InvoiceCostBase).Error; err != nil {
+		return nil, err
+	}
+	result.InvoiceCost = math.Round(result.InvoiceCostBase*invoiceCostRate*100) / 100
+
 	// 经营开销（经营开销台账账户支出流水，与 finance/summary 同口径），工资单列供公式视图拆行
 	nonPayrollExpense, payrollExpense, err := sumOperatingExpenseSplit(startTime, endTime)
 	if err != nil {
@@ -261,6 +274,7 @@ func buildProfitBreakdown(startTime, endTime time.Time) (*ProfitBreakdownRespons
 		result.ReferralFee,
 		result.CommissionAmount,
 		result.TradeInAmount,
+		result.InvoiceCost,
 	)
 	result.NetProfit = CalculateNetProfit(result.GrossProfit, result.OperatingExpense)
 
@@ -269,7 +283,7 @@ func buildProfitBreakdown(startTime, endTime time.Time) (*ProfitBreakdownRespons
 
 // GetBreakdownDetail 明细钻取
 // @Summary 按类型返回看板明细列表（分页，附后端全量合计）
-// @Description type: revenue/cost/delivery/installation/referral/commission/trade_in/operating_expense/pending_balance/pending_subsidy/employee_orders/account_logs/trend_orders/payroll
+// @Description type: revenue/cost/delivery/installation/referral/commission/trade_in/operating_expense/pending_balance/pending_subsidy/employee_orders/account_logs/trend_orders/payroll/invoice_cost
 // @Param exclude_payroll query bool false "operating_expense 类型专用：排除工资流水（经营概况卡的「经营开销」行不含工资）"
 // @Param exclude_ledger query bool false "account_logs 类型专用：排除台账账户（经营开销/历史调整台账），对齐净现金流的资金账户口径"
 // @Tags Finance
@@ -343,6 +357,8 @@ func GetBreakdownDetail(c *gin.Context) {
 		}
 	case "payroll":
 		list, total, totalAmount, err = payrollBreakdown(startTime, endTime, page, pageSize)
+	case "invoice_cost":
+		list, total, totalAmount, err = invoiceCostBreakdown(startTime, endTime, page, pageSize)
 	case "pending_balance":
 		list, total, totalAmount, err = pendingBalanceBreakdown(page, pageSize)
 	case "pending_subsidy":
@@ -737,6 +753,42 @@ func accountLogsBreakdownExcludeLedger(c *gin.Context, startTime, endTime time.T
 	if err := scope().Select("COALESCE(SUM(amount), 0)").Scan(&totalAmount).Error; err != nil {
 		return nil, 0, 0, err
 	}
+	return rows, total, totalAmount, nil
+}
+
+// invoiceCostBreakdown 国补单开票成本明细：行金额 = 该国补单客户实付 × 4%，
+// 合计 = 全部国补单实付合计 × 4%（逐单取整误差并入合计，与利润口径一致）。
+func invoiceCostBreakdown(startTime, endTime time.Time, page, pageSize int) ([]BreakdownOrderRow, int64, float64, error) {
+	scope := func() *gorm.DB {
+		db := config.DB.Model(&models.Order{}).Where("order_status = 1 AND subsidy_amount > 0")
+		if !startTime.IsZero() {
+			db = db.Where("created_at >= ?", startTime)
+		}
+		if !endTime.IsZero() {
+			db = db.Where("created_at <= ?", endTime)
+		}
+		return db
+	}
+
+	var rows []BreakdownOrderRow
+	if err := scope().
+		Select("id, order_no, customer_name, DATE_FORMAT(created_at, '%Y-%m-%d') as created_at, actual_pay_amount, subsidy_amount, ROUND(actual_pay_amount * ? , 2) as amount", invoiceCostRate).
+		Order("created_at desc, id desc").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var total int64
+	if err := scope().Count(&total).Error; err != nil {
+		return nil, 0, 0, err
+	}
+
+	var subsidyPaid float64
+	if err := scope().Select("COALESCE(SUM(actual_pay_amount), 0)").Scan(&subsidyPaid).Error; err != nil {
+		return nil, 0, 0, err
+	}
+	totalAmount := math.Round(subsidyPaid*invoiceCostRate*100) / 100
 	return rows, total, totalAmount, nil
 }
 // 口径与 GetFinanceSummary 一致：payment_status=1 AND order_status=1，金额 = actual_pay_amount - deposit_amount。
