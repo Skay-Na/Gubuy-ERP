@@ -1585,6 +1585,10 @@ onMounted(async () => {
   } else if (isMobileView.value) {
     activeTab.value = 'todo'
   }
+  // 支持深链预置筛选（如 /admin/orders?order_type=2 直达商会订单）
+  if (['1', '2'].includes(String(route.query.order_type || ''))) {
+    selectedOrderType.value = String(route.query.order_type)
+  }
   fetchCategories()
   if (!(await openLinkedOrder(route.query.order_no))) await fetchOrders()
 })
