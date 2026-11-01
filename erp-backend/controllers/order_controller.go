@@ -423,6 +423,14 @@ func CreateOrder(c *gin.Context) {
 		// 员工端 token 以服务端识别出的员工为准，避免前端篡改 employee_id 影响提成/订单归属。
 		req.EmployeeID = &employee.ID
 	}
+	// 老板客订单归属：勾选「老板客户」（免提成）时，订单统一归属「老板客」虚拟员工（BOSS001），
+	// 业绩进销售分析老板客专属栏，不占录单员工的业绩排名。查不到 BOSS001 时保持原归属（防御）。
+	if req.NoCommission {
+		var bossEmployee models.Employee
+		if err := config.DB.Where("emp_no = ? AND deleted_at IS NULL", "BOSS001").First(&bossEmployee).Error; err == nil {
+			req.EmployeeID = &bossEmployee.ID
+		}
+	}
 	operator := InventoryOperatorFromContext(c)
 
 	// 1. 开启事务

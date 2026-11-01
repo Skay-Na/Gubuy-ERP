@@ -435,6 +435,7 @@
                 >
                   <div>
                     <div class="text-xs font-bold text-amber-700">老板客户</div>
+                    <div class="text-[10px] text-amber-600/80">计入老板客业绩 · 不计提成</div>
                   </div>
                   <el-switch v-model="isBossCustomer" size="small" @click.stop />
                 </div>
