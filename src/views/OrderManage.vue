@@ -13,7 +13,7 @@
             <div class="flex items-center gap-3">
               <el-input 
                 v-model="searchKeyword" 
-                placeholder="搜索订单号、客户、电话、地址、商品、员工、老板客等" 
+                placeholder="搜索订单号、客户、电话、地址、商品、员工、商会订单等" 
                 clearable 
                 size="large"
                 class="flex-1"
@@ -46,6 +46,17 @@
                   <el-option :label="`${root.name}（整类）`" :value="root.id" />
                   <el-option v-for="child in root.children" :key="child.id" :label="child.name" :value="child.id" />
                 </el-option-group>
+              </el-select>
+              <el-select
+                v-model="selectedOrderType"
+                clearable
+                placeholder="订单类型"
+                class="!w-full shadow-sm col-span-3"
+                @change="searchOrders"
+              >
+                <el-option label="全部类型" value="" />
+                <el-option label="普通订单" value="1" />
+                <el-option label="商会订单" value="2" />
               </el-select>
               <el-select
                 v-model="selectedPaymentStatus"
@@ -707,6 +718,14 @@
           />
         </div>
         <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">订单类型</label>
+          <el-select v-model="selectedOrderType" clearable placeholder="全部类型" class="!w-full">
+            <el-option label="全部类型" value="" />
+            <el-option label="普通订单" value="1" />
+            <el-option label="商会订单" value="2" />
+          </el-select>
+        </div>
+        <div>
           <label class="block text-sm font-bold text-slate-700 mb-2">产品类型</label>
           <el-select v-model="selectedCategoryId" clearable placeholder="全部分类" class="!w-full">
             <el-option label="全部分类" value="" />
@@ -868,6 +887,7 @@ const pageSize = ref(20)
 const serverTotal = ref(0)
 const categories = ref([])
 const selectedCategoryId = ref('')
+const selectedOrderType = ref('')
 // 两级分类树：筛选项按大分类分组显示
 const categoryTree = computed(() => buildCategoryTree(categories.value))
 const selectedPaymentStatus = ref('')
@@ -965,6 +985,7 @@ const buildOrderQueryParams = () => {
   const params = {
     keyword: searchKeyword.value,
     category_id: selectedCategoryId.value,
+    order_type: selectedOrderType.value,
     payment_status: selectedPaymentStatus.value,
     fulfillment_status: selectedFulfillmentStatus.value,
     subsidy_status: selectedSubsidyStatus.value,
@@ -1135,6 +1156,7 @@ const applyMobileFilters = () => {
 const resetMobileFilters = () => {
   selectedMonth.value = ''
   selectedCategoryId.value = ''
+  selectedOrderType.value = ''
   selectedPaymentStatus.value = ''
   selectedFulfillmentStatus.value = ''
   selectedSubsidyStatus.value = ''

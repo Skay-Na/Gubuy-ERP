@@ -936,7 +936,7 @@ func CreateOrder(c *gin.Context) {
 	})
 }
 
-func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup string) *gorm.DB {
+func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType string) *gorm.DB {
 	if keyword != "" {
 		k := "%" + keyword + "%"
 		conditions := []string{
@@ -949,6 +949,10 @@ func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fu
 		if isTradeInKeyword(keyword) {
 			conditions = append(conditions, "trade_in_amount > 0")
 		}
+		if isChamberKeyword(keyword) {
+			// 商会订单的客户/电话与普通单无异，必须按类型标签补一条命中
+			conditions = append(conditions, "order_type = 2")
+		}
 		query = query.Where(
 			strings.Join(conditions, " OR "),
 			args...,
@@ -956,6 +960,9 @@ func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fu
 	}
 	if subsidyStatus != "" {
 		query = query.Where("subsidy_status = ?", subsidyStatus)
+	}
+	if orderType == "1" || orderType == "2" {
+		query = query.Where("order_type = ?", orderType)
 	}
 	if paymentStatus != "" {
 		query = query.Where("payment_status = ?", paymentStatus)
@@ -1059,6 +1066,17 @@ func isTradeInKeyword(keyword string) bool {
 	return false
 }
 
+// isChamberKeyword 关键词命中「商会订单」类型标签（搜索框输入"商会"应能搜出全部商会订单）。
+func isChamberKeyword(keyword string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(keyword))
+	for _, term := range []string{"商会", "商会订单", "chamber"} {
+		if strings.Contains(normalized, term) {
+			return true
+		}
+	}
+	return false
+}
+
 // GetOrders 获取所有订单列表
 // @Summary 获取订单列表
 // @Description 获取订单列表
@@ -1077,6 +1095,7 @@ func isTradeInKeyword(keyword string) bool {
 // @Param page query int false "页码"
 // @Param page_size query int false "每页数量"
 // @Param fields query string false "字段控制(如light)"
+// @Param order_type query int false "订单类型：1-普通订单 2-商会订单"
 // @Success 200 {object} APIResponse "成功响应"
 // @Security ApiKeyAuth
 // @ID get_api_orders
@@ -1091,6 +1110,7 @@ func GetOrders(c *gin.Context) {
 	endDate := c.Query("end_date")
 	categoryID := c.Query("category_id")
 	deletedEmployeeFollowup := c.Query("deleted_employee_followup")
+	orderType := c.Query("order_type")
 	pageStr := c.Query("page")
 	pageSizeStr := c.Query("page_size")
 	fields := c.Query("fields")
@@ -1112,7 +1132,7 @@ func GetOrders(c *gin.Context) {
 		query = query.Preload("Employee")
 	}
 
-	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup)
+	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType)
 
 	var orders []models.Order
 
@@ -2611,6 +2631,7 @@ func UpdateItemInstallStatus(c *gin.Context) {
 // @Param start_date query string false "开始日期"
 // @Param end_date query string false "结束日期"
 // @Param category_id query int false "分类ID"
+// @Param order_type query int false "订单类型：1-普通订单 2-商会订单"
 // @Success 200 {file} binary "Excel 文件"
 // @Security ApiKeyAuth
 // @ID get_api_orders_export
@@ -2625,9 +2646,10 @@ func ExportOrders(c *gin.Context) {
 	endDate := c.Query("end_date")
 	categoryID := c.Query("category_id")
 	deletedEmployeeFollowup := c.Query("deleted_employee_followup")
+	orderType := c.Query("order_type")
 
 	query := config.DB.Preload("OrderItems.Product").Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
-	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup)
+	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType)
 
 	var orders []models.Order
 	if err := query.Find(&orders).Error; err != nil {
