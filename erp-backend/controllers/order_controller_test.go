@@ -259,7 +259,7 @@ func TestApplyOrderFiltersDeletedEmployeeFollowupResults(t *testing.T) {
 	createOrder(nil, 1, 1, 0, 1, "missing-employee")
 
 	var got []models.Order
-	query := applyOrderFilters(config.DB.Model(&models.Order{}), "", "", "", "", "", "", "", "", "1", "")
+	query := applyOrderFilters(config.DB.Model(&models.Order{}), "", "", "", "", "", "", "", "", "1", "", 0)
 	if err := query.Find(&got).Error; err != nil {
 		t.Fatalf("query deleted employee follow-up orders: %v", err)
 	}
@@ -367,7 +367,7 @@ func dryRunOrderFilterSQLWithParams(t *testing.T, keyword, subsidyStatus, paymen
 		t.Fatalf("open dry-run db: %v", err)
 	}
 
-	query := applyOrderFilters(db.Model(&models.Order{}), keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, "", "", "", deletedEmployeeFollowup, "")
+	query := applyOrderFilters(db.Model(&models.Order{}), keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, "", "", "", deletedEmployeeFollowup, "", 0)
 	tx := query.Find(&[]models.Order{})
 	if tx.Error != nil {
 		t.Fatalf("build dry-run query: %v", tx.Error)

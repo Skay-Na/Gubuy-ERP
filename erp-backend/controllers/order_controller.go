@@ -165,6 +165,9 @@ type CreateOrderRequest struct {
 	OrderType int `json:"order_type"`
 	// 客户端幂等键（可选）：同一键重复提交时直接返回已有订单，防止双击重复开单
 	ClientRequestID string `json:"client_request_id" binding:"max=64"`
+	// 补录开单时间（仅管理员可用，员工端漏录单后代开时指定实际开单时间）。
+	// 格式 RFC3339 或 "2006-01-02 15:04"；为空 = 当前时间。员工 token 一律忽略此字段。
+	OrderTime string `json:"order_time"`
 }
 
 // orderDeliveryToWarehouse 将发货方式转换为库存流水的仓库类型。
@@ -489,6 +492,31 @@ func CreateOrder(c *gin.Context) {
 
 	// 1.5 提前生成订单号（用于关联流水）
 	orderTime := time.Now()
+	// 管理员补录开单时间：员工端漏录单时，管理员代开可指定实际开单时间，
+	// 订单 created_at / 收款流水 / 以旧换新支出 / 订单号日期全部按该时间归属，
+	// 月度净利与工资统计才不会错期。员工 token 一律忽略，防止篡改归属期间。
+	if req.OrderTime != "" && !strings.HasPrefix(c.GetString("username"), "emp_") {
+		parsedOrderTime, perr := time.ParseInLocation(time.RFC3339, req.OrderTime, time.Local)
+		if perr != nil {
+			parsedOrderTime, perr = time.ParseInLocation("2006-01-02 15:04", req.OrderTime, time.Local)
+		}
+		if perr != nil {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "开单时间格式错误"})
+			return
+		}
+		if parsedOrderTime.After(time.Now()) {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "开单时间不能晚于当前时间"})
+			return
+		}
+		if parsedOrderTime.Before(time.Now().AddDate(-1, 0, 0)) {
+			tx.Rollback()
+			c.JSON(http.StatusBadRequest, gin.H{"code": 400, "msg": "开单时间最早只能补录到一年前"})
+			return
+		}
+		orderTime = parsedOrderTime
+	}
 	if req.EmployeeID != nil && *req.EmployeeID > 0 {
 		var assignedEmployee models.Employee
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&assignedEmployee, *req.EmployeeID).Error; err != nil || !assignedEmployee.CanUseEmployeeAccess(orderTime) {
@@ -817,6 +845,8 @@ func CreateOrder(c *gin.Context) {
 	if req.ClientRequestID != "" {
 		order.ClientRequestID = &req.ClientRequestID
 	}
+	// 补录开单时间：显式写入 created_at（GORM 仅在零值时自动填充），报表按归属期统计
+	order.CreatedAt = orderTime
 
 	if err := tx.Create(&order).Error; err != nil {
 		// 并发场景下两个同幂等键请求可能同时通过预查询，唯一索引兜底：
@@ -876,7 +906,7 @@ func CreateOrder(c *gin.Context) {
 		if order.OrderType == 2 {
 			logRemark = fmt.Sprintf("%s (商会订单)", logRemark)
 		}
-		if err := WriteFinancialLog(tx, split.AccountID, 1, category, split.Amount, updatedAccount.Balance, orderNo, logRemark); err != nil {
+		if err := WriteFinancialLog(tx, split.AccountID, 1, category, split.Amount, updatedAccount.Balance, orderNo, logRemark, orderTime); err != nil {
 			tx.Rollback()
 			c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "财务流水写入失败"})
 			return
@@ -952,7 +982,11 @@ func CreateOrder(c *gin.Context) {
 	})
 }
 
-func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType string) *gorm.DB {
+func applyOrderFilters(query *gorm.DB, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType string, employeeID uint) *gorm.DB {
+	// 按开单员工筛选：员工下拉含离职（软删）员工，用于按人查全部历史单。
+	if employeeID > 0 {
+		query = query.Where("employee_id = ?", employeeID)
+	}
 	if keyword != "" {
 		k := "%" + keyword + "%"
 		conditions := []string{
@@ -1127,6 +1161,8 @@ func GetOrders(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	deletedEmployeeFollowup := c.Query("deleted_employee_followup")
 	orderType := c.Query("order_type")
+	// 员工下拉含离职员工，管理员可按开单人筛全部历史单
+	employeeIDFilter, _ := strconv.ParseUint(c.Query("employee_id"), 10, 64)
 	pageStr := c.Query("page")
 	pageSizeStr := c.Query("page_size")
 	fields := c.Query("fields")
@@ -1149,7 +1185,7 @@ func GetOrders(c *gin.Context) {
 		query = query.Preload("Employee").Preload("RegisteredBy")
 	}
 
-	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType)
+	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType, uint(employeeIDFilter))
 
 	var orders []models.Order
 
@@ -2664,9 +2700,10 @@ func ExportOrders(c *gin.Context) {
 	categoryID := c.Query("category_id")
 	deletedEmployeeFollowup := c.Query("deleted_employee_followup")
 	orderType := c.Query("order_type")
+	employeeIDFilter, _ := strconv.ParseUint(c.Query("employee_id"), 10, 64)
 
 	query := config.DB.Preload("OrderItems.Product").Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
-	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType)
+	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType, uint(employeeIDFilter))
 
 	var orders []models.Order
 	if err := query.Find(&orders).Error; err != nil {

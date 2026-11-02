@@ -85,6 +85,16 @@
               >
                 <el-option v-for="option in fulfillmentStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
               </el-select>
+              <el-select
+                v-model="selectedEmployeeId"
+                clearable
+                filterable
+                placeholder="开单员工（含离职）"
+                class="!w-full shadow-sm col-span-4"
+                @change="searchOrders"
+              >
+                <el-option v-for="emp in filterEmployees" :key="emp.id" :label="employeeFilterLabel(emp)" :value="emp.id" />
+              </el-select>
             </div>
           </div>
         </div>
@@ -753,6 +763,12 @@
             <el-option v-for="option in fulfillmentStatusOptions" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
         </div>
+        <div>
+          <label class="block text-sm font-bold text-slate-700 mb-2">开单员工</label>
+          <el-select v-model="selectedEmployeeId" clearable filterable placeholder="全部员工（含离职）" class="!w-full">
+            <el-option v-for="emp in filterEmployees" :key="emp.id" :label="employeeFilterLabel(emp)" :value="emp.id" />
+          </el-select>
+        </div>
         <div class="grid grid-cols-2 gap-2 pt-2">
           <el-button @click="resetMobileFilters">重置</el-button>
           <el-button type="primary" @click="applyMobileFilters">应用筛选</el-button>
@@ -893,6 +909,9 @@ const categoryTree = computed(() => buildCategoryTree(categories.value))
 const selectedPaymentStatus = ref('')
 const selectedFulfillmentStatus = ref('')
 const selectedSubsidyStatus = ref('')
+// 开单员工筛选：含离职员工，用于按人查全部历史单
+const selectedEmployeeId = ref('')
+const filterEmployees = ref([])
 const receiptVisible = ref(false)
 const currentReceipt = ref(null)
 const filterDrawerVisible = ref(false)
@@ -989,6 +1008,7 @@ const buildOrderQueryParams = () => {
     payment_status: selectedPaymentStatus.value,
     fulfillment_status: selectedFulfillmentStatus.value,
     subsidy_status: selectedSubsidyStatus.value,
+    employee_id: selectedEmployeeId.value,
     order_status: activeTab.value === 'archive' ? '2' : '1',
     deleted_employee_followup: activeTab.value === 'deleted_employee_todo' ? '1' : '',
     page: currentPage.value,
@@ -1015,6 +1035,25 @@ const handleExport = () => {
   const params = buildOrderQueryParams()
   downloadExcel('/api/orders/export', params)
 }
+
+// 筛选下拉员工列表：含离职员工（标注），按人查全部历史单
+const fetchFilterEmployees = async () => {
+  try {
+    const res = await fetchEmployeesApi({ include_departed: 'true', include_deleted: 'true' })
+    if (res.data.code === 200) {
+      const list = res.data.data || []
+      list.sort((a, b) => Number(Boolean(a.deleted_at)) - Number(Boolean(b.deleted_at)))
+      filterEmployees.value = list
+    }
+  } catch (error) {
+    // 筛选下拉拉取失败不阻塞页面，静默降级为无员工筛选项
+  }
+}
+
+// 离职判定：employment_status（deleted_at 不下发给前端）
+const isDepartedEmployee = emp => emp.employment_status === 'departed' || emp.employment_status === 'offboarding' || Boolean(emp.deleted_at)
+
+const employeeFilterLabel = emp => (isDepartedEmployee(emp) ? `${emp.name}（已离职）` : emp.name)
 
 const fetchCategories = async () => {
   try {
@@ -1160,6 +1199,7 @@ const resetMobileFilters = () => {
   selectedPaymentStatus.value = ''
   selectedFulfillmentStatus.value = ''
   selectedSubsidyStatus.value = ''
+  selectedEmployeeId.value = ''
   filterDrawerVisible.value = false
   currentPage.value = 1
   fetchOrders()
@@ -1590,6 +1630,7 @@ onMounted(async () => {
     selectedOrderType.value = String(route.query.order_type)
   }
   fetchCategories()
+  fetchFilterEmployees()
   if (!(await openLinkedOrder(route.query.order_no))) await fetchOrders()
 })
 

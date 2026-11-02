@@ -82,6 +82,26 @@
                 <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
               </el-select>
             </div>
+            <!-- 补录开单时间：员工端漏录单时，管理员代开可指定实际开单时间，报表按该时间归属期间 -->
+            <div class="rounded-xl border border-slate-100 bg-slate-50/60 p-2.5 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] text-slate-400 font-medium">补录开单时间</span>
+                <el-switch v-model="backfillOrderTime" size="small" />
+              </div>
+              <template v-if="backfillOrderTime">
+                <el-date-picker
+                  v-model="orderTimeValue"
+                  type="datetime"
+                  format="YYYY-MM-DD HH:mm"
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                  placeholder="选择实际开单时间"
+                  :disabled-date="date => date.getTime() > Date.now()"
+                  :default-time="new Date(2000, 0, 1, 12, 0, 0)"
+                  class="!w-full"
+                />
+                <span class="text-[10px] text-slate-400">订单与收款流水将按此时间计入对应月份（最早一年内）。</span>
+              </template>
+            </div>
             <div class="space-y-1">
               <span class="text-[10px] text-slate-400 font-medium pl-1">推荐人/渠道</span>
               <el-input v-model="referrerName" placeholder="选填" class="pos-customer-input" />
@@ -430,6 +450,26 @@
                 <el-option v-for="emp in employees" :key="emp.id" :label="emp.name" :value="emp.id" />
               </el-select>
             </div>
+            <!-- 补录开单时间：员工端漏录单时，管理员代开可指定实际开单时间，报表按该时间归属期间 -->
+            <div class="rounded-xl border border-slate-100 bg-slate-50/60 p-2.5 space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs text-slate-500 font-medium pl-1">补录开单时间</span>
+                <el-switch v-model="backfillOrderTime" size="small" />
+              </div>
+              <template v-if="backfillOrderTime">
+                <el-date-picker
+                  v-model="orderTimeValue"
+                  type="datetime"
+                  format="YYYY-MM-DD HH:mm"
+                  value-format="YYYY-MM-DDTHH:mm:ss"
+                  placeholder="选择实际开单时间"
+                  :disabled-date="date => date.getTime() > Date.now()"
+                  :default-time="new Date(2000, 0, 1, 12, 0, 0)"
+                  class="!w-full"
+                />
+                <span class="text-[10px] text-slate-400">订单与收款流水将按此时间计入对应月份（最早一年内）。</span>
+              </template>
+            </div>
             <div class="space-y-1">
               <span class="text-xs text-slate-500 font-medium pl-1">推荐人/渠道</span>
               <el-input v-model="referrerName" placeholder="选填" class="pos-customer-input" size="large" />
@@ -682,6 +722,9 @@ const customerPhone = ref('')
 const customerAddress = ref('')
 const employeeId = ref(null)
 const referrerName = ref('')
+// 补录开单时间：默认关闭=按当前时间开单；开启后可指定实际开单时间（员工端漏录单场景）
+const backfillOrderTime = ref(false)
+const orderTimeValue = ref(null)
 const orderType = ref(1)
 const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
@@ -860,6 +903,10 @@ const handleCheckout = async () => {
   if (!customerName.value) return ElMessage.warning('请输入客户姓名')
   if (!customerPhone.value) return ElMessage.warning('请输入客户手机号')
   if (!customerAddress.value) return ElMessage.warning('请输入客户收货地址')
+  if (backfillOrderTime.value && !orderTimeValue.value) return ElMessage.warning('已开启补录开单时间，请选择实际开单时间')
+  if (backfillOrderTime.value && orderTimeValue.value && new Date(orderTimeValue.value).getTime() > Date.now()) {
+    return ElMessage.warning('补录开单时间不能晚于当前时间')
+  }
   if (isTradeIn.value && tradeInAmount.value > 0 && !tradeInAccountId.value) return ElMessage.warning('请选择以旧换新付款账户')
 
   if (hasPriceViolation.value) {
@@ -922,6 +969,7 @@ const handleCheckout = async () => {
       trade_in_remark: isTradeIn.value ? tradeInRemark.value : '',
       discount_amount: wipeZeroAmount.value,
       order_type: orderType.value,
+      order_time: backfillOrderTime.value && orderTimeValue.value ? orderTimeValue.value : undefined,
       client_request_id: clientRequestId
     }
 
@@ -947,6 +995,8 @@ const handleCheckout = async () => {
       wipeZeroAmount.value = 0
       employeeId.value = null
       referrerName.value = ''
+      backfillOrderTime.value = false
+      orderTimeValue.value = null
       orderType.value = 1
       paymentMethod.value = 1
       mixedPaymentAmounts.value = { 1: 0, 2: 0, 3: 0, 5: 0 }
