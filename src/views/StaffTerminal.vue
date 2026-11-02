@@ -1517,7 +1517,7 @@ const fetchMyOrders = async () => {
 
     const res = await fetchOrdersApi(params)
     if (res.data.code === 200) {
-      myOrders.value = res.data.data.filter(o => o.employee_id === currentEmployee.value.id)
+      myOrders.value = res.data.data.filter(o => o.employee_id === currentEmployee.value.id || o.registered_by_id === currentEmployee.value.id)
     }
   } catch (err) {
     ElMessage.error('获取订单失败')

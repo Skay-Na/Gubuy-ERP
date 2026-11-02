@@ -144,6 +144,8 @@ type CreateOrderRequest struct {
 	EmployeeID      *uint              `json:"employee_id"`
 	ReferrerName    string             `json:"referrer_name"`
 	NoCommission    bool               `json:"no_commission"`
+	// 服务端内部字段：老板客重映射时由 CreateOrder 写入原录单员工，不接收外部传值
+	RegisteredByID *uint `json:"-"`
 	// 支付方式: 1-支付宝, 2-微信, 3-公户, 5-现金
 	PaymentMethod int `json:"payment_method" binding:"required"`
 	// 新增：收款账户ID（解耦支付方式与账户）
@@ -425,9 +427,14 @@ func CreateOrder(c *gin.Context) {
 	}
 	// 老板客订单归属：勾选「老板客户」（免提成）时，订单统一归属「老板客」虚拟员工（BOSS001），
 	// 业绩进销售分析老板客专属栏，不占录单员工的业绩排名。查不到 BOSS001 时保持原归属（防御）。
+	// 重映射前把原录单员工记入 RegisteredByID，员工端「我的订单」按登记人查回自己录的老板客单。
 	if req.NoCommission {
 		var bossEmployee models.Employee
 		if err := config.DB.Where("emp_no = ? AND deleted_at IS NULL", "BOSS001").First(&bossEmployee).Error; err == nil {
+			if req.EmployeeID != nil {
+				registeredBy := *req.EmployeeID
+				req.RegisteredByID = &registeredBy
+			}
 			req.EmployeeID = &bossEmployee.ID
 		}
 	}
@@ -799,6 +806,7 @@ func CreateOrder(c *gin.Context) {
 		OrderStatus:           1, // 正常
 		AccountID:             &accountID,
 		EmployeeID:            req.EmployeeID,
+		RegisteredByID:        req.RegisteredByID,
 		ReferrerName:          req.ReferrerName,
 		CommissionAmount:      commissionAmount,
 		TradeInAmount:         req.TradeInAmount,
@@ -1129,15 +1137,16 @@ func GetOrders(c *gin.Context) {
 			c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "msg": "员工身份无效，请重新登录"})
 			return
 		}
-		query = query.Where("employee_id = ?", employee.ID)
+		// 老板客单归属 BOSS001 后，员工按「实际登记人」查回自己录的老板客单。
+		query = query.Where("employee_id = ? OR registered_by_id = ?", employee.ID, employee.ID)
 	}
 	if fields != "" && fields != "light" {
 		query = query.Select(strings.Split(fields, ","))
 	} else if fields != "light" {
-		query = query.Preload("OrderItems.Product").Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson")
+		query = query.Preload("OrderItems.Product").Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("RegisteredBy").Preload("Account").Preload("Installer").Preload("DeliveryPerson")
 	} else {
 		// light模式只加载最基本的员工信息
-		query = query.Preload("Employee")
+		query = query.Preload("Employee").Preload("RegisteredBy")
 	}
 
 	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType)

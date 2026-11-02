@@ -249,6 +249,10 @@ type Order struct {
 	OrderItems        []OrderItem `gorm:"foreignKey:OrderID" json:"order_items"`
 	EmployeeID        *uint       `gorm:"index;comment:开单员工ID" json:"employee_id"`
 	Employee          *Employee   `gorm:"foreignKey:EmployeeID" json:"employee,omitempty"`
+	// 实际登记人：老板客订单归属 BOSS001 后，业绩不占录单员工，但员工端「我的订单」
+	// 仍需按登记人查回自己录的老板客单，因此重映射时在此保留原录单员工ID。
+	RegisteredByID *uint      `gorm:"index;comment:实际登记员工ID(老板客单归属BOSS001时记录原录单人)" json:"registered_by_id"`
+	RegisteredBy   *Employee  `gorm:"foreignKey:RegisteredByID" json:"registered_by,omitempty"`
 	ReferrerName      string      `gorm:"type:varchar(100);comment:推荐人姓名" json:"referrer_name"`
 	ReferralFee       float64     `gorm:"type:decimal(10,2);not null;default:0;comment:第三方带单提成金额" json:"referral_fee"`
 	IsReferralFeePaid bool        `gorm:"not null;default:false;comment:推荐提成是否已发" json:"is_referral_fee_paid"`
