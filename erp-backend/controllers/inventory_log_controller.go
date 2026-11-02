@@ -118,7 +118,7 @@ func GetInventoryLogs(c *gin.Context) {
 	}
 
 	query := config.DB.
-		Preload("Product").
+		Preload("Product", productWithDeleted).
 		Where("product_id = ?", productID).
 		Order("created_at desc, id desc")
 
@@ -193,7 +193,7 @@ func GetGlobalInventoryLogs(c *gin.Context) {
 
 	query := config.DB.
 		Model(&models.InventoryLog{}).
-		Preload("Product").
+		Preload("Product", productWithDeleted).
 		Order("created_at desc, id desc")
 
 	if warehouseType != "" {
@@ -258,7 +258,7 @@ func ExportInventoryLogs(c *gin.Context) {
 	keyword := c.Query("keyword")
 	operatorID := c.Query("operator_id")
 
-	query := config.DB.Model(&models.InventoryLog{}).Preload("Product").Order("created_at desc, id desc")
+	query := config.DB.Model(&models.InventoryLog{}).Preload("Product", productWithDeleted).Order("created_at desc, id desc")
 
 	if warehouseType != "" {
 		query = query.Where("warehouse_type = ?", warehouseType)

@@ -609,7 +609,7 @@ func calculateOffboardingCommission(tx *gorm.DB, employee models.Employee, month
 	end := offboardingDate(lastWorkingDate).AddDate(0, 0, 1)
 	var orders []models.Order
 	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Preload("OrderItems.Product").
+		Preload("OrderItems.Product", productWithDeleted).
 		Where("created_at >= ? AND created_at < ?", monthStart, end).
 		Order("created_at asc, id asc").Find(&orders).Error; err != nil {
 		return 0, 0, nil, fmt.Errorf("query orders for offboarding commission: %w", err)

@@ -47,7 +47,7 @@ func monthlyEmployeePayrollReport(startMonth time.Time, includeDeparted ...bool)
 		}
 	}
 	var orders []models.Order
-	if err := config.DB.Preload("OrderItems.Product").
+	if err := config.DB.Preload("OrderItems.Product", productWithDeleted).
 		Where("created_at >= ? AND created_at < ? AND order_status = 1", startMonth, endMonth).
 		Order("created_at asc, id asc").Find(&orders).Error; err != nil {
 		return nil, fmt.Errorf("查询订单: %w", err)

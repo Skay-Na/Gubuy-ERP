@@ -10,6 +10,9 @@ export const createProduct = data => request.post('/api/products', data)
 // 更新商品
 export const updateProduct = (productId, data) => request.put(`/api/products/${productId}`, data)
 
+// 删除商品（软删，仅管理员；有库存时会被拒绝）
+export const deleteProduct = productId => request.delete(`/api/products/${productId}`)
+
 // 查询单个商品的库存变动日志
 export const fetchProductLogs = (productId, params) => request.get(`/api/products/${productId}/logs`, { params })
 

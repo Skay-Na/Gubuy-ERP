@@ -199,6 +199,7 @@
                     <el-dropdown-item command="transfer">库存调拨</el-dropdown-item>
                     <el-dropdown-item command="stocktake">盘库清查</el-dropdown-item>
                     <el-dropdown-item command="logs">变动流水</el-dropdown-item>
+                    <el-dropdown-item command="delete" divided class="!text-red-500">删除商品</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
               </el-dropdown>
@@ -298,7 +299,7 @@
           <div class="font-bold text-slate-800 text-base truncate">{{ activeActionRow.name }}</div>
           <div class="text-xs text-slate-400 mt-1">请选择操作</div>
         </div>
-        <div class="grid grid-cols-4 gap-4 py-4">
+        <div class="grid grid-cols-5 gap-4 py-4">
           <div class="flex flex-col items-center gap-2" @click="handleMobileCommand('edit')">
             <div class="w-12 h-12 rounded-full bg-blue-50 text-blue-500 flex items-center justify-center"><el-icon size="24"><Edit /></el-icon></div>
             <span class="text-xs text-slate-600 font-medium">编辑</span>
@@ -314,6 +315,10 @@
           <div class="flex flex-col items-center gap-2" @click="handleMobileCommand('logs')">
             <div class="w-12 h-12 rounded-full bg-purple-50 text-purple-500 flex items-center justify-center"><el-icon size="24"><Search /></el-icon></div>
             <span class="text-xs text-slate-600 font-medium">流水</span>
+          </div>
+          <div class="flex flex-col items-center gap-2" @click="handleMobileCommand('delete')">
+            <div class="w-12 h-12 rounded-full bg-red-50 text-red-500 flex items-center justify-center"><el-icon size="24"><Delete /></el-icon></div>
+            <span class="text-xs text-red-500 font-medium">删除</span>
           </div>
         </div>
         <el-button class="w-full mt-2 !rounded-xl !h-11" @click="actionSheetVisible = false">取消</el-button>
@@ -813,7 +818,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, reactive, computed } from 'vue'
-import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit, Box, Menu, Files, Coin } from '@element-plus/icons-vue'
+import { Plus, Search, ArrowDown, Calendar, Lightning, Setting, MagicStick, InfoFilled, Download, MoreFilled, Edit, Box, Menu, Files, Coin, Delete } from '@element-plus/icons-vue'
 import {
   fetchCategories as fetchCategoriesApi,
   fetchProducts as fetchProductsApi,
@@ -822,6 +827,7 @@ import {
   deleteCategory,
   createProduct,
   updateProduct,
+  deleteProduct,
   fetchProductLogs,
   transferProduct,
   stocktakeProduct,
@@ -891,10 +897,40 @@ const handleMobileCommand = (cmd) => {
   if (!activeActionRow.value) return
   if (cmd === 'edit') {
     handleEdit(activeActionRow.value)
+  } else if (cmd === 'delete') {
+    handleDeleteProduct(activeActionRow.value)
+    return // 删除失败时保留操作面板便于重试
   } else {
     handleCommand(cmd, activeActionRow.value)
   }
   actionSheetVisible.value = false
+}
+
+// 删除商品（仅管理员；后端软删，有库存会被拒绝）
+const handleDeleteProduct = async (row) => {
+  const totalStock = (row.store_stock || 0) + (row.sample_stock || 0) + (row.cloud_stock || 0) + (row.main_stock || 0)
+  try {
+    await ElMessageBox.confirm(
+      totalStock > 0
+        ? `「${row.name}」还有库存未清（门店 ${row.store_stock || 0} / 样机 ${row.sample_stock || 0} / 云仓 ${row.cloud_stock || 0}），系统不允许删除。请先通过「盘库清查」把库存清零。`
+        : `确定删除商品「${row.name}」吗？删除后它不再出现在开单和商品列表中，历史订单与流水仍保留可查。`,
+      '删除商品',
+      { confirmButtonText: totalStock > 0 ? '知道了' : '删除', cancelButtonText: '取消', type: 'warning' }
+    ).then(async () => {
+      if (totalStock > 0) return
+      try {
+        const res = await deleteProduct(row.id)
+        if (res.data.code === 200) {
+          ElMessage.success('商品已删除')
+          fetchProducts()
+        } else {
+          ElMessage.error(res.data.msg || '删除失败')
+        }
+      } catch (err) {
+        ElMessage.error(err.response?.data?.msg || '删除失败')
+      }
+    })
+  } catch (e) { /* 用户取消 */ }
 }
 
 const handleMobileMenuCommand = (cmd) => {
@@ -1209,6 +1245,8 @@ const handleCommand = (command, row) => {
     logWarehouseType.value = ''
     logsVisible.value = true
     fetchLogs()
+  } else if (command === 'delete') {
+    handleDeleteProduct(row)
   }
 }
 

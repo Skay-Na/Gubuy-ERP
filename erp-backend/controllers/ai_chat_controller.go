@@ -201,7 +201,7 @@ func answerCustomerOrders(customer string) (string, error) {
 	}
 	var orders []models.Order
 	pattern := "%" + strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(customer) + "%"
-	err := config.DB.Preload("OrderItems.Product").Where("customer_name LIKE ? AND order_status = 1", pattern).Order("created_at DESC").Limit(20).Find(&orders).Error
+	err := config.DB.Preload("OrderItems.Product", productWithDeleted).Where("customer_name LIKE ? AND order_status = 1", pattern).Order("created_at DESC").Limit(20).Find(&orders).Error
 	if err != nil {
 		return "", err
 	}

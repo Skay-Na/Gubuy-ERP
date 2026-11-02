@@ -1181,7 +1181,7 @@ func GetOrders(c *gin.Context) {
 	if fields != "" && fields != "light" {
 		query = query.Select(strings.Split(fields, ","))
 	} else if fields != "light" {
-		query = query.Preload("OrderItems.Product").Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("RegisteredBy").Preload("Account").Preload("Installer").Preload("DeliveryPerson")
+		query = query.Preload("OrderItems.Product", productWithDeleted).Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("RegisteredBy").Preload("Account").Preload("Installer").Preload("DeliveryPerson")
 	} else {
 		// light模式只加载最基本的员工信息
 		query = query.Preload("Employee").Preload("RegisteredBy")
@@ -2704,7 +2704,7 @@ func ExportOrders(c *gin.Context) {
 	orderType := c.Query("order_type")
 	employeeIDFilter, _ := strconv.ParseUint(c.Query("employee_id"), 10, 64)
 
-	query := config.DB.Preload("OrderItems.Product").Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
+	query := config.DB.Preload("OrderItems.Product", productWithDeleted).Preload("OrderItems.Product.Category").Preload("OrderItems.DeliveryPerson").Preload("OrderItems.Installer").Preload("Employee").Preload("Account").Preload("Installer").Preload("DeliveryPerson").Order("created_at desc")
 	query = applyOrderFilters(query, keyword, subsidyStatus, paymentStatus, fulfillmentStatus, orderStatus, startDate, endDate, categoryID, deletedEmployeeFollowup, orderType, uint(employeeIDFilter))
 
 	var orders []models.Order

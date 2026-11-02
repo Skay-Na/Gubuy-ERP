@@ -277,7 +277,7 @@ type ReviewPendingStocktakeRequest struct {
 // @Router /api/pending-stocktakes [get]
 // ListPendingStocktakes returns stocktake requests for administrator review.
 func ListPendingStocktakes(c *gin.Context) {
-	query := config.DB.Preload("Product").Order("created_at desc, id desc")
+	query := config.DB.Preload("Product", productWithDeleted).Order("created_at desc, id desc")
 	if status := c.Query("status"); status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -311,7 +311,7 @@ func ListMyPendingStocktakes(c *gin.Context) {
 	if !requireNoActiveBlindStocktake(c) {
 		return
 	}
-	query := config.DB.Preload("Product").Where("operator_id = ?", employee.ID).Order("created_at desc, id desc")
+	query := config.DB.Preload("Product", productWithDeleted).Where("operator_id = ?", employee.ID).Order("created_at desc, id desc")
 	if status := c.Query("status"); status != "" {
 		query = query.Where("status = ?", status)
 	}

@@ -215,7 +215,7 @@ func agentEmployeeCommission(name, month, period string) (string, error) {
 		return "", err
 	}
 	var orders []models.Order
-	if err := config.DB.Preload("OrderItems.Product").Where("created_at >= ? AND created_at < ? AND order_status = 1", start, end).Order("created_at asc, id asc").Find(&orders).Error; err != nil {
+	if err := config.DB.Preload("OrderItems.Product", productWithDeleted).Where("created_at >= ? AND created_at < ? AND order_status = 1", start, end).Order("created_at asc, id asc").Find(&orders).Error; err != nil {
 		return "", err
 	}
 	item := &CommissionReportItem{EmployeeID: employee.ID, EmployeeName: employee.Name, CommissionRate: employee.CommissionRate, CommissionDetails: []CommissionDetail{}}
@@ -254,7 +254,7 @@ func agentAllEmployeeCommissions(month, period string) (string, error) {
 		}
 	}
 	var orders []models.Order
-	if err := config.DB.Preload("OrderItems.Product").Where("created_at >= ? AND created_at < ? AND order_status = 1", start, end).Order("created_at asc, id asc").Find(&orders).Error; err != nil {
+	if err := config.DB.Preload("OrderItems.Product", productWithDeleted).Where("created_at >= ? AND created_at < ? AND order_status = 1", start, end).Order("created_at asc, id asc").Find(&orders).Error; err != nil {
 		return "", err
 	}
 	for _, order := range orders {

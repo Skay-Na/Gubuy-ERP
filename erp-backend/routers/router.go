@@ -173,6 +173,7 @@ func SetupRouter() *gin.Engine {
 			adminAuth.PUT("/order-items/:item_id/installation-fee", controllers.UpdateItemInstallationFee)
 			adminAuth.PUT("/products/:id/transfer", controllers.TransferProduct)
 			adminAuth.PUT("/products/:id", controllers.UpdateProduct)
+			adminAuth.DELETE("/products/:id", controllers.DeleteProduct)
 			adminAuth.POST("/products/recalculate-costs", controllers.RecalculateAllAvgCosts)
 			adminAuth.POST("/inbounds", controllers.CreateInbound)
 			adminAuth.POST("/inbounds/cancel-by-log/:log_id", controllers.CancelInboundByLog)

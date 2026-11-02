@@ -82,7 +82,7 @@ func countHistoricalZeroCostOrderItems(db *gorm.DB, productID uint) (int64, erro
 // @Router /api/system/historical-cost-repair/candidates [get]
 func ListHistoricalCostRepairCandidates(c *gin.Context) {
 	var logs []models.InventoryLog
-	if err := config.DB.Preload("Product").
+	if err := config.DB.Preload("Product", productWithDeleted).
 		Where("unit_cost <= 0 AND change_qty > 0 AND log_type IN ?", []string{"purchase", "stocktake"}).
 		Order("created_at asc, id asc").Find(&logs).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "读取历史零成本记录失败"})
@@ -123,7 +123,7 @@ func ListHistoricalCostRepairCandidates(c *gin.Context) {
 	}
 
 	var orderItems []models.OrderItem
-	if err := config.DB.Preload("Product").
+	if err := config.DB.Preload("Product", productWithDeleted).
 		Joins("JOIN orders ON order_items.order_id = orders.id").
 		Where("order_items.unit_cost <= 0 AND orders.order_status = ? AND orders.deleted_at IS NULL", 1).
 		Order("order_items.order_id asc, order_items.id asc").Find(&orderItems).Error; err != nil {

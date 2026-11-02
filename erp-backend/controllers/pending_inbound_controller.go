@@ -135,7 +135,7 @@ func ApprovePendingInbound(c *gin.Context) {
 func ListPendingInbounds(c *gin.Context) {
 	status := c.Query("status")
 	var records []models.PendingInbound
-	query := config.DB.Preload("Product").Order("created_at desc")
+	query := config.DB.Preload("Product", productWithDeleted).Order("created_at desc")
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -168,7 +168,7 @@ func ListMyPendingInbounds(c *gin.Context) {
 	if !requireNoActiveBlindStocktake(c) {
 		return
 	}
-	query := config.DB.Preload("Product").Where("submitter_employee_id = ?", employee.ID).Order("created_at desc, id desc")
+	query := config.DB.Preload("Product", productWithDeleted).Where("submitter_employee_id = ?", employee.ID).Order("created_at desc, id desc")
 	if status := c.Query("status"); status != "" {
 		query = query.Where("status = ?", status)
 	}

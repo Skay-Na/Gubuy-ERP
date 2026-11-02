@@ -448,6 +448,36 @@ func UpdateProduct(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "success"})
 }
 
+// productWithDeleted Preload 商品关联时包含已删除（软删）商品：
+// 历史订单明细、库存流水等必须保留商品名/分类等快照信息，不能因商品被删而显示空白。
+func productWithDeleted(db *gorm.DB) *gorm.DB {
+	return db.Unscoped()
+}
+
+// DeleteProduct 软删商品（仅管理员）。录错或多余的商品删除后从所有选择列表消失，
+// 历史订单、库存流水、提成报表因 Preload 放行已删记录仍完整可追溯。
+// 防呆：门店/样机/云仓/主仓库存任一不为 0 时拒绝，需先盘点清零，防止库存凭空消失。
+func DeleteProduct(c *gin.Context) {
+	id := c.Param("id")
+	var product models.Product
+	if err := config.DB.Clauses(clause.Locking{Strength: "UPDATE"}).First(&product, id).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "msg": "商品不存在"})
+		return
+	}
+	if product.StoreStock != 0 || product.SampleStock != 0 || product.CloudStock != 0 || product.MainStock != 0 {
+		c.JSON(http.StatusConflict, gin.H{
+			"code": 409,
+			"msg":  fmt.Sprintf("该商品还有库存未清（门店 %d / 样机 %d / 云仓 %d），请先通过盘点清零后再删除", product.StoreStock, product.SampleStock, product.CloudStock),
+		})
+		return
+	}
+	if err := config.DB.Delete(&product).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "msg": "删除失败：" + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"code": 200, "msg": "商品已删除", "data": gin.H{"id": product.ID}})
+}
+
 // RecalculateAllAvgCosts 根据历史流水重新核算所有商品的平均成本
 // @Summary 重新核算所有平均成本
 // @Description 重新核算所有平均成本
