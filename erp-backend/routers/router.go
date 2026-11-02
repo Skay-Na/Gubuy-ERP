@@ -145,6 +145,8 @@ func SetupRouter() *gin.Engine {
 			auth.POST("/subsidy/allocate", middlewares.AdminAuthRequired(), controllers.AllocateSubsidyReceipt)
 			auth.POST("/subsidy/batch-receive", middlewares.AdminAuthRequired(), controllers.BatchReceiveSubsidy)
 			auth.GET("/subsidy/receipts", controllers.GetSubsidyReceipts)
+			// 系统设置：读对所有登录身份开放（员工端需要读取补录授权等开关）；改仅限管理员。
+			auth.GET("/system-settings", controllers.GetSystemSettings)
 
 			// 导出相关接口
 			auth.GET("/orders/export", controllers.ExportOrders)
@@ -162,6 +164,7 @@ func SetupRouter() *gin.Engine {
 				c.JSON(http.StatusNotFound, gin.H{"code": http.StatusNotFound, "msg": "该 Agent 工作台功能已停用"})
 			})
 			adminAuth.GET("/system/backup", controllers.ExportBackup)
+			adminAuth.PUT("/system-settings/:key", controllers.UpdateSystemSetting)
 			adminAuth.POST("/system/restore", controllers.ImportBackup)
 			adminAuth.GET("/operations", controllers.GetOperationHistory)
 			adminAuth.POST("/operations/:id/undo", controllers.UndoOperation)

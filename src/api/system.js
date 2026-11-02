@@ -42,3 +42,11 @@ export const fetchOperations = params => request.get('/api/operations', { params
 
 // 撤销操作
 export const undoOperation = operationId => request.post(`/api/operations/${operationId}/undo`)
+
+// ---------- 系统设置（key-value 开关） ----------
+
+// 读取系统设置（管理员与员工均可读；keys 逗号分隔，缺省返回全部）
+export const fetchSystemSettings = keys => request.get('/api/system-settings', { params: keys ? { keys } : {} })
+
+// 更新系统设置（仅管理员）
+export const updateSystemSetting = (key, value, remark) => request.put(`/api/system-settings/${key}`, { value, remark })

@@ -492,10 +492,12 @@ func CreateOrder(c *gin.Context) {
 
 	// 1.5 提前生成订单号（用于关联流水）
 	orderTime := time.Now()
-	// 管理员补录开单时间：员工端漏录单时，管理员代开可指定实际开单时间，
-	// 订单 created_at / 收款流水 / 以旧换新支出 / 订单号日期全部按该时间归属，
-	// 月度净利与工资统计才不会错期。员工 token 一律忽略，防止篡改归属期间。
-	if req.OrderTime != "" && !strings.HasPrefix(c.GetString("username"), "emp_") {
+	// 补录开单时间（漏录单场景）：管理员始终可用；员工端仅在系统设置
+	// order_backdate_enabled 开启时允许，关闭时忽略传入时间按当下开单。
+	// 校验：不能晚于当前时间，最早补录一年内，防止篡改归属期间。
+	isAdminToken := !strings.HasPrefix(c.GetString("username"), "emp_")
+	allowBackdate := isAdminToken || IsOrderBackdateEnabledForEmployee()
+	if req.OrderTime != "" && allowBackdate {
 		parsedOrderTime, perr := time.ParseInLocation(time.RFC3339, req.OrderTime, time.Local)
 		if perr != nil {
 			parsedOrderTime, perr = time.ParseInLocation("2006-01-02 15:04", req.OrderTime, time.Local)

@@ -101,6 +101,11 @@
                 />
                 <span class="text-[10px] text-slate-400">订单与收款流水将按此时间计入对应月份（最早一年内）。</span>
               </template>
+              <div class="flex items-center justify-between pt-1 border-t border-slate-200/70">
+                <span class="text-[10px] text-slate-400 font-medium">允许员工端补录日期</span>
+                <el-switch v-model="employeeBackdateEnabled" size="small" :loading="employeeBackdateSaving" @change="saveEmployeeBackdateSetting" />
+              </div>
+              <span class="text-[10px] text-slate-400 block !mt-0">开启后员工收银端也能改开单日期；关闭则员工只能开当天。</span>
             </div>
             <div class="space-y-1">
               <span class="text-[10px] text-slate-400 font-medium pl-1">推荐人/渠道</span>
@@ -469,6 +474,11 @@
                 />
                 <span class="text-[10px] text-slate-400">订单与收款流水将按此时间计入对应月份（最早一年内）。</span>
               </template>
+              <div class="flex items-center justify-between pt-1 border-t border-slate-200/70">
+                <span class="text-[10px] text-slate-400 font-medium">允许员工端补录日期</span>
+                <el-switch v-model="employeeBackdateEnabled" size="small" :loading="employeeBackdateSaving" @change="saveEmployeeBackdateSetting" />
+              </div>
+              <span class="text-[10px] text-slate-400 block !mt-0">开启后员工收银端也能改开单日期；关闭则员工只能开当天。</span>
             </div>
             <div class="space-y-1">
               <span class="text-xs text-slate-500 font-medium pl-1">推荐人/渠道</span>
@@ -678,6 +688,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { fetchEmployees as fetchEmployeesApi } from '../../api/employees'
 import { fetchAccounts as fetchAccountsApi } from '../../api/finance'
 import { createOrder as createOrderApi } from '../../api/orders'
+import { fetchSystemSettings, updateSystemSetting } from '../../api/system'
 import { buildReceiptFromCheckout } from '../../utils/receipt'
 import { useCartStore } from '../../store/cart'
 
@@ -1021,7 +1032,33 @@ const handleCheckout = async () => {
 onMounted(() => {
   fetchEmployees()
   fetchAccounts()
+  fetchEmployeeBackdateSetting()
 })
+
+// ---------- 允许员工端补录日期（全局开关，存系统设置） ----------
+const employeeBackdateEnabled = ref(false)
+const employeeBackdateSaving = ref(false)
+const fetchEmployeeBackdateSetting = async () => {
+  try {
+    const res = await fetchSystemSettings('order_backdate_enabled')
+    const row = (res.data?.data || []).find(s => s.setting_key === 'order_backdate_enabled')
+    employeeBackdateEnabled.value = Boolean(row && ['true', '1'].includes(String(row.value)))
+  } catch (err) {
+    employeeBackdateEnabled.value = false
+  }
+}
+const saveEmployeeBackdateSetting = async value => {
+  employeeBackdateSaving.value = true
+  try {
+    await updateSystemSetting('order_backdate_enabled', value ? 'true' : 'false', '允许员工端开单时补录开单时间')
+    ElMessage.success(value ? '已允许员工端补录开单日期' : '已关闭员工端补录，员工只能开当天')
+  } catch (err) {
+    employeeBackdateEnabled.value = !value
+    ElMessage.error(err.response?.data?.msg || '保存设置失败')
+  } finally {
+    employeeBackdateSaving.value = false
+  }
+}
 </script>
 
 <style scoped>

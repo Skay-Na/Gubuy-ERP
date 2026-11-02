@@ -553,6 +553,32 @@
                   </el-collapse-transition>
               </div>
 
+              <div v-if="orderBackdateEnabled" class="p-3 rounded-xl border border-amber-100 bg-amber-50/50 space-y-2">
+                <div class="flex justify-between items-center cursor-pointer" @click="toggleBackdate">
+                  <div>
+                    <div class="text-xs font-bold text-amber-700">补录开单时间</div>
+                    <div class="text-[10px] text-amber-500/90 mt-0.5">员工漏录单时，可把本单记到实际成交的时间</div>
+                  </div>
+                  <el-switch v-model="useBackdate" @click.stop />
+                </div>
+                <el-collapse-transition>
+                  <div v-if="useBackdate" class="pt-1">
+                    <el-date-picker
+                      v-model="backdateTime"
+                      type="datetime"
+                      format="YYYY-MM-DD HH:mm"
+                      :default-time="new Date(2000, 0, 1, 12, 0, 0)"
+                      :disabled-date="d => dayjs(d).isAfter(dayjs(), 'day')"
+                      placeholder="选择实际开单时间（默认当天）"
+                      class="!w-full"
+                    />
+                    <div class="text-[10px] text-slate-400 mt-1.5 leading-relaxed">
+                      订单与收款流水将按此时间计入对应月份，提交前请与老板核对清楚。
+                    </div>
+                  </div>
+                </el-collapse-transition>
+              </div>
+
               <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 text-[11px] text-slate-400 leading-relaxed">
                 收款账户由系统按支付方式自动规范入账；以旧换新的折抵支出请在所选账户中登记。
               </div>
@@ -1283,6 +1309,7 @@ import {
   createProduct as createProductApi
 } from '../api/products'
 import { fetchAccounts as fetchAccountsApi } from '../api/finance'
+import { fetchSystemSettings } from '../api/system'
 import { buildCategoryTree, categoryCascaderProps } from '../utils/categories'
 import dayjs from 'dayjs'
 
@@ -1643,6 +1670,7 @@ const verifyPin = async () => {
       localStorage.setItem('pos_token', res.data.data.token)
       // 持久化登录状态
       localStorage.setItem('pos_current_employee', JSON.stringify(currentEmployee.value))
+      fetchOrderBackdateSetting()
       await fetchTodayAttendance()
       fetchCategories() // 登录成功后再拉取品类数据
       fetchProducts()
@@ -1743,8 +1771,34 @@ const referrerName = ref('')
 const paymentMethod = ref(1)
 const mixedPaymentAmounts = ref({ 1: 0, 2: 0, 3: 0, 5: 0 })
 const deliveryMethod = ref(4)
+// 补录开单时间：管理员在系统设置里开启「允许员工补录」后，员工端结算面板出现该开关；
+// 关闭时本区块整个隐藏，订单一律按当天时间归属。
+const orderBackdateEnabled = ref(false)   // 全局授权（管理员控制）
+const useBackdate = ref(false)            // 本单是否补录
+const backdateTime = ref('')              // 补录时间（dayjs 可解析字符串）
+const defaultBackdateTime = () => dayjs().format('YYYY-MM-DD HH:mm')
+
+const fetchOrderBackdateSetting = async () => {
+  try {
+    const res = await fetchSystemSettings('order_backdate_enabled')
+    const rows = res.data?.data || []
+    orderBackdateEnabled.value = rows.some(s => s.setting_key === 'order_backdate_enabled' && ['true', '1'].includes(String(s.value)))
+  } catch (err) {
+    orderBackdateEnabled.value = false
+  }
+}
 
 const openInventoryPage = () => router.push('/terminal/inventory')
+
+const toggleBackdate = () => {
+  useBackdate.value = !useBackdate.value
+  if (useBackdate.value && !backdateTime.value) {
+    backdateTime.value = defaultBackdateTime()
+  }
+  if (!useBackdate.value) {
+    backdateTime.value = ''
+  }
+}
 
 const resetStaffProductForm = () => {
   staffProductForm.value = {
@@ -2092,6 +2146,11 @@ onUnmounted(() => {
 const handleCheckout = async () => {
   if (!ensureCheckedInBeforeCheckout()) return
   if (!customerName.value) return ElMessage.warning('请输入客户姓名')
+  if (useBackdate.value && !backdateTime.value) return ElMessage.warning('请选择补录的开单时间，或关闭补录开关')
+  if (useBackdate.value && dayjs(backdateTime.value).isAfter(dayjs())) {
+    backdateTime.value = defaultBackdateTime()
+    return ElMessage.warning('开单时间不能晚于当前时间，已重置为当前时间')
+  }
   if (!customerPhone.value) return ElMessage.warning('请输入客户手机号')
   if (!customerAddress.value) return ElMessage.warning('请输入客户收货地址')
   if (isTradeIn.value && tradeInAmount.value > 0 && !tradeInAccountId.value) return ElMessage.warning('请选择以旧换新付款账户')
@@ -2132,6 +2191,7 @@ const handleCheckout = async () => {
       trade_in_remark: isTradeIn.value ? tradeInRemark.value : '',
       discount_amount: wipeZeroAmount.value,
       order_type: orderType.value,
+      order_time: useBackdate.value && backdateTime.value ? dayjs(backdateTime.value).format('YYYY-MM-DD HH:mm') : undefined,
       client_request_id: clientRequestId
     }
     const res = await createOrderApi(payload)
@@ -2146,6 +2206,8 @@ const handleCheckout = async () => {
       referrerName.value = ''
       isSubsidized.value = false
       isTradeIn.value = false
+      useBackdate.value = false
+      backdateTime.value = ''
       tradeInAmount.value = 0
       tradeInAccountId.value = null
       tradeInType.value = ''
@@ -2184,6 +2246,7 @@ onMounted(() => {
   if (savedEmployee && savedToken && !isTokenExpired(savedToken)) {
     try {
       currentEmployee.value = JSON.parse(savedEmployee)
+      fetchOrderBackdateSetting()
       fetchTodayAttendance().then(() => {
         fetchCategories() // 恢复自动登录时拉取品类数据
         fetchProducts()
